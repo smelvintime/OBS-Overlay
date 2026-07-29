@@ -19,6 +19,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Microsoft.Win32;
 using Windows.Foundation;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
@@ -396,18 +397,67 @@ namespace NowPlaying {
       catch { return false; }
     }
 
+    // Why iTunes could not be reached, surfaced through /sources so this is
+    // diagnosable on a machine you cannot poke at directly.
+    static volatile string _itunesDetail = "";
+
+    static Type ITunesType() {
+      Type t = Type.GetTypeFromProgID("iTunes.Application");
+      if (t != null) return t;
+
+      // Classic iTunes for Windows is commonly a 32-bit install, and then its
+      // ProgID exists only in the 32-bit registry view - invisible to this
+      // 64-bit process. Resolve the CLSID from that view explicitly; iTunes is
+      // an out-of-process COM server so cross-bitness activation still works.
+      foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 }) {
+        try {
+          using (var root = RegistryKey.OpenBaseKey(RegistryHive.ClassesRoot, view))
+          using (var key = root.OpenSubKey(@"iTunes.Application\CLSID")) {
+            if (key == null) continue;
+            var clsid = key.GetValue(null) as string;
+            if (string.IsNullOrEmpty(clsid)) continue;
+            var tt = Type.GetTypeFromCLSID(new Guid(clsid));
+            if (tt != null) {
+              _itunesDetail = "resolved via " + view + " registry view";
+              return tt;
+            }
+          }
+        } catch (Exception ex) { _itunesDetail = view + " lookup failed: " + ex.Message; }
+      }
+      return null;
+    }
+
     static dynamic ITunesApp() {
-      if (!ITunesRunning()) { DropITunes(); return null; }
+      if (!ITunesRunning()) { DropITunes(); _itunesDetail = "iTunes is not running"; return null; }
       if (_itunes != null) {
         try { var probe = ((dynamic)_itunes).PlayerState; return (dynamic)_itunes; }
         catch { DropITunes(); }        // stale RPC handle, rebuild below
       }
       try {
-        Type t = Type.GetTypeFromProgID("iTunes.Application");
-        if (t == null) return null;
+        Type t = ITunesType();
+        if (t == null) {
+          _itunesDetail = "iTunes COM class not registered (checked both 32- and 64-bit registry views)";
+          return null;
+        }
         _itunes = Activator.CreateInstance(t);
+        _itunesDetail = "connected";
         return (dynamic)_itunes;
-      } catch { return null; }
+      } catch (Exception ex) {
+        // A mismatch here usually means the overlay was started as administrator
+        // while iTunes runs normally (or the reverse) - COM refuses across
+        // integrity levels.
+        _itunesDetail = ex.GetType().Name + ": " + ex.Message
+                      + (IsElevated() ? " [overlay is running elevated - try running it normally]" : "");
+        return null;
+      }
+    }
+
+    static bool IsElevated() {
+      try {
+        using (var id = System.Security.Principal.WindowsIdentity.GetCurrent())
+          return new System.Security.Principal.WindowsPrincipal(id)
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+      } catch { return false; }
     }
 
     static Snapshot ITunesRead() {
@@ -415,7 +465,10 @@ namespace NowPlaying {
         dynamic app = ITunesApp();
         if (app == null) return null;
         dynamic track = app.CurrentTrack;
-        if (track == null) return null;      // stopped, or nothing loaded
+        if (track == null) {
+          _itunesDetail = "connected, but no track loaded (iTunes is stopped)";
+          return null;
+        }
         int state = (int)app.PlayerState;    // 1 = playing; 0 = paused/stopped
         string name = (string)track.Name ?? "";
         string artist = "";
@@ -517,6 +570,9 @@ namespace NowPlaying {
             sb.Append("\"app\":").Append(Q(_pinApp)).Append(',');
             sb.Append("\"now\":").Append(Json(snap)).Append(',');
             sb.Append("\"itunesRunning\":").Append(itRunning ? "true" : "false").Append(',');
+            sb.Append("\"itunesDetail\":").Append(Q(_itunesDetail)).Append(',');
+            sb.Append("\"elevated\":").Append(IsElevated() ? "true" : "false").Append(',');
+            sb.Append("\"exeBitness\":").Append(Q(IntPtr.Size == 8 ? "64-bit" : "32-bit")).Append(',');
             sb.Append("\"providers\":[");
             sb.Append("{\"name\":\"smtc\",\"found\":").Append(smtcNow != null ? "true" : "false");
             if (smtcNow != null) sb.Append(",\"track\":").Append(Json(smtcNow));
