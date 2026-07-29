@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Now Playing - source control</title>
+<style>
+  :root{ --bg:#0d0d10; --panel:#16161a; --line:#26262e; --fg:#f2f2f5; --dim:#9a9aa8;
+         --accent:#1db954; --warn:#e8b339; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:28px 32px 6px}
+  h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:14px;max-width:720px;line-height:1.55}
+  .wrap{padding:20px 32px 60px;max-width:820px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;margin-bottom:18px}
+  .panel h2{margin:0 0 4px;font-size:14px;font-weight:700;letter-spacing:.03em;
+    text-transform:uppercase;color:var(--dim)}
+
+  .now{display:flex;align-items:center;gap:14px;margin-top:10px}
+  .now .dot{width:9px;height:9px;border-radius:50%;background:#555;flex:0 0 auto}
+  .now.live .dot{background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .now .txt{font-size:17px;font-weight:600;min-width:0}
+  .now .sub{color:var(--dim);font-size:13px;font-weight:400}
+
+  .row{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:9px;
+    border:1px solid transparent;cursor:pointer}
+  .row:hover{background:#1c1c22}
+  .row.sel{border-color:var(--accent);background:rgba(29,185,84,.08)}
+  .row input{accent-color:var(--accent);width:16px;height:16px;flex:0 0 auto;cursor:pointer}
+  .row .name{font-weight:600;font-size:14.5px}
+  .row .what{color:var(--dim);font-size:13px;margin-left:auto;text-align:right;
+    max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .badge{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+    padding:2px 7px;border-radius:5px;background:#2a2a33;color:var(--dim)}
+  .row .badge.playing{background:rgba(29,185,84,.16);color:var(--accent)}
+
+  .custom{display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap}
+  input[type=text]{flex:1 1 220px;background:#101014;border:1px solid var(--line);
+    border-radius:8px;color:var(--fg);padding:9px 11px;font-size:14px;font-family:inherit}
+  input[type=text]::placeholder{color:#5c5c68}
+
+  .opt{display:flex;align-items:flex-start;gap:11px;margin-top:14px;
+    padding-top:14px;border-top:1px solid var(--line)}
+  .opt input{accent-color:var(--accent);width:16px;height:16px;margin-top:2px;cursor:pointer}
+  .opt label{font-size:14px;cursor:pointer}
+  .opt .hint{display:block;color:var(--dim);font-size:12.5px;margin-top:3px;line-height:1.45}
+
+  button{background:var(--accent);color:#06210f;border:0;border-radius:8px;
+    padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+  button:hover{filter:brightness(1.08)}
+  button.ghost{background:#2a2a33;color:var(--fg)}
+  .actions{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}
+  .saved{color:var(--accent);font-size:13.5px;font-weight:600;opacity:0;transition:opacity .25s}
+  .saved.show{opacity:1}
+  .note{color:var(--warn);font-size:13px;margin-top:12px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <h1>Source control</h1>
+  <p>Choose which player the overlay follows. Useful when more than one thing can make
+     sound &mdash; a browser tab, a second music app &mdash; and you don't want it
+     switching mid-stream. Settings save immediately and survive restarts.</p>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <h2>Showing right now</h2>
+    <div class="now" id="now">
+      <span class="dot"></span>
+      <span class="txt" id="nowTxt">&mdash;<span class="sub" id="nowSub"></span></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Follow this source</h2>
+    <div id="list"></div>
+
+    <div class="custom">
+      <input type="text" id="customApp" placeholder="Or type an app name (e.g. spotify) - useful if it isn't running yet" />
+      <button class="ghost" type="button" id="useCustom">Use</button>
+    </div>
+
+    <div class="opt">
+      <input type="checkbox" id="onlyMode" />
+      <label for="onlyMode">Only ever show this source
+        <span class="hint">On: nothing else can appear, even if this player is silent.
+          Off: it wins whenever it has something, otherwise the overlay falls back to
+          whatever else is playing.</span>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button class="ghost" type="button" id="resetBtn">Back to automatic</button>
+      <span class="saved" id="saved">Saved</span>
+    </div>
+
+    <div class="note" id="note"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var listEl=document.getElementById('list'), nowEl=document.getElementById('now'),
+      nowTxt=document.getElementById('nowTxt'), nowSub=document.getElementById('nowSub'),
+      onlyBox=document.getElementById('onlyMode'), savedEl=document.getElementById('saved'),
+      noteEl=document.getElementById('note'), customIn=document.getElementById('customApp');
+
+  var state={ mode:'auto', app:'' };
+  var knownApps=[];
+
+  function esc(s){ return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function flashSaved(){
+    savedEl.classList.add('show');
+    setTimeout(function(){ savedEl.classList.remove('show'); }, 1200);
+  }
+
+  function apply(mode, app){
+    fetch('/setsource?mode='+encodeURIComponent(mode)+'&app='+encodeURIComponent(app||''),
+          {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(s){ state.mode=s.mode; state.app=s.app; flashSaved(); refresh(); })
+      .catch(function(){});
+  }
+
+  function chooseApp(app){
+    apply(onlyBox.checked ? 'only' : 'prefer', app);
+  }
+
+  onlyBox.addEventListener('change', function(){
+    if(state.mode==='auto') return;          // nothing pinned yet, nothing to switch
+    apply(onlyBox.checked ? 'only' : 'prefer', state.app);
+  });
+  document.getElementById('resetBtn').addEventListener('click', function(){ apply('auto',''); });
+  document.getElementById('useCustom').addEventListener('click', function(){
+    var v=customIn.value.trim(); if(v) chooseApp(v);
+  });
+  customIn.addEventListener('keydown', function(e){
+    if(e.key==='Enter'){ var v=customIn.value.trim(); if(v) chooseApp(v); }
+  });
+
+  function render(){
+    var rows='';
+    rows += row('auto', 'Automatic', 'Whatever is actually playing', state.mode==='auto', '');
+
+    knownApps.forEach(function(a){
+      var sel = (state.mode!=='auto') &&
+                a.app.toLowerCase().indexOf(state.app.toLowerCase())>=0 && state.app!=='';
+      var badge = a.playing ? '<span class="badge playing">playing</span>'
+                            : '<span class="badge">idle</span>';
+      rows += row('app:'+a.app, esc(a.app), esc(a.what), sel, badge);
+    });
+
+    // A pinned app that isn't currently detected still needs to show as selected.
+    if(state.mode!=='auto' && state.app){
+      var found=knownApps.some(function(a){
+        return a.app.toLowerCase().indexOf(state.app.toLowerCase())>=0; });
+      if(!found){
+        rows += row('app:'+state.app, esc(state.app),
+                    'not detected right now', true, '<span class="badge">waiting</span>');
+      }
+    }
+    listEl.innerHTML=rows;
+
+    Array.prototype.forEach.call(listEl.querySelectorAll('.row'), function(el){
+      el.addEventListener('click', function(){
+        var v=el.getAttribute('data-v');
+        if(v==='auto') apply('auto','');
+        else chooseApp(v.slice(4));
+      });
+    });
+
+    onlyBox.checked = (state.mode==='only');
+    noteEl.textContent = (state.mode==='only')
+      ? 'Locked to "'+state.app+'". Nothing else will ever appear on the overlay.'
+      : (state.mode==='prefer'
+         ? 'Preferring "'+state.app+'". If it goes silent the overlay falls back to another player.'
+         : '');
+  }
+
+  function row(val,name,what,sel,badge){
+    return '<div class="row'+(sel?' sel':'')+'" data-v="'+esc(val)+'">'+
+             '<input type="radio" name="src" '+(sel?'checked':'')+' tabindex="-1" />'+
+             '<span class="name">'+name+'</span>'+badge+
+             '<span class="what">'+what+'</span>'+
+           '</div>';
+  }
+
+  function refresh(){
+    fetch('/sources',{cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(s){
+        state.mode = s.mode || 'auto';
+        state.app  = s.app  || '';
+        knownApps = [];
+        (s.providers||[]).forEach(function(p){
+          if(!p.found || !p.track) return;
+          knownApps.push({ app:p.track.app || p.name, playing:!!p.track.playing,
+            what:(p.track.title||'') + (p.track.artist ? ' - '+p.track.artist : '') });
+        });
+        var np = s.now;
+        if(np && np.title){
+          nowEl.classList.toggle('live', !!np.playing);
+          nowTxt.childNodes[0].nodeValue = np.title + (np.artist ? ' - '+np.artist : '') + ' ';
+          nowSub.textContent = '(' + (np.app||s.chosen) + (np.playing?'':' - paused') + ')';
+        } else {
+          nowEl.classList.remove('live');
+          nowTxt.childNodes[0].nodeValue = 'Nothing playing ';
+          nowSub.textContent = '';
+        }
+        render();
+      })
+      .catch(function(){});
+  }
+
+  refresh();
+  setInterval(refresh, 2000);
+})();
+</script>
+</body>
+</html>

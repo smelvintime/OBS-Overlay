@@ -49,6 +49,56 @@ $script:AsStreamForRead = [System.IO.WindowsRuntimeStreamExtensions].GetMethod('
 
 $script:mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
 
+# ---------------------------- source pinning --------------------------------
+# Which player the overlay follows.
+#   auto   - whatever is actually playing (default)
+#   prefer - the pinned app wins when it has something, otherwise fall back
+#   only   - nothing but the pinned app ever shows
+$script:mode = 'auto'
+$script:pinApp = ''
+
+function Get-SettingsPath {
+  $dir = Join-Path $env:APPDATA 'NowPlayingOverlay'
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  return (Join-Path $dir 'settings.txt')
+}
+
+function Import-Settings {
+  try {
+    $p = Get-SettingsPath
+    if (-not (Test-Path $p)) { return }
+    foreach ($line in (Get-Content $p)) {
+      $eq = $line.IndexOf('=')
+      if ($eq -le 0) { continue }
+      $k = $line.Substring(0, $eq).Trim().ToLower()
+      $v = $line.Substring($eq + 1).Trim()
+      if ($k -eq 'mode') { $script:mode = ConvertTo-Mode $v }
+      elseif ($k -eq 'app') { $script:pinApp = $v }
+    }
+    if ($script:mode -ne 'auto' -and -not $script:pinApp) { $script:mode = 'auto' }
+  } catch { }
+}
+
+function Save-Settings {
+  try { Set-Content -LiteralPath (Get-SettingsPath) -Value "mode=$($script:mode)`r`napp=$($script:pinApp)" -Encoding UTF8 } catch { }
+}
+
+function ConvertTo-Mode([string]$m) {
+  $m = ("$m").Trim().ToLower()
+  if ($m -eq 'prefer' -or $m -eq 'only') { return $m }
+  return 'auto'
+}
+
+# Pin matches on the app id ("Spotify.exe", "Chrome", "iTunes") or the provider
+# name, so "spotify" and "itunes" both do the obvious thing.
+function Test-MatchesPin($track, [string]$pin) {
+  if (-not $pin) { return $false }
+  $p = $pin.ToLower()
+  if ($track.app -and $track.app.ToLower().Contains($p)) { return $true }
+  if ($track.source -and $track.source.ToLower().Contains($p)) { return $true }
+  return $false
+}
+
 function New-TrackInfo($title, $artist, $album, $app, $source, $playing, $hasArt) {
   $t = [string]$title; $a = [string]$artist; $al = [string]$album
   $id = 'none'
@@ -71,19 +121,35 @@ function Test-IsMusicApp([string]$aumid) {
   return $false
 }
 
+# Windows can expose several media sessions at once (Spotify, a browser tab, a
+# game). The pin has to be applied while choosing among them, not merely
+# afterwards: otherwise a playing Spotify would always be picked here and a
+# pinned browser session would never even be considered.
 function Get-BestSmtcSession {
   $sessions = @($script:mgr.GetSessions())
   if ($sessions.Count -eq 0) { return $null }
+
+  $pinned = ($script:mode -ne 'auto' -and $script:pinApp)
+  $p = if ($pinned) { $script:pinApp.ToLower() } else { $null }
+
   $best = $null; $bestScore = -1
   foreach ($s in $sessions) {
+    $aumid = "$($s.SourceAppUserModelId)"
+    $matches = ($pinned -and $aumid.ToLower().Contains($p))
+    if ($pinned -and $script:mode -eq 'only' -and -not $matches) { continue }
+
     try { $status = $s.GetPlaybackInfo().PlaybackStatus } catch { $status = $null }
     $isPlaying = ($status -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing)
     $score = 0
+    if ($matches) { $score += 10 }    # a pinned app outranks anything merely playing
     if ($isPlaying) { $score += 2 }
-    if (Test-IsMusicApp $s.SourceAppUserModelId) { $score += 1 }
+    if (Test-IsMusicApp $aumid) { $score += 1 }
     if ($score -gt $bestScore) { $bestScore = $score; $best = $s }
   }
+
   if ($best) { return $best }
+  # Under "only" a missing match must yield nothing, never a stray fallback.
+  if ($pinned -and $script:mode -eq 'only') { return $null }
   return $script:mgr.GetCurrentSession()
 }
 
@@ -197,6 +263,14 @@ function Get-NowPlaying {
 
   if ($candidates.Count -eq 0) { return New-TrackInfo '' '' '' '' 'none' $false $false }
 
+  # Apply the pin before scoring, so a pinned-but-paused player still beats a
+  # different player that happens to be mid-song.
+  if ($script:mode -ne 'auto' -and $script:pinApp) {
+    $matched = @($candidates | Where-Object { Test-MatchesPin $_ $script:pinApp })
+    if ($matched.Count -gt 0) { $candidates = $matched }
+    elseif ($script:mode -eq 'only') { return New-TrackInfo '' '' '' '' 'none' $false $false }
+  }
+
   $best = $null; $bestScore = -1
   foreach ($c in $candidates) {
     $score = 0
@@ -262,6 +336,9 @@ function Send-File($stream, [string]$file, [string]$contentType) {
 
 $overlayPath = Join-Path $ScriptDir 'overlay.html'
 $layoutsPath = Join-Path $ScriptDir 'layouts.html'
+$controlPath = Join-Path $ScriptDir 'control.html'
+
+Import-Settings
 
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $Port)
 $listener.Start()
@@ -270,6 +347,11 @@ Write-Host ""
 Write-Host "  Now Playing overlay is running." -ForegroundColor Green
 Write-Host "  OBS Browser Source URL:  http://127.0.0.1:$Port/" -ForegroundColor Cyan
 Write-Host "  Compare layouts:         http://127.0.0.1:$Port/layouts" -ForegroundColor Cyan
+Write-Host "  Choose which player:     http://127.0.0.1:$Port/control" -ForegroundColor Cyan
+if ($script:mode -ne 'auto') {
+  $verb = if ($script:mode -eq 'only') { 'locked to' } else { 'preferring' }
+  Write-Host "  Source: $verb ""$($script:pinApp)""" -ForegroundColor Yellow
+}
 Write-Host "  Sources: Windows media session + iTunes" -ForegroundColor DarkGray
 Write-Host "  Press Ctrl+C in this window to stop."
 Write-Host ""
@@ -302,6 +384,38 @@ try {
           else { Send-Response $ns 204 'text/plain' ([byte[]]@()) }
           break
         }
+        '^/setsource$' {
+          $m = 'auto'; $app = ''
+          if ($path -match '[?&]mode=([^&]*)') { $m = ConvertTo-Mode ([Uri]::UnescapeDataString($Matches[1])) }
+          if ($path -match '[?&]app=([^&]*)')  { $app = [Uri]::UnescapeDataString($Matches[1].Replace('+',' ')) }
+          if ($m -eq 'auto') { $app = '' }
+          if ($m -ne 'auto' -and -not $app) { $m = 'auto' }
+          $script:mode = $m; $script:pinApp = $app
+          Save-Settings
+          $body = "{""mode"":""$($script:mode)"",""app"":$( $script:pinApp | ConvertTo-Json )}"
+          Send-Response $ns 200 'application/json; charset=utf-8' ([System.Text.Encoding]::UTF8.GetBytes($body))
+          break
+        }
+        '^/sources$' {
+          # Diagnostic: what each provider sees and which one won.
+          $smtcNow = Get-SmtcNowPlaying
+          $itunesNow = Get-ITunesNowPlaying
+          $now = Get-NowPlaying
+          $providers = @(
+            @{ name = 'smtc';   found = ($null -ne $smtcNow);   track = $smtcNow }
+            @{ name = 'itunes'; found = ($null -ne $itunesNow); track = $itunesNow }
+          )
+          $payload = @{
+            chosen = $now.source; mode = $script:mode; app = $script:pinApp
+            now = $now
+            itunesRunning = [bool](Get-Process -Name iTunes -ErrorAction SilentlyContinue)
+            providers = $providers
+          }
+          $json = $payload | ConvertTo-Json -Depth 6 -Compress
+          Send-Response $ns 200 'application/json; charset=utf-8' ([System.Text.Encoding]::UTF8.GetBytes($json))
+          break
+        }
+        '^/control/?$' { Send-File $ns $controlPath 'text/html; charset=utf-8'; break }
         '^/layouts/?$' { Send-File $ns $layoutsPath 'text/html; charset=utf-8'; break }
         '^/$'          { Send-File $ns $overlayPath 'text/html; charset=utf-8'; break }
         default {

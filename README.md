@@ -109,9 +109,11 @@ matching port in the OBS URL.
 |---|---|
 | `GET /np` | JSON: `{playing, title, artist, album, app, source, id, hasArt}` |
 | `GET /art` | Current album art image bytes (`204` if none) |
-| `GET /sources` | Diagnostic: what each provider sees and which one won (.exe only) |
+| `GET /sources` | Diagnostic: what each provider sees, which one won, current pin |
+| `GET /setsource?mode=prefer\|only\|auto&app=<name>` | Change which player is followed |
 | `GET /` | The overlay page itself |
 | `GET /layouts` | Side-by-side layout previews |
+| `GET /control` | Source picker page |
 
 If the overlay ever shows the wrong thing, `/sources` is the fastest way to see why —
 it reports the Windows media session and iTunes separately, plus which one was chosen.
@@ -177,6 +179,42 @@ failure, generate a fresh one.
   an invisible character appended to stay visible.
 - If the overlay server isn't running, it replies with a clear message rather than
   going silent.
+
+## Choosing which player to follow
+
+If more than one thing can make sound — a browser tab, a second music app, a game —
+you can stop the overlay switching around. Open:
+
+**<http://127.0.0.1:8787/control>**
+
+It lists every player Windows currently reports, shows what each is playing, and lets
+you pick one. Changes apply instantly and are saved, so they survive a restart.
+
+Two ways to pin:
+
+| Setting | Behaviour |
+|---|---|
+| **Prefer** (default when you pick a source) | That player wins whenever it has something. If it goes silent, the overlay falls back to whatever else is playing. |
+| **Only** (tick "Only ever show this source") | Nothing else can ever appear. If that player is silent, the overlay shows nothing. |
+
+Pick **Automatic** to go back to following whatever is actually playing.
+
+You can also pin an app that isn't running yet by typing its name — handy for setting
+things up before you open Spotify.
+
+### From the command line
+
+```
+NowPlayingOverlay.exe -prefer spotify
+NowPlayingOverlay.exe -only itunes
+NowPlayingOverlay.exe -auto
+```
+
+The name is matched loosely against the app id, so `spotify` matches `Spotify.exe` and
+`itunes` matches iTunes. Case doesn't matter. A command-line flag overrides the saved
+setting for that run.
+
+Settings live in `%APPDATA%\NowPlayingOverlay\settings.txt`.
 
 ## How it finds your music
 

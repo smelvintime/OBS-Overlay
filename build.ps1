@@ -23,6 +23,7 @@ $sysRt   = "$env:windir\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.
 $src     = "$PSScriptRoot\src\NowPlayingOverlay.cs"
 $overlay = "$PSScriptRoot\overlay.html"
 $layouts = "$PSScriptRoot\layouts.html"
+$control = "$PSScriptRoot\control.html"
 $outExe  = Join-Path $OutDir 'NowPlayingOverlay.exe'
 
 # Fail with a useful message rather than a compiler error further down.
@@ -32,7 +33,7 @@ if (-not (Test-Path $sysRt))   { $missing += "System.Runtime facade: $sysRt" }
 foreach ($n in 'Windows.Media.winmd','Windows.Foundation.winmd','Windows.Storage.winmd') {
   if (-not (Test-Path (Join-Path $winmd $n))) { $missing += "WinRT metadata: $n" }
 }
-foreach ($f in $src,$overlay,$layouts) {
+foreach ($f in $src,$overlay,$layouts,$control) {
   if (-not (Test-Path $f)) { $missing += "source file: $f" }
 }
 if ($missing.Count) {
@@ -63,6 +64,7 @@ $cscArgs = @(
   # embedded so the .exe needs no files beside it
   "/resource:$overlay,overlay.html"
   "/resource:$layouts,layouts.html"
+  "/resource:$control,control.html"
   $src
 )
 

@@ -51,6 +51,58 @@ namespace NowPlaying {
     // from a request thread, so all provider access is serialised through this.
     static readonly object _mediaLock = new object();
 
+    // Which player the overlay follows.
+    //   auto   - whatever is actually playing (default)
+    //   prefer - _pinApp wins when it has something, otherwise fall back
+    //   only   - nothing but _pinApp ever shows
+    static volatile string _mode = "auto";
+    static volatile string _pinApp = "";
+
+    static string SettingsPath() {
+      string dir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NowPlayingOverlay");
+      Directory.CreateDirectory(dir);
+      return Path.Combine(dir, "settings.txt");
+    }
+
+    static void LoadSettings() {
+      try {
+        string p = SettingsPath();
+        if (!File.Exists(p)) return;
+        foreach (var line in File.ReadAllLines(p)) {
+          int eq = line.IndexOf('=');
+          if (eq <= 0) continue;
+          string k = line.Substring(0, eq).Trim().ToLowerInvariant();
+          string v = line.Substring(eq + 1).Trim();
+          if (k == "mode") _mode = NormalizeMode(v);
+          else if (k == "app") _pinApp = v;
+        }
+        if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
+      } catch { }
+    }
+
+    static void SaveSettings() {
+      try {
+        File.WriteAllText(SettingsPath(), "mode=" + _mode + "\r\napp=" + _pinApp + "\r\n");
+      } catch { }
+    }
+
+    static string NormalizeMode(string m) {
+      m = (m ?? "").Trim().ToLowerInvariant();
+      return (m == "prefer" || m == "only") ? m : "auto";
+    }
+
+    // Pin matches on the app id ("Spotify.exe", "Chrome", "iTunes") or the
+    // provider name, so "spotify" and "itunes" both do the obvious thing.
+    static bool MatchesPin(Snapshot s, string pin) {
+      if (string.IsNullOrEmpty(pin)) return false;
+      string p = pin.ToLowerInvariant();
+      if (!string.IsNullOrEmpty(s.App) && s.App.ToLowerInvariant().Contains(p)) return true;
+      if (!string.IsNullOrEmpty(s.Source) && s.Source.ToLowerInvariant().Contains(p)) return true;
+      return false;
+    }
+
     // .NET Framework's AsTask() lives in System.Runtime.WindowsRuntime, which
     // needs the union Windows.winmd from the Windows SDK. Driving the completion
     // handler directly works off the per-namespace winmd files alone, so this
@@ -66,17 +118,32 @@ namespace NowPlaying {
 
     // ------------------------------------------------------------------ entry
     static int Main(string[] args) {
+      LoadSettings();     // command line below overrides the saved choice
+
       for (int i = 0; i < args.Length; i++) {
         var a = args[i].TrimStart('-', '/').ToLowerInvariant();
         if ((a == "port" || a == "p") && i + 1 < args.Length) {
           int p; if (int.TryParse(args[i + 1], out p)) { _port = p; i++; }
+        } else if (a == "prefer" && i + 1 < args.Length) {
+          _pinApp = args[++i]; _mode = "prefer";
+        } else if (a == "only" && i + 1 < args.Length) {
+          _pinApp = args[++i]; _mode = "only";
+        } else if (a == "auto") {
+          _pinApp = ""; _mode = "auto";
         } else if (a == "help" || a == "h" || a == "?") {
-          Console.WriteLine("Usage: NowPlayingOverlay.exe [-port 8787]");
+          Console.WriteLine("Usage: NowPlayingOverlay.exe [-port 8787] [-prefer <app> | -only <app> | -auto]");
+          Console.WriteLine();
+          Console.WriteLine("  -prefer spotify   follow Spotify when it has something, else fall back");
+          Console.WriteLine("  -only itunes      never show anything but iTunes");
+          Console.WriteLine("  -auto             follow whatever is actually playing (default)");
+          Console.WriteLine();
+          Console.WriteLine("  The same choice is available live at http://127.0.0.1:8787/control");
           return 0;
         } else {
           int p; if (int.TryParse(a, out p)) _port = p;
         }
       }
+      if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
 
       TcpListener listener;
       try {
@@ -125,8 +192,17 @@ namespace NowPlaying {
       Console.WriteLine();
       Console.WriteLine("    Compare the layouts here:");
       Console.WriteLine("        http://127.0.0.1:" + _port + "/layouts");
+      Console.WriteLine();
+      Console.WriteLine("    Choose which player to follow:");
+      Console.WriteLine("        http://127.0.0.1:" + _port + "/control");
       Console.ResetColor();
       Console.WriteLine();
+      if (_mode != "auto") {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("    Source: " + (_mode == "only" ? "locked to \"" : "preferring \"")
+                          + _pinApp + "\"");
+        Console.ResetColor();
+      }
       Console.ForegroundColor = ConsoleColor.DarkGray;
       Console.WriteLine("    Sources: Windows media session + iTunes");
       Console.WriteLine("    Keep this window open while streaming. Ctrl+C to stop.");
@@ -175,6 +251,16 @@ namespace NowPlaying {
       if (itunes != null) list.Add(itunes);
       if (list.Count == 0) return new Snapshot();
 
+      // Apply the pin before scoring, so a pinned-but-paused player still beats
+      // a different player that happens to be mid-song.
+      string mode = _mode, pin = _pinApp;
+      if (mode != "auto" && !string.IsNullOrEmpty(pin)) {
+        var matched = new List<Snapshot>();
+        foreach (var c in list) if (MatchesPin(c, pin)) matched.Add(c);
+        if (matched.Count > 0) list = matched;
+        else if (mode == "only") return new Snapshot();   // locked: show nothing else
+      }
+
       // Something actively playing always beats something idle, so a paused
       // iTunes never steals the overlay from a playing Spotify, or the reverse.
       Snapshot best = null; int bestScore = -1;
@@ -216,22 +302,40 @@ namespace NowPlaying {
       return _mgr;
     }
 
+    // Windows can expose several media sessions at once (Spotify, a browser tab,
+    // a game). The pin has to be applied while choosing among them, not merely
+    // afterwards: otherwise a playing Spotify would always be picked here and a
+    // pinned browser session would never even be considered.
     static GlobalSystemMediaTransportControlsSession BestSession() {
       var mgr = Manager();
       if (mgr == null) return null;
       var sessions = mgr.GetSessions();
       if (sessions == null || sessions.Count == 0) return null;
+
+      string mode = _mode, pin = _pinApp;
+      bool pinned = mode != "auto" && !string.IsNullOrEmpty(pin);
+      string p = pinned ? pin.ToLowerInvariant() : null;
+
       GlobalSystemMediaTransportControlsSession best = null; int bestScore = -1;
       foreach (var s in sessions) {
+        string aumid = s.SourceAppUserModelId ?? "";
+        bool matches = pinned && aumid.ToLowerInvariant().Contains(p);
+        if (pinned && mode == "only" && !matches) continue;   // locked out entirely
+
         int score = 0;
+        if (matches) score += 10;      // a pinned app outranks anything merely playing
         try {
           if (s.GetPlaybackInfo().PlaybackStatus ==
               GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) score += 2;
         } catch { }
-        if (IsMusicApp(s.SourceAppUserModelId)) score += 1;
+        if (IsMusicApp(aumid)) score += 1;
         if (score > bestScore) { bestScore = score; best = s; }
       }
-      return best ?? mgr.GetCurrentSession();
+
+      if (best != null) return best;
+      // Under "only" a missing match must yield nothing, never a stray fallback.
+      if (pinned && mode == "only") return null;
+      return mgr.GetCurrentSession();
     }
 
     static Snapshot SmtcRead() {
@@ -354,6 +458,19 @@ namespace NowPlaying {
       }
     }
 
+    static string QueryParam(string path, string name) {
+      int q = path.IndexOf('?');
+      if (q < 0) return null;
+      foreach (var pair in path.Substring(q + 1).Split('&')) {
+        int eq = pair.IndexOf('=');
+        if (eq <= 0) continue;
+        if (!pair.Substring(0, eq).Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+        string v = pair.Substring(eq + 1).Replace('+', ' ');
+        try { return Uri.UnescapeDataString(v); } catch { return v; }
+      }
+      return null;
+    }
+
     static string SniffMime(byte[] b) {
       if (b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8) return "image/jpeg";
       if (b.Length >= 4 && b[0] == 0x89 && b[1] == 0x50) return "image/png";
@@ -396,6 +513,9 @@ namespace NowPlaying {
               itunesNow = ITunesRead();
             }
             sb.Append("{\"chosen\":").Append(Q(snap.Source)).Append(',');
+            sb.Append("\"mode\":").Append(Q(_mode)).Append(',');
+            sb.Append("\"app\":").Append(Q(_pinApp)).Append(',');
+            sb.Append("\"now\":").Append(Json(snap)).Append(',');
             sb.Append("\"itunesRunning\":").Append(itRunning ? "true" : "false").Append(',');
             sb.Append("\"providers\":[");
             sb.Append("{\"name\":\"smtc\",\"found\":").Append(smtcNow != null ? "true" : "false");
@@ -404,6 +524,17 @@ namespace NowPlaying {
             if (itunesNow != null) sb.Append(",\"track\":").Append(Json(itunesNow));
             sb.Append("}]}");
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(sb.ToString()));
+          } else if (route == "/setsource") {
+            string m = NormalizeMode(QueryParam(path, "mode"));
+            string app = QueryParam(path, "app") ?? "";
+            if (m == "auto") app = "";
+            if (m != "auto" && app.Length == 0) m = "auto";
+            _mode = m; _pinApp = app;
+            SaveSettings();
+            var body = "{\"mode\":" + Q(_mode) + ",\"app\":" + Q(_pinApp) + "}";
+            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(body));
+          } else if (route == "/control" || route == "/control/") {
+            SendResource(ns, "control.html");
           } else if (route == "/layouts" || route == "/layouts/") {
             SendResource(ns, "layouts.html");
           } else if (route == "/") {
