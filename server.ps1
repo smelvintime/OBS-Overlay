@@ -12,6 +12,7 @@
   Serves:
     GET /            -> overlay page (add this URL as an OBS Browser Source)
     GET /layouts     -> side-by-side preview of every layout
+    GET /customize   -> full customizer with a live preview
     GET /np          -> JSON  { playing, title, artist, album, app, source, id, hasArt }
     GET /art?id=...  -> current album art (image bytes)
 
@@ -337,6 +338,7 @@ function Send-File($stream, [string]$file, [string]$contentType) {
 $overlayPath = Join-Path $ScriptDir 'overlay.html'
 $layoutsPath = Join-Path $ScriptDir 'layouts.html'
 $controlPath = Join-Path $ScriptDir 'control.html'
+$customPath  = Join-Path $ScriptDir 'customize.html'
 
 Import-Settings
 
@@ -346,6 +348,7 @@ $listener.Start()
 Write-Host ""
 Write-Host "  Now Playing overlay is running." -ForegroundColor Green
 Write-Host "  OBS Browser Source URL:  http://127.0.0.1:$Port/" -ForegroundColor Cyan
+Write-Host "  Customize how it looks:  http://127.0.0.1:$Port/customize" -ForegroundColor Cyan
 Write-Host "  Compare layouts:         http://127.0.0.1:$Port/layouts" -ForegroundColor Cyan
 Write-Host "  Choose which player:     http://127.0.0.1:$Port/control" -ForegroundColor Cyan
 if ($script:mode -ne 'auto') {
@@ -417,6 +420,7 @@ try {
         }
         '^/control/?$' { Send-File $ns $controlPath 'text/html; charset=utf-8'; break }
         '^/layouts/?$' { Send-File $ns $layoutsPath 'text/html; charset=utf-8'; break }
+        '^/customize/?$' { Send-File $ns $customPath 'text/html; charset=utf-8'; break }
         '^/$'          { Send-File $ns $overlayPath 'text/html; charset=utf-8'; break }
         default {
           Send-Response $ns 404 'text/plain' ([System.Text.Encoding]::UTF8.GetBytes('Not found'))

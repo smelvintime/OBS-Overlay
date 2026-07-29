@@ -201,6 +201,7 @@ namespace NowPlaying {
       menu.Items.Add(new ToolStripSeparator());
 
       menu.Items.Add("Choose which player to follow...", null, (s, e) => OpenUrl("/control"));
+      menu.Items.Add("Customize the overlay...", null, (s, e) => OpenUrl("/customize"));
       menu.Items.Add("Compare layouts...", null, (s, e) => OpenUrl("/layouts"));
       menu.Items.Add("Preview overlay...", null, (s, e) => OpenUrl("/"));
       menu.Items.Add(new ToolStripSeparator());
@@ -349,6 +350,9 @@ namespace NowPlaying {
       Say("");
       SayColor("    Add this as an OBS Browser Source:", ConsoleColor.Cyan);
       SayColor("        http://127.0.0.1:" + _port + "/", ConsoleColor.Cyan);
+      Say("");
+      SayColor("    Customize how it looks:", ConsoleColor.Cyan);
+      SayColor("        http://127.0.0.1:" + _port + "/customize", ConsoleColor.Cyan);
       Say("");
       SayColor("    Compare the layouts here:", ConsoleColor.Cyan);
       SayColor("        http://127.0.0.1:" + _port + "/layouts", ConsoleColor.Cyan);
@@ -756,6 +760,8 @@ namespace NowPlaying {
             SendResource(ns, "control.html");
           } else if (route == "/layouts" || route == "/layouts/") {
             SendResource(ns, "layouts.html");
+          } else if (route == "/customize" || route == "/customize/") {
+            SendResource(ns, "customize.html");
           } else if (route == "/") {
             SendResource(ns, "overlay.html");
           } else {

@@ -236,18 +236,41 @@
   body.classList.add('layout-'+layout);
   body.classList.add('theme-' + (theme==='solid' ? 'solid' : 'glass'));
 
-  if(q.get('accent')) root.style.setProperty('--accent','#'+q.get('accent').replace('#',''));
-  if(q.get('radius')) root.style.setProperty('--radius',parseInt(q.get('radius'),10)+'px');
-  var scale = parseFloat(q.get('scale')||'1');
-
-  // Opacity is given as a percentage because that is what the slider shows.
-  // Floored at 10 so a stray 0 can't make the overlay silently invisible.
-  var opacity = parseFloat(q.get('opacity')||'100');
-  if(!isFinite(opacity)) opacity = 100;
-  if(opacity>0 && opacity<=1) opacity *= 100;   // accept 0.85 as well as 85
-  if(opacity<10) opacity = 10;                  // never let it vanish completely
-  if(opacity>100) opacity = 100;
-  root.style.setProperty('--overlay-opacity', (opacity/100).toFixed(3));
+  // The four purely visual options live in one place because the customizer
+  // re-sends them as you drag a slider, rather than reloading the frame on
+  // every pixel. Everything here is validated: these values arrive from a
+  // query string or a postMessage, so neither is trusted blindly.
+  function applyStyle(o){
+    if(o.accent != null){
+      var a = String(o.accent).replace('#','');
+      if(/^[0-9a-fA-F]{3,8}$/.test(a)) root.style.setProperty('--accent','#'+a);
+    }
+    if(o.radius != null){
+      var r = parseInt(o.radius,10);
+      if(isFinite(r) && r>=0 && r<=80) root.style.setProperty('--radius', r+'px');
+    }
+    if(o.scale != null){
+      var s = parseFloat(o.scale);
+      // wrap is hoisted but not assigned on the first call, hence the guard.
+      if(isFinite(s) && s>0 && s<=4){
+        styleScale = s;
+        if(wrap) wrap.style.zoom = (s===1 ? '' : s);
+      }
+    }
+    if(o.opacity != null){
+      // Given as a percentage because that is what the slider shows.
+      var v = parseFloat(o.opacity);
+      if(isFinite(v)){
+        if(v>0 && v<=1) v *= 100;               // accept 0.85 as well as 85
+        if(v<10) v = 10;                        // never let it vanish completely
+        if(v>100) v = 100;
+        root.style.setProperty('--overlay-opacity', (v/100).toFixed(3));
+      }
+    }
+  }
+  var styleScale = 1;
+  applyStyle({ accent:q.get('accent'), radius:q.get('radius'),
+               scale:q.get('scale'), opacity:q.get('opacity') });
 
   var transition = (q.get('transition')||'slide').toLowerCase();
   if(['slide','drop','fade','none'].indexOf(transition)<0) transition='slide';
@@ -269,7 +292,7 @@
       eyebrow=document.getElementById('eyebrow-text'), backdrop=document.getElementById('backdrop'),
       tickerTrack=document.getElementById('tickerTrack'), tickerView=document.getElementById('tickerView');
 
-  if(scale && scale!==1) wrap.style.zoom = scale;
+  if(styleScale !== 1) wrap.style.zoom = styleScale;
   if(!showArt) body.classList.add('noart');
 
   var lastId=null;
@@ -501,13 +524,18 @@
   tick();
   window.addEventListener('resize', function(){ fitMarquee(); });
 
-  // The layouts page pokes this so the transition can be judged without having
-  // to skip a track in Spotify. Same origin only, and it replays the current
-  // song rather than accepting any content from the message.
+  // Hooks for the layouts and customize pages. Same origin only. Neither
+  // message carries display content: the replay reuses the song we already
+  // fetched, and the style message is put through the same validation the
+  // query string gets.
   window.addEventListener('message', function(ev){
     if(ev.origin !== location.origin) return;
-    if(ev.data !== 'nowplaying:preview-transition') return;
-    if(lastNp) changeSong(lastNp);
+    var d = ev.data;
+    if(d === 'nowplaying:preview-transition'){
+      if(lastNp) changeSong(lastNp);
+    } else if(d && d.type === 'nowplaying:style'){
+      applyStyle(d);
+    }
   });
 })();
 </script>

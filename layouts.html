@@ -44,6 +44,10 @@
     padding:7px 14px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
   button:hover{filter:brightness(1.08)}
   button.copied{background:#3a3a44;color:var(--fg)}
+  a{color:var(--accent)}
+  a.action{background:#2a2a33;color:var(--fg);border-radius:7px;padding:7px 14px;
+    font-size:12.5px;font-weight:700;text-decoration:none;white-space:nowrap}
+  a.action:hover{background:#35353f}
   footer{color:var(--dim);font-size:13px;padding:0 32px 50px;line-height:1.6}
   footer code{color:#cfe9d8;font-size:12.5px}
 </style>
@@ -59,10 +63,8 @@
 <div class="grid" id="grid"></div>
 
 <footer>
-  Mix in any of these: <code>?accent=ff0055</code> &middot; <code>theme=solid</code> &middot;
-  <code>align=right</code> &middot; <code>valign=top</code> &middot; <code>scale=1.25</code> &middot;
-  <code>showAlbum=1</code> &middot; <code>showArt=0</code> &middot; <code>hideWhenPaused=1</code> &middot;
-  <code>speed=90</code> (ticker). Full list is in the README.
+  Want to change the colour, position, size, equalizer or anything else?
+  <a href="/customize">Open the customizer</a> &mdash; every option, with a live preview.
 </footer>
 
 <script>
@@ -104,7 +106,9 @@ LAYOUTS.forEach(function(L){
         '</select></label>' +
       '<button type="button" class="replay">Preview</button>' +
     '</div>' +
-    '<div class="url"><code></code><button type="button" class="copy">Copy URL</button></div>';
+    '<div class="url"><code></code>' +
+      '<a class="action" href="/customize?layout=' + L.id + '">Customize this one</a>' +
+      '<button type="button" class="copy">Copy URL</button></div>';
 
   var frame  = el.querySelector('iframe'),
       range  = el.querySelector('input[type=range]'),

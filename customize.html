@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Customize overlay</title>
+<style>
+  :root{ --bg:#0d0d10; --panel:#16161a; --panel2:#131317; --line:#26262e;
+         --fg:#f2f2f5; --dim:#9a9aa8; --accent:#1db954; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--accent)}
+  header{padding:26px 32px 4px}
+  h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:14px;max-width:820px;line-height:1.5}
+
+  .page{padding:18px 32px 40px;display:flex;flex-direction:column;gap:20px}
+
+  /* ---------------- preview ---------------- */
+  .preview{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .previewbar{display:flex;align-items:center;gap:12px;padding:11px 16px;
+    border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .previewbar h2{margin:0;font-size:14px;font-weight:700}
+  .spacer{flex:1 1 auto}
+  .chipset{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{background:#101014;border:1px solid var(--line);color:var(--dim);border-radius:999px;
+    padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer}
+  .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#06210f}
+  .dims{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;
+    background:#101014;border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
+
+  .stagewrap{position:relative;display:flex;align-items:center;justify-content:center;
+    min-height:120px;transition:background .2s}
+  .stagewrap.bg-stream{background:linear-gradient(135deg,#2b3a55 0%,#4a3b63 45%,#7a4b53 100%)}
+  .stagewrap.bg-dark{background:#07070a}
+  .stagewrap.bg-light{background:#e9e9ee}
+  .stagewrap.bg-grid{background:#1a1a20}
+  .stagewrap.bg-stream::before,.stagewrap.bg-grid::before{content:"";position:absolute;inset:0;opacity:.16;
+    background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
+    background-size:40px 40px}
+  iframe{position:relative;display:block;width:100%;border:0;background:transparent}
+
+  /* ---------------- controls ---------------- */
+  .groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+  .group{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 17px 17px}
+  .group h3{margin:0 0 13px;font-size:12px;font-weight:800;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--dim)}
+  .group.dim{opacity:.42}
+  .note{margin:-6px 0 12px;color:var(--dim);font-size:12px}
+
+  .row{display:flex;align-items:center;gap:12px;margin-bottom:13px;flex-wrap:wrap}
+  .row:last-child{margin-bottom:0}
+  .row > .lbl{flex:0 0 78px;color:var(--dim);font-size:12.5px;font-weight:600}
+  .row .ctl{flex:1 1 160px;display:flex;align-items:center;gap:10px;min-width:0}
+
+  .seg{display:flex;background:#101014;border:1px solid var(--line);border-radius:8px;
+    padding:2px;gap:2px;flex-wrap:wrap}
+  .seg button{background:transparent;border:0;border-radius:6px;color:var(--dim);
+    padding:6px 11px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .seg button[aria-pressed=true]{background:var(--accent);color:#06210f}
+  .seg button:not([aria-pressed=true]):hover{color:var(--fg)}
+
+  input[type=range]{flex:1 1 auto;min-width:90px;accent-color:var(--accent);cursor:pointer}
+  .val{color:var(--fg);font-size:12.5px;font-variant-numeric:tabular-nums;
+    min-width:52px;text-align:right;font-weight:700}
+
+  .swatches{display:flex;gap:6px;flex-wrap:wrap}
+  .sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+  .sw[aria-pressed=true]{border-color:var(--fg)}
+  input[type=color]{width:38px;height:28px;padding:0;background:none;border:1px solid var(--line);
+    border-radius:6px;cursor:pointer}
+
+  .toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;
+    padding:7px 0;user-select:none}
+  .toggle input{position:absolute;opacity:0;pointer-events:none}
+  .track{width:36px;height:20px;border-radius:999px;background:#31313c;flex:0 0 auto;
+    position:relative;transition:background .16s}
+  .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
+    border-radius:50%;background:#f2f2f5;transition:transform .16s}
+  .toggle input:checked + .track{background:var(--accent)}
+  .toggle input:checked + .track::after{transform:translateX(16px)}
+  .toggle input:focus-visible + .track{outline:2px solid var(--fg);outline-offset:2px}
+
+  button.action{background:#2a2a33;color:var(--fg);border:0;border-radius:7px;
+    padding:7px 13px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+  button.action:hover{background:#35353f}
+
+  /* ---------------- sticky output ---------------- */
+  .out{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;
+    padding:14px 18px;background:#101014;border:1px solid var(--line);border-radius:12px;
+    box-shadow:0 -10px 30px rgba(0,0,0,.5);flex-wrap:wrap}
+  .out code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#cfe9d8;
+    word-break:break-all;flex:1 1 320px}
+  button.primary{background:var(--accent);color:#06210f;border:0;border-radius:7px;
+    padding:9px 16px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap}
+  button.primary:hover{filter:brightness(1.08)}
+  button.primary.copied{background:#3a3a44;color:var(--fg)}
+  footer{color:var(--dim);font-size:13px;padding:0 32px 46px;line-height:1.6}
+</style>
+</head>
+<body>
+<header>
+  <h1>Customize overlay</h1>
+  <p>Everything is live &mdash; the preview above the controls is the real overlay showing whatever
+     is playing right now. When it looks right, copy the URL at the bottom into an OBS
+     <strong>Browser Source</strong>. Your choices are remembered in this browser, and
+     <a href="/layouts">the layouts page</a> is still there for a side-by-side comparison.</p>
+</header>
+
+<div class="page">
+  <div class="preview">
+    <div class="previewbar">
+      <h2>Preview</h2>
+      <span class="dims" id="dims"></span>
+      <span class="spacer"></span>
+      <button type="button" class="action" id="replay">Replay song change</button>
+      <div class="chipset" id="bgs"></div>
+    </div>
+    <div class="stagewrap bg-stream" id="stagewrap">
+      <iframe id="frame" scrolling="no" title="Overlay preview"></iframe>
+    </div>
+  </div>
+
+  <div class="groups" id="groups"></div>
+
+  <div class="out">
+    <code id="url"></code>
+    <button type="button" class="action" id="reset">Reset all</button>
+    <button type="button" class="primary" id="copy">Copy URL</button>
+  </div>
+</div>
+
+<footer>
+  Options you pick here are just query parameters, so you can also hand-edit the URL.
+  The full reference is in the README.
+</footer>
+
+<script>
+(function(){
+  // ---- what the overlay understands, and what it defaults to ---------------
+  // Anything still at its default is left out of the generated URL, so the
+  // result stays short and readable instead of listing fifteen parameters.
+  var DEFAULTS = {
+    layout:'card', accent:'1db954', theme:'glass', align:'left', valign:'bottom',
+    scale:1, radius:18, opacity:100, transition:'slide', eq:'live', bars:5,
+    speed:60, showAlbum:0, showArt:1, hideWhenPaused:0
+  };
+
+  // Options the overlay can apply without being reloaded. Everything else is
+  // read once at startup, so changing it reloads the preview frame.
+  var LIVE = ['accent','radius','scale','opacity'];
+
+  var SIZES = {
+    card:   {h:200, obs:'600 x 200'},
+    big:    {h:320, obs:'900 x 320'},
+    ticker: {h:64,  obs:'1920 x 64'},
+    minimal:{h:120, obs:'600 x 120'}
+  };
+
+  var GROUPS = [
+    { title:'Layout', controls:[
+      { key:'layout', label:'Style', type:'seg', options:[
+        ['card','Card'],['big','Big'],['ticker','Ticker'],['minimal','Minimal']] }
+    ]},
+    { title:'Look', controls:[
+      { key:'accent', label:'Accent', type:'color' },
+      { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']],
+        note:'Card and Big only.' },
+      { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+    ]},
+    { title:'Position and size', controls:[
+      { key:'align', label:'Side', type:'seg', options:[['left','Left'],['right','Right']] },
+      { key:'valign', label:'Vertical', type:'seg', options:[['bottom','Bottom'],['top','Top']] },
+      { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
+      { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' }
+    ]},
+    { title:'New song', controls:[
+      { key:'transition', label:'Arrives', type:'seg', options:[
+        ['slide','Slide'],['drop','Drop'],['fade','Fade'],['none','Instant']],
+        note:'Slide comes in from the right, drop from the top. Use Replay above to watch it.' }
+    ]},
+    { title:'Equalizer', controls:[
+      { key:'eq', label:'Bars', type:'seg', options:[['live','Live audio'],['anim','Looping'],['off','Hidden']],
+        note:'Live follows the player the overlay is showing, not the rest of your desktop.' },
+      { key:'bars', label:'Count', type:'range', min:3, max:32, step:1, unit:'' }
+    ]},
+    { title:'Content', controls:[
+      { key:'showArt', label:'', type:'toggle', text:'Show album art' },
+      { key:'showAlbum', label:'', type:'toggle', text:'Show the album name' },
+      { key:'hideWhenPaused', label:'', type:'toggle', text:'Hide completely while paused' }
+    ]},
+    { title:'Ticker', only:'ticker', controls:[
+      { key:'speed', label:'Speed', type:'range', min:20, max:200, step:5, unit:' px/s' }
+    ]}
+  ];
+
+  var SWATCHES = ['1db954','fa2d48','ff0055','7b5cff','00c2ff','ffb300','ffffff','9a9aa8'];
+  var BACKGROUNDS = [['stream','Gameplay'],['dark','Dark'],['light','Light'],['grid','Grid']];
+
+  var STORE = 'nowplaying.customize';
+
+  // ---- state ---------------------------------------------------------------
+  var state = {};
+  for(var k in DEFAULTS) state[k] = DEFAULTS[k];
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORE) || '{}');
+    for(var s in saved) if(s in DEFAULTS) state[s] = saved[s];
+  } catch(e){}
+  // A ?layout= on this page's own URL wins, so "customize this one" links work.
+  var qp = new URLSearchParams(location.search);
+  if(qp.get('layout') && SIZES[qp.get('layout')]) state.layout = qp.get('layout');
+
+  var frame = document.getElementById('frame'),
+      stagewrap = document.getElementById('stagewrap'),
+      urlEl = document.getElementById('url'),
+      dimsEl = document.getElementById('dims');
+
+  function url(){
+    var u = location.origin + '/?layout=' + state.layout;
+    for(var key in DEFAULTS){
+      if(key === 'layout') continue;
+      if(String(state[key]) === String(DEFAULTS[key])) continue;
+      u += '&' + key + '=' + encodeURIComponent(state[key]);
+    }
+    return u;
+  }
+
+  // The preview frame only carries the reload-only options; the live ones are
+  // pushed over postMessage so dragging a slider doesn't restart the overlay.
+  function frameUrl(){
+    var u = location.origin + '/?layout=' + state.layout;
+    for(var key in DEFAULTS){
+      if(key === 'layout' || LIVE.indexOf(key) >= 0) continue;
+      if(String(state[key]) === String(DEFAULTS[key])) continue;
+      u += '&' + key + '=' + encodeURIComponent(state[key]);
+    }
+    return u;
+  }
+
+  function pushLive(){
+    if(!frame.contentWindow) return;
+    frame.contentWindow.postMessage({
+      type:'nowplaying:style', accent:state.accent, radius:state.radius,
+      scale:state.scale, opacity:state.opacity
+    }, location.origin);
+  }
+
+  var lastFrameUrl = '';
+  function reloadFrame(){
+    var u = frameUrl();
+    if(u === lastFrameUrl){ pushLive(); return; }
+    lastFrameUrl = u;
+    frame.onload = pushLive;      // the fresh document starts from the URL again
+    frame.src = u;
+  }
+
+  function paint(){
+    var size = SIZES[state.layout];
+    frame.height = size.h;
+    dimsEl.textContent = 'OBS source size  ' + size.obs;
+    urlEl.textContent = url();
+    document.documentElement.style.setProperty('--accent', '#' + state.accent);
+    // Ticker settings are pointless on the other layouts; grey them out rather
+    // than hiding them, so the page doesn't reflow every time you switch.
+    [].forEach.call(document.querySelectorAll('.group[data-only]'), function(g){
+      var on = g.getAttribute('data-only') === state.layout;
+      g.classList.toggle('dim', !on);
+      [].forEach.call(g.querySelectorAll('input,button'), function(c){ c.disabled = !on; });
+    });
+    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch(e){}
+  }
+
+  function set(key, value, live){
+    state[key] = value;
+    paint();
+    if(live) pushLive(); else reloadFrame();
+  }
+
+  // ---- control rendering ---------------------------------------------------
+  var groupsEl = document.getElementById('groups');
+  var refresh = [];    // re-sync every control's visual state after a reset
+
+  GROUPS.forEach(function(G){
+    var g = document.createElement('div');
+    g.className = 'group';
+    if(G.only) g.setAttribute('data-only', G.only);
+    g.innerHTML = '<h3>' + G.title + '</h3>';
+
+    G.controls.forEach(function(C){
+      var live = LIVE.indexOf(C.key) >= 0;
+      var row = document.createElement('div');
+      row.className = 'row';
+
+      if(C.type === 'toggle'){
+        var lab = document.createElement('label');
+        lab.className = 'toggle';
+        lab.innerHTML = '<input type="checkbox" /><span class="track"></span><span>' + C.text + '</span>';
+        var box = lab.querySelector('input');
+        box.checked = state[C.key] === 1;
+        box.addEventListener('change', function(){ set(C.key, this.checked ? 1 : 0, live); });
+        refresh.push(function(){ box.checked = state[C.key] === 1; });
+        row.appendChild(lab);
+
+      } else {
+        row.innerHTML = '<span class="lbl">' + C.label + '</span>';
+        var ctl = document.createElement('div');
+        ctl.className = 'ctl';
+
+        if(C.type === 'seg'){
+          var seg = document.createElement('div');
+          seg.className = 'seg';
+          C.options.forEach(function(o){
+            var b = document.createElement('button');
+            b.type = 'button'; b.textContent = o[1];
+            b.setAttribute('aria-pressed', String(state[C.key] === o[0]));
+            b.addEventListener('click', function(){
+              set(C.key, o[0], live);
+              [].forEach.call(seg.children, function(x){
+                x.setAttribute('aria-pressed', String(x === b)); });
+            });
+            seg.appendChild(b);
+          });
+          refresh.push(function(){
+            [].forEach.call(seg.children, function(x, i){
+              x.setAttribute('aria-pressed', String(C.options[i][0] === state[C.key])); });
+          });
+          ctl.appendChild(seg);
+
+        } else if(C.type === 'range'){
+          var rng = document.createElement('input');
+          rng.type = 'range'; rng.min = C.min; rng.max = C.max; rng.step = C.step;
+          rng.value = state[C.key];
+          var val = document.createElement('span');
+          val.className = 'val';
+          function show(){ val.textContent = state[C.key] + C.unit; }
+          show();
+          rng.addEventListener('input', function(){
+            var n = parseFloat(this.value);
+            // Keep 1.25 as 1.25 but 18 as 18, so the URL never grows ".00".
+            set(C.key, C.step < 1 ? Math.round(n*100)/100 : n, live);
+            show();
+          });
+          refresh.push(function(){ rng.value = state[C.key]; show(); });
+          ctl.appendChild(rng); ctl.appendChild(val);
+
+        } else if(C.type === 'color'){
+          var pick = document.createElement('input');
+          pick.type = 'color'; pick.value = '#' + state[C.key];
+          var sws = document.createElement('div');
+          sws.className = 'swatches';
+          SWATCHES.forEach(function(hex){
+            var b = document.createElement('button');
+            b.type = 'button'; b.className = 'sw'; b.title = '#' + hex;
+            b.style.background = '#' + hex;
+            b.setAttribute('aria-pressed', String(state[C.key] === hex));
+            b.addEventListener('click', function(){
+              pick.value = '#' + hex; set(C.key, hex, live); syncSw();
+            });
+            sws.appendChild(b);
+          });
+          function syncSw(){
+            [].forEach.call(sws.children, function(x, i){
+              x.setAttribute('aria-pressed', String(SWATCHES[i] === state[C.key])); });
+          }
+          pick.addEventListener('input', function(){
+            set(C.key, this.value.replace('#','').toLowerCase(), live); syncSw();
+          });
+          refresh.push(function(){ pick.value = '#' + state[C.key]; syncSw(); });
+          ctl.appendChild(pick); ctl.appendChild(sws);
+        }
+
+        row.appendChild(ctl);
+      }
+
+      g.appendChild(row);
+      if(C.note){
+        var n = document.createElement('div');
+        n.className = 'note'; n.style.margin = '-4px 0 12px';
+        n.textContent = C.note;
+        g.appendChild(n);
+      }
+    });
+
+    groupsEl.appendChild(g);
+  });
+
+  // ---- preview background --------------------------------------------------
+  var bgs = document.getElementById('bgs');
+  BACKGROUNDS.forEach(function(b, i){
+    var el = document.createElement('button');
+    el.type = 'button'; el.className = 'chip'; el.textContent = b[1];
+    el.setAttribute('aria-pressed', String(i === 0));
+    el.addEventListener('click', function(){
+      stagewrap.className = 'stagewrap bg-' + b[0];
+      [].forEach.call(bgs.children, function(x){
+        x.setAttribute('aria-pressed', String(x === el)); });
+    });
+    bgs.appendChild(el);
+  });
+
+  document.getElementById('replay').addEventListener('click', function(){
+    if(frame.contentWindow) frame.contentWindow.postMessage('nowplaying:preview-transition', location.origin);
+  });
+
+  document.getElementById('copy').addEventListener('click', function(){
+    var b = this;
+    navigator.clipboard.writeText(url()).then(function(){
+      b.textContent = 'Copied'; b.classList.add('copied');
+      setTimeout(function(){ b.textContent = 'Copy URL'; b.classList.remove('copied'); }, 1400);
+    });
+  });
+
+  document.getElementById('reset').addEventListener('click', function(){
+    for(var k in DEFAULTS) state[k] = DEFAULTS[k];
+    refresh.forEach(function(f){ f(); });
+    paint();
+    reloadFrame();
+  });
+
+  paint();
+  reloadFrame();
+})();
+</script>
+</body>
+</html>

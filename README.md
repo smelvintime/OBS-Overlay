@@ -109,7 +109,17 @@ Big suits a dedicated music scene or a "starting soon" screen.
 
 ## Customizing
 
-Add options to the OBS Browser Source URL as query parameters:
+Open **<http://127.0.0.1:8787/customize>** (or right-click the tray icon →
+*Customize the overlay*). Every option below has a control there, with a live
+preview of whatever is playing right now, a background switcher so you can
+check it stays readable over gameplay, and a **Replay song change** button.
+Copy the URL from the bar at the bottom when it looks right. Your choices are
+remembered in that browser, and **Reset all** puts everything back.
+
+Colour, opacity, size and corner roundness apply to the preview as you drag,
+without reloading it. The rest reload the preview frame, which takes a moment.
+
+Everything is just query parameters, so you can hand-edit the URL too:
 
 ```
 http://127.0.0.1:8787/?layout=big&accent=fa2d48&showAlbum=1
@@ -127,6 +137,8 @@ http://127.0.0.1:8787/?layout=big&accent=fa2d48&showAlbum=1
 | `speed` | px/sec, e.g. `90` | `60` | Ticker scroll speed |
 | `opacity` | `10`–`100` | `100` | Overall overlay opacity, in percent |
 | `transition` | `slide`, `drop`, `fade`, `none` | `slide` | How a new song arrives |
+| `eq` | `live`, `anim`, `off` | `live` | Equalizer: real audio, a canned loop, or hidden |
+| `bars` | `3`–`32` | `5` | How many equalizer bars |
 | `showAlbum` | `0`, `1` | `0` | Show the album name line |
 | `showArt` | `0`, `1` | `1` | Show album art |
 | `hideWhenPaused` | `0`, `1` | `0` | `1` hides it while paused instead of dimming |
@@ -175,6 +187,7 @@ matching port in the OBS URL.
 | `GET /setsource?mode=prefer\|only\|auto&app=<name>` | Change which player is followed |
 | `GET /` | The overlay page itself |
 | `GET /layouts` | Side-by-side layout previews |
+| `GET /customize` | Full customizer with a live preview |
 | `GET /control` | Source picker page |
 
 If the overlay ever shows the wrong thing, `/sources` is the fastest way to see why —

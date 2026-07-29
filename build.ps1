@@ -25,6 +25,7 @@ $srcAudio = "$PSScriptRoot\src\AudioSpectrum.cs"
 $overlay = "$PSScriptRoot\overlay.html"
 $layouts = "$PSScriptRoot\layouts.html"
 $control = "$PSScriptRoot\control.html"
+$custom  = "$PSScriptRoot\customize.html"
 $outExe  = Join-Path $OutDir 'NowPlayingOverlay.exe'
 
 # Fail with a useful message rather than a compiler error further down.
@@ -34,7 +35,7 @@ if (-not (Test-Path $sysRt))   { $missing += "System.Runtime facade: $sysRt" }
 foreach ($n in 'Windows.Media.winmd','Windows.Foundation.winmd','Windows.Storage.winmd') {
   if (-not (Test-Path (Join-Path $winmd $n))) { $missing += "WinRT metadata: $n" }
 }
-foreach ($f in $src,$srcAudio,$overlay,$layouts,$control) {
+foreach ($f in $src,$srcAudio,$overlay,$layouts,$control,$custom) {
   if (-not (Test-Path $f)) { $missing += "source file: $f" }
 }
 if ($missing.Count) {
@@ -70,6 +71,7 @@ $cscArgs = @(
   "/resource:$overlay,overlay.html"
   "/resource:$layouts,layouts.html"
   "/resource:$control,control.html"
+  "/resource:$custom,customize.html"
   $src
   $srcAudio
 )
