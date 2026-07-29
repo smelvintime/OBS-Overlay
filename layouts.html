@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Overlay layouts</title>
+<style>
+  :root{ --bg:#0d0d10; --panel:#16161a; --line:#26262e; --fg:#f2f2f5; --dim:#9a9aa8; --accent:#1db954; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:28px 32px 8px}
+  h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:14px;max-width:760px;line-height:1.5}
+  .grid{display:flex;flex-direction:column;gap:22px;padding:22px 32px 60px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .card h2{margin:0;font-size:15px;font-weight:700;letter-spacing:.02em}
+  .head{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .desc{color:var(--dim);font-size:13px;flex:1 1 260px}
+  .dims{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;
+    background:#101014;border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
+  /* fake stream background so legibility is judged fairly, esp. for minimal */
+  .stagewrap{position:relative;background:
+      linear-gradient(135deg,#2b3a55 0%,#4a3b63 45%,#7a4b53 100%);}
+  .stagewrap::before{content:"";position:absolute;inset:0;opacity:.16;
+    background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
+    background-size:40px 40px}
+  iframe{position:relative;display:block;width:100%;border:0;background:transparent}
+  .url{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--line);
+    background:#101014;flex-wrap:wrap}
+  code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#cfe9d8;
+    word-break:break-all;flex:1 1 320px}
+  button{background:var(--accent);color:#06210f;border:0;border-radius:7px;
+    padding:7px 14px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+  button:hover{filter:brightness(1.08)}
+  button.copied{background:#3a3a44;color:var(--fg)}
+  footer{color:var(--dim);font-size:13px;padding:0 32px 50px;line-height:1.6}
+  footer code{color:#cfe9d8;font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Overlay layouts</h1>
+  <p>Live previews using whatever is playing right now. Pick one, copy its URL, and paste it
+     into an OBS <strong>Browser Source</strong> with the listed size. The checkered background
+     is only here to judge legibility &mdash; in OBS the overlay is transparent.</p>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<footer>
+  Mix in any of these: <code>?accent=ff0055</code> &middot; <code>theme=solid</code> &middot;
+  <code>align=right</code> &middot; <code>valign=top</code> &middot; <code>scale=1.25</code> &middot;
+  <code>showAlbum=1</code> &middot; <code>showArt=0</code> &middot; <code>hideWhenPaused=1</code> &middot;
+  <code>speed=90</code> (ticker). Full list is in the README.
+</footer>
+
+<script>
+var LAYOUTS = [
+  { id:'card', name:'Card', h:200, obs:'600 x 200',
+    desc:'The original. Album art, title, artist in a frosted card.' },
+  { id:'big', name:'Big', h:320, obs:'900 x 320',
+    desc:'Large art and type, with the cover art blurred behind it. Good for music-focused or starting-soon scenes.' },
+  { id:'ticker', name:'Ticker', h:64, obs:'1920 x 64',
+    desc:'Full-width bar with continuously scrolling text, like a radio ticker. Sits along the top or bottom edge.' },
+  { id:'minimal', name:'Minimal', h:120, obs:'600 x 120',
+    desc:'No card or background at all. Just an accent bar, art and text with a heavy shadow so it stays readable over anything.' }
+];
+
+var grid = document.getElementById('grid');
+LAYOUTS.forEach(function(L){
+  var url = location.origin + '/?layout=' + L.id;
+  var el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML =
+    '<div class="head"><h2>' + L.name + '</h2>' +
+      '<span class="desc">' + L.desc + '</span>' +
+      '<span class="dims">OBS ' + L.obs + '</span></div>' +
+    '<div class="stagewrap"><iframe src="' + url + '" height="' + L.h + '" scrolling="no"></iframe></div>' +
+    '<div class="url"><code>' + url + '</code><button type="button">Copy URL</button></div>';
+  el.querySelector('button').addEventListener('click', function(){
+    var b = this;
+    navigator.clipboard.writeText(url).then(function(){
+      b.textContent = 'Copied'; b.classList.add('copied');
+      setTimeout(function(){ b.textContent='Copy URL'; b.classList.remove('copied'); }, 1400);
+    });
+  });
+  grid.appendChild(el);
+});
+</script>
+</body>
+</html>

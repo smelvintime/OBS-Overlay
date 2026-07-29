@@ -1,12 +1,18 @@
 <#
   Now Playing overlay server  (zero-install, Windows PowerShell 5.1)
   ------------------------------------------------------------------
-  Reads the Windows "now playing" media session (SMTC) so it works with
-  Spotify, Apple Music, iTunes, and even browser players with NO API keys.
+  Reads what's playing from two sources and picks the best one:
+
+    1. Windows media session (SMTC) - Spotify, Apple Music, browsers, most apps
+    2. iTunes COM automation       - classic/Store iTunes, which does NOT
+                                     publish to SMTC
+
+  No API keys, no OAuth, no account linking.
 
   Serves:
     GET /            -> overlay page (add this URL as an OBS Browser Source)
-    GET /np          -> JSON  { playing, title, artist, album, app, id, hasArt }
+    GET /layouts     -> side-by-side preview of every layout
+    GET /np          -> JSON  { playing, title, artist, album, app, source, id, hasArt }
     GET /art?id=...  -> current album art (image bytes)
 
   Usage:   powershell -ExecutionPolicy Bypass -File server.ps1 [-Port 8787]
@@ -43,6 +49,18 @@ $script:AsStreamForRead = [System.IO.WindowsRuntimeStreamExtensions].GetMethod('
 
 $script:mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
 
+function New-TrackInfo($title, $artist, $album, $app, $source, $playing, $hasArt) {
+  $t = [string]$title; $a = [string]$artist; $al = [string]$album
+  $id = 'none'
+  if ($t) { $id = [Math]::Abs(("$t|$a|$al").GetHashCode()).ToString() }
+  return @{
+    playing = [bool]$playing; title = $t; artist = $a; album = $al
+    app = [string]$app; source = [string]$source; id = $id; hasArt = [bool]$hasArt
+  }
+}
+
+# ======================= SOURCE 1: Windows media session =======================
+
 # Prefer real music apps over browsers when several things are "playing".
 $script:musicHints = @('spotify', 'apple', 'itunes', 'music', 'tidal', 'deezer')
 
@@ -53,45 +71,143 @@ function Test-IsMusicApp([string]$aumid) {
   return $false
 }
 
-function Get-BestSession {
+function Get-BestSmtcSession {
   $sessions = @($script:mgr.GetSessions())
   if ($sessions.Count -eq 0) { return $null }
   $best = $null; $bestScore = -1
   foreach ($s in $sessions) {
     try { $status = $s.GetPlaybackInfo().PlaybackStatus } catch { $status = $null }
     $isPlaying = ($status -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing)
-    $isMusic = Test-IsMusicApp $s.SourceAppUserModelId
     $score = 0
     if ($isPlaying) { $score += 2 }
-    if ($isMusic)   { $score += 1 }
+    if (Test-IsMusicApp $s.SourceAppUserModelId) { $score += 1 }
     if ($score -gt $bestScore) { $bestScore = $score; $best = $s }
   }
   if ($best) { return $best }
   return $script:mgr.GetCurrentSession()
 }
 
-function Get-NowPlaying {
-  $s = Get-BestSession
-  if (-not $s) { return @{ playing = $false; title = ''; artist = ''; album = ''; app = ''; id = 'none'; hasArt = $false } }
+function Get-SmtcNowPlaying {
+  $s = Get-BestSmtcSession
+  if (-not $s) { return $null }
   try {
     $props  = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
     $status = $s.GetPlaybackInfo().PlaybackStatus
-  } catch {
-    return @{ playing = $false; title = ''; artist = ''; album = ''; app = ''; id = 'none'; hasArt = $false }
-  }
+  } catch { return $null }
+  if (-not $props.Title) { return $null }
   $playing = ($status -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing)
-  $title = if ($props.Title)  { $props.Title }  else { '' }
-  $artist = if ($props.Artist) { $props.Artist } else { '' }
-  $album = if ($props.AlbumTitle) { $props.AlbumTitle } else { '' }
-  $hasArt = ($null -ne $props.Thumbnail)
-  $id = [Math]::Abs(("$title|$artist|$album").GetHashCode()).ToString()
-  return @{
-    playing = $playing; title = $title; artist = $artist; album = $album
-    app = $s.SourceAppUserModelId; id = $id; hasArt = $hasArt
+  return New-TrackInfo $props.Title $props.Artist $props.AlbumTitle $s.SourceAppUserModelId 'smtc' $playing ($null -ne $props.Thumbnail)
+}
+
+function Get-SmtcArtBytes {
+  try {
+    $s = Get-BestSmtcSession
+    if (-not $s) { return $null }
+    $props = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+    if (-not $props.Thumbnail) { return $null }
+    $stream = Await ($props.Thumbnail.OpenReadAsync()) ($script:TypeRandomAccessStream)
+    $netStream = $script:AsStreamForRead.Invoke($null, @($stream))
+    $ms = New-Object System.IO.MemoryStream
+    $netStream.CopyTo($ms)
+    $bytes = $ms.ToArray()
+    $ms.Dispose(); $netStream.Dispose()
+    if ($bytes.Length -eq 0) { return $null }
+    return $bytes
+  } catch { return $null }
+}
+
+# ============================ SOURCE 2: iTunes COM ============================
+# iTunes does not publish to SMTC, so it needs its own path. Creating the COM
+# object LAUNCHES iTunes if it isn't running, so always gate on the process
+# first - otherwise merely starting the overlay would pop iTunes open.
+
+$script:itunesApp = $null
+
+function Clear-ITunesApp {
+  if ($script:itunesApp) {
+    try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($script:itunesApp) | Out-Null } catch { }
+    $script:itunesApp = $null
   }
 }
 
-# Album art rarely changes between polls, so cache the decoded bytes per track id.
+function Get-ITunesApp {
+  if (-not (Get-Process -Name iTunes -ErrorAction SilentlyContinue)) {
+    Clear-ITunesApp        # iTunes was closed; drop the dead reference
+    return $null
+  }
+  if ($script:itunesApp) {
+    try { $null = $script:itunesApp.PlayerState; return $script:itunesApp }
+    catch { Clear-ITunesApp }   # stale RPC handle, fall through and rebuild
+  }
+  try {
+    $script:itunesApp = New-Object -ComObject iTunes.Application
+    return $script:itunesApp
+  } catch { return $null }
+}
+
+function Get-ITunesNowPlaying {
+  $it = Get-ITunesApp
+  if (-not $it) { return $null }
+  try {
+    $track = $it.CurrentTrack
+    if (-not $track) { return $null }
+    $state = $it.PlayerState          # 1 = playing; 0 = stopped/paused
+    $hasArt = $false
+    try { $hasArt = ($track.Artwork.Count -gt 0) } catch { }
+    return New-TrackInfo $track.Name $track.Artist $track.Album 'iTunes' 'itunes' ($state -eq 1) $hasArt
+  } catch {
+    Clear-ITunesApp
+    return $null
+  }
+}
+
+function Get-ITunesArtBytes {
+  $it = Get-ITunesApp
+  if (-not $it) { return $null }
+  $tmp = $null
+  try {
+    $track = $it.CurrentTrack
+    if (-not $track) { return $null }
+    $art = $track.Artwork
+    if (-not $art -or $art.Count -lt 1) { return $null }
+    $item = $art.Item(1)
+    # ITArtworkFormat: 1 = JPEG, 2 = PNG, 3 = BMP
+    $ext = switch ([int]$item.Format) { 2 { '.png' } 3 { '.bmp' } default { '.jpg' } }
+    $tmp = Join-Path $env:TEMP ("np-itunes-art-" + [Guid]::NewGuid().ToString('N') + $ext)
+    $item.SaveArtworkToFile($tmp)
+    if (-not (Test-Path $tmp)) { return $null }
+    return [System.IO.File]::ReadAllBytes($tmp)
+  } catch {
+    return $null
+  } finally {
+    if ($tmp -and (Test-Path $tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+  }
+}
+
+# ============================ Source arbitration ==============================
+# Something actively playing always beats something idle, so a paused iTunes
+# never steals the overlay from a playing Spotify (or the reverse).
+
+function Get-NowPlaying {
+  $candidates = @()
+  $smtc = Get-SmtcNowPlaying
+  if ($smtc) { $candidates += , $smtc }
+  $itunes = Get-ITunesNowPlaying
+  if ($itunes) { $candidates += , $itunes }
+
+  if ($candidates.Count -eq 0) { return New-TrackInfo '' '' '' '' 'none' $false $false }
+
+  $best = $null; $bestScore = -1
+  foreach ($c in $candidates) {
+    $score = 0
+    if ($c.playing) { $score += 4 }
+    if ($c.source -eq 'itunes' -or (Test-IsMusicApp $c.app)) { $score += 1 }
+    if ($score -gt $bestScore) { $bestScore = $score; $best = $c }
+  }
+  return $best
+}
+
+# Album art rarely changes between polls, so cache the decoded bytes per track.
 $script:artCacheId = $null
 $script:artCacheBytes = $null
 $script:artCacheType = 'image/jpeg'
@@ -107,28 +223,19 @@ function Get-ArtBytes([string]$trackId) {
   if ($trackId -and $script:artCacheId -eq $trackId -and $script:artCacheBytes) {
     return $script:artCacheBytes
   }
-  try {
-    $s = Get-BestSession
-    if (-not $s) { return $null }
-    $props = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-    $ref = $props.Thumbnail
-    if (-not $ref) { return $null }
-    $stream = Await ($ref.OpenReadAsync()) ($script:TypeRandomAccessStream)
-    $netStream = $script:AsStreamForRead.Invoke($null, @($stream))
-    $ms = New-Object System.IO.MemoryStream
-    $netStream.CopyTo($ms)
-    $bytes = $ms.ToArray()
-    $ms.Dispose(); $netStream.Dispose()
-    if ($bytes.Length -eq 0) { return $null }
-    $script:artCacheId = $trackId
-    $script:artCacheBytes = $bytes
-    $script:artCacheType = Get-ImageMimeType $bytes
-    return $bytes
-  } catch { return $null }
+  $np = Get-NowPlaying
+  $bytes = $null
+  if ($np.source -eq 'itunes') { $bytes = Get-ITunesArtBytes }
+  elseif ($np.source -eq 'smtc') { $bytes = Get-SmtcArtBytes }
+  if (-not $bytes -or $bytes.Length -eq 0) { return $null }
+  $script:artCacheId = $trackId
+  $script:artCacheBytes = $bytes
+  $script:artCacheType = Get-ImageMimeType $bytes
+  return $bytes
 }
 
 # --- Minimal HTTP server over TcpListener (no admin / no URL reservation needed) ---
-function Send-Response($stream, [int]$code, [string]$contentType, [byte[]]$body, [hashtable]$extraHeaders) {
+function Send-Response($stream, [int]$code, [string]$contentType, [byte[]]$body) {
   $statusText = @{ 200 = 'OK'; 204 = 'No Content'; 404 = 'Not Found'; 500 = 'Server Error' }[$code]
   if (-not $statusText) { $statusText = 'OK' }
   $sb = New-Object System.Text.StringBuilder
@@ -138,7 +245,6 @@ function Send-Response($stream, [int]$code, [string]$contentType, [byte[]]$body,
   [void]$sb.AppendLine("Access-Control-Allow-Origin: *")
   [void]$sb.AppendLine("Cache-Control: no-cache, no-store, must-revalidate")
   [void]$sb.AppendLine("Connection: close")
-  if ($extraHeaders) { foreach ($k in $extraHeaders.Keys) { [void]$sb.AppendLine("$k`: $($extraHeaders[$k])") } }
   [void]$sb.AppendLine("")
   $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($sb.ToString())
   $stream.Write($headerBytes, 0, $headerBytes.Length)
@@ -146,7 +252,16 @@ function Send-Response($stream, [int]$code, [string]$contentType, [byte[]]$body,
   $stream.Flush()
 }
 
+function Send-File($stream, [string]$file, [string]$contentType) {
+  if (Test-Path $file) {
+    Send-Response $stream 200 $contentType ([System.IO.File]::ReadAllBytes($file))
+  } else {
+    Send-Response $stream 404 'text/plain' ([System.Text.Encoding]::UTF8.GetBytes("$([System.IO.Path]::GetFileName($file)) not found"))
+  }
+}
+
 $overlayPath = Join-Path $ScriptDir 'overlay.html'
+$layoutsPath = Join-Path $ScriptDir 'layouts.html'
 
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $Port)
 $listener.Start()
@@ -154,7 +269,8 @@ $listener.Start()
 Write-Host ""
 Write-Host "  Now Playing overlay is running." -ForegroundColor Green
 Write-Host "  OBS Browser Source URL:  http://127.0.0.1:$Port/" -ForegroundColor Cyan
-Write-Host "  Preview in a browser:    http://127.0.0.1:$Port/" -ForegroundColor Cyan
+Write-Host "  Compare layouts:         http://127.0.0.1:$Port/layouts" -ForegroundColor Cyan
+Write-Host "  Sources: Windows media session + iTunes" -ForegroundColor DarkGray
 Write-Host "  Press Ctrl+C in this window to stop."
 Write-Host ""
 
@@ -174,8 +290,7 @@ try {
 
       switch -Regex ($route) {
         '^/np$' {
-          $np = Get-NowPlaying
-          $json = ($np | ConvertTo-Json -Compress)
+          $json = (Get-NowPlaying | ConvertTo-Json -Compress)
           Send-Response $ns 200 'application/json; charset=utf-8' ([System.Text.Encoding]::UTF8.GetBytes($json))
           break
         }
@@ -187,15 +302,8 @@ try {
           else { Send-Response $ns 204 'text/plain' ([byte[]]@()) }
           break
         }
-        '^/$' {
-          if (Test-Path $overlayPath) {
-            $html = [System.IO.File]::ReadAllBytes($overlayPath)
-            Send-Response $ns 200 'text/html; charset=utf-8' $html
-          } else {
-            Send-Response $ns 404 'text/plain' ([System.Text.Encoding]::UTF8.GetBytes('overlay.html not found'))
-          }
-          break
-        }
+        '^/layouts/?$' { Send-File $ns $layoutsPath 'text/html; charset=utf-8'; break }
+        '^/$'          { Send-File $ns $overlayPath 'text/html; charset=utf-8'; break }
         default {
           Send-Response $ns 404 'text/plain' ([System.Text.Encoding]::UTF8.GetBytes('Not found'))
         }
@@ -208,4 +316,5 @@ try {
   }
 } finally {
   $listener.Stop()
+  Clear-ITunesApp
 }

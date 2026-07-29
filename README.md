@@ -2,7 +2,7 @@
 
 A self-hosted alternative to Songplz. Shows the song you're currently listening to on your stream.
 
-Reads Windows' own media session, so it works with **Spotify, Apple Music, iTunes, Tidal, and browser players** — with **no API keys, no OAuth, no account linking**. Whatever is playing on this PC is what shows up.
+Works with **Spotify, Apple Music, iTunes, Tidal, and browser players** — with **no API keys, no OAuth, no account linking**. Whatever is playing on this PC is what shows up.
 
 Nothing to install: it runs on the Windows PowerShell that ships with Windows.
 
@@ -19,30 +19,53 @@ Nothing to install: it runs on the Windows PowerShell that ships with Windows.
 
 That's it — play a song and the card appears. It updates automatically as tracks change.
 
+## Layouts
+
+Open **<http://127.0.0.1:8787/layouts>** to see all four side by side against a
+mock stream background, with a copy button for each URL.
+
+| Layout | URL | OBS size | What it is |
+|---|---|---|---|
+| **Card** (default) | `/?layout=card` | 600 × 200 | Album art, title, artist in a frosted card |
+| **Big** | `/?layout=big` | 900 × 320 | Large art and type, cover art blurred behind it |
+| **Ticker** | `/?layout=ticker` | 1920 × 64 | Full-width bar with continuously scrolling text |
+| **Minimal** | `/?layout=minimal` | 600 × 120 | No card at all — accent bar, art and shadowed text |
+
+Ticker sits nicely along the very top or bottom edge; pair it with `valign=top`.
+Big suits a dedicated music scene or a "starting soon" screen.
+
 ## Customizing
 
 Add options to the OBS Browser Source URL as query parameters:
 
 ```
-http://127.0.0.1:8787/?accent=1db954&theme=glass&align=left
+http://127.0.0.1:8787/?layout=big&accent=fa2d48&showAlbum=1
 ```
 
 | Option | Values | Default | What it does |
 |---|---|---|---|
+| `layout` | `card`, `big`, `ticker`, `minimal` | `card` | Which overlay style |
 | `accent` | hex, no `#` (e.g. `ff0055`) | `1db954` | Bar/glow/equalizer color |
-| `theme` | `glass`, `solid`, `minimal` | `glass` | Card style. `minimal` = art + text, no card |
+| `theme` | `glass`, `solid` | `glass` | Card chrome (card and big only) |
 | `align` | `left`, `right` | `left` | Which side it sits and animates from |
+| `valign` | `top`, `bottom` | `bottom` | Vertical position |
 | `scale` | e.g. `1.25` | `1` | Overall size multiplier |
 | `radius` | px, e.g. `24` | `18` | Corner roundness |
+| `speed` | px/sec, e.g. `90` | `60` | Ticker scroll speed |
 | `showAlbum` | `0`, `1` | `0` | Show the album name line |
-| `hideWhenPaused` | `0`, `1` | `0` | `1` hides the card while paused instead of dimming it |
+| `showArt` | `0`, `1` | `1` | Show album art |
+| `hideWhenPaused` | `0`, `1` | `0` | `1` hides it while paused instead of dimming |
 
 Some combinations worth trying:
 
-- Spotify green, bottom-left glass card — `?accent=1db954`
-- Apple Music pink, right side — `?accent=fa2d48&align=right`
-- Clean, no card chrome — `?theme=minimal&scale=1.2`
+- Spotify green card — `?layout=card&accent=1db954`
+- Apple Music pink, right side — `?layout=card&accent=fa2d48&align=right`
+- Ticker across the top — `?layout=ticker&valign=top&speed=80`
+- Big with album name — `?layout=big&showAlbum=1`
+- Text only, no art — `?layout=minimal&showArt=0`
 - Only visible while actually playing — `?hideWhenPaused=1`
+
+`theme=minimal` from older setups still works and maps to `layout=minimal`.
 
 ## Using a different port
 
@@ -119,14 +142,27 @@ failure, generate a fresh one.
 - If the overlay server isn't running, it replies with a clear message rather than
   going silent.
 
+## How it finds your music
+
+There are two sources, because no single one covers everything:
+
+1. **Windows media session (SMTC)** — Spotify, Apple Music, Tidal, browsers, most apps.
+2. **iTunes COM automation** — iTunes does *not* publish to the Windows media session,
+   so it gets its own path. Works with both classic and Microsoft Store iTunes.
+
+Whichever source is *actively playing* wins, so a paused iTunes never steals the overlay
+from a playing Spotify (or the reverse). Between two idle sources it prefers a real music
+app over a browser tab, so a paused YouTube tab won't hijack it.
+
+**iTunes is only queried while iTunes is already running.** This is deliberate: creating the
+iTunes automation object *launches* iTunes, and having the overlay pop iTunes open mid-stream
+would be awful. Close iTunes and the overlay simply ignores it.
+
 ## Notes and limits
 
 - **Local only.** The server binds to `127.0.0.1`, so it is not reachable from the internet
   and nothing is sent anywhere. Your listening data stays on this machine.
-- **Reads the PC's media session**, so it reflects whatever is playing *on this computer*.
-  If you play music from your phone, it won't appear.
-- **Picking between apps:** if several things could be playing, it prefers a source that is
-  actively playing, and prefers real music apps (Spotify/Apple Music/iTunes/Tidal) over a
-  browser tab. So a paused YouTube tab won't hijack the overlay.
+- **Reads this PC**, so it reflects whatever is playing *on this computer*. Music from your
+  phone won't appear.
 - If the card doesn't appear, confirm the launcher window is still open, and check
   `http://127.0.0.1:8787/np` in a browser to see what the server is reading.
