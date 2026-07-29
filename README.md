@@ -4,11 +4,12 @@ A self-hosted alternative to Songplz. Shows the song you're currently listening 
 
 Works with **Spotify, Apple Music, iTunes, Tidal, and browser players** — with **no API keys, no OAuth, no account linking**. Whatever is playing on this PC is what shows up.
 
-Nothing to install: it runs on the Windows PowerShell that ships with Windows.
+Nothing to install.
 
-## Quick start
+## Quick start (recommended: the app)
 
-1. Double-click **`Start-Overlay.bat`**. Leave the window open while streaming.
+1. Download **`dist/NowPlayingOverlay.exe`** and double-click it. Leave the window
+   open while streaming.
 2. In OBS: **Sources → + → Browser**
 3. Set **URL** to:
    ```
@@ -18,6 +19,36 @@ Nothing to install: it runs on the Windows PowerShell that ships with Windows.
 5. Leave **"Shutdown source when not visible"** unchecked so it keeps updating.
 
 That's it — play a song and the card appears. It updates automatically as tracks change.
+
+It's a single 40 KB file. Nothing to install, no PowerShell, no runtime download: it
+uses the .NET Framework already present on every Windows 10/11 machine, and the overlay
+pages are embedded inside the executable.
+
+> **First run:** Windows SmartScreen will likely say *"Windows protected your PC"*,
+> because the file isn't code-signed (a certificate costs a few hundred dollars a year).
+> Click **More info → Run anyway**. Some antivirus tools are also suspicious of small
+> unsigned executables. If you'd rather not deal with that, use the PowerShell scripts
+> below instead — they do exactly the same thing.
+
+Use a different port with `NowPlayingOverlay.exe -port 8788`.
+
+## Alternative: run from source
+
+The PowerShell version needs no build step and is easier to audit or tweak:
+
+1. Double-click **`Start-Overlay.bat`**
+2. Same OBS steps as above.
+
+Both versions serve the identical overlay and support all the same options.
+
+## Building the .exe yourself
+
+```
+powershell -ExecutionPolicy Bypass -File build.ps1
+```
+
+Compiles with the C# compiler included in the .NET Framework on every Windows machine —
+no Visual Studio, no .NET SDK, no downloads. Output goes to `dist\`.
 
 ## Layouts
 
@@ -76,9 +107,14 @@ matching port in the OBS URL.
 
 | Endpoint | Returns |
 |---|---|
-| `GET /np` | JSON: `{playing, title, artist, album, app, id, hasArt}` |
-| `GET /art?id=<id>` | Current album art image bytes (`204` if none) |
+| `GET /np` | JSON: `{playing, title, artist, album, app, source, id, hasArt}` |
+| `GET /art` | Current album art image bytes (`204` if none) |
+| `GET /sources` | Diagnostic: what each provider sees and which one won (.exe only) |
 | `GET /` | The overlay page itself |
+| `GET /layouts` | Side-by-side layout previews |
+
+If the overlay ever shows the wrong thing, `/sources` is the fastest way to see why —
+it reports the Windows media session and iTunes separately, plus which one was chosen.
 
 The included Twitch bot uses `/np`.
 
