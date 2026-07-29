@@ -505,23 +505,35 @@ namespace NowPlaying {
     static volatile string _lastEventKind = "";
     static volatile string _lastEventAt = "";
 
-    static void HandleNotification(object msg) {
+    static void HandleNotification(object msg) { HandleNotification(msg, false); }
+
+    // test=true means this came from /twitch/test rather than the socket. The
+    // parsing is deliberately identical - that is the whole point of routing
+    // tests through here - but nothing that outlives the alert is touched: no
+    // counters, no "most recent" state, nothing written to disk. A rehearsal
+    // must not leave a fake subscriber on the client's overlay.
+    static void HandleNotification(object msg, bool test) {
       string type = SNav(msg, "payload", "subscription", "type");
       object ev = Nav(msg, "payload", "event");
       if (ev == null) return;
 
-      _eventCount++;
-      _lastEventKind = type;
-      _lastEventAt = DateTime.Now.ToString("HH:mm:ss");
+      if (!test) {
+        _eventCount++;
+        _lastEventKind = type;
+        _lastEventAt = DateTime.Now.ToString("HH:mm:ss");
+      }
+      string tail = test ? ",\"test\":true}" : "}";
 
       string user = SNav(ev, "user_name");
       if (user.Length == 0) user = SNav(ev, "user_login");
       string at = DateTime.UtcNow.ToString("o");
 
       if (type == "channel.follow") {
-        lock (_stateLock) { _lastFollower = user; _lastFollowerAt = SNav(ev, "followed_at"); }
-        if (_followerTotal >= 0) _followerTotal++;
-        Push("{\"kind\":\"follow\",\"user\":" + Q(user) + ",\"at\":" + Q(at) + "}");
+        if (!test) {
+          lock (_stateLock) { _lastFollower = user; _lastFollowerAt = SNav(ev, "followed_at"); }
+          if (_followerTotal >= 0) _followerTotal++;
+        }
+        Push("{\"kind\":\"follow\",\"user\":" + Q(user) + ",\"at\":" + Q(at) + tail);
 
       } else if (type == "channel.subscribe") {
         // Every recipient of a gift bomb also produces one of these. Letting
@@ -529,17 +541,17 @@ namespace NowPlaying {
         // gift notification is treated as the single source of truth for gifts.
         if (BNav(ev, "is_gift")) return;
         string tier = SNav(ev, "tier");
-        RecordSub(user, tier, at);
+        if (!test) RecordSub(user, tier, at);
         Push("{\"kind\":\"sub\",\"user\":" + Q(user) + ",\"tier\":" + Q(tier)
-           + ",\"months\":1,\"at\":" + Q(at) + "}");
+           + ",\"months\":1,\"at\":" + Q(at) + tail);
 
       } else if (type == "channel.subscription.message") {
         string tier = SNav(ev, "tier");
         int months = INav(ev, "cumulative_months");
-        RecordSub(user, tier, at);
+        if (!test) RecordSub(user, tier, at);
         Push("{\"kind\":\"resub\",\"user\":" + Q(user) + ",\"tier\":" + Q(tier)
            + ",\"months\":" + months
-           + ",\"message\":" + Q(SNav(ev, "message", "text")) + ",\"at\":" + Q(at) + "}");
+           + ",\"message\":" + Q(SNav(ev, "message", "text")) + ",\"at\":" + Q(at) + tail);
 
       } else if (type == "channel.subscription.gift") {
         bool anon = BNav(ev, "is_anonymous");
@@ -547,10 +559,10 @@ namespace NowPlaying {
         int count = INav(ev, "total");
         if (count <= 0) count = 1;
         string tier = SNav(ev, "tier");
-        if (_subTotal >= 0) _subTotal += count;
+        if (!test && _subTotal >= 0) _subTotal += count;
         Push("{\"kind\":\"gift\",\"user\":" + Q(gifter) + ",\"tier\":" + Q(tier)
            + ",\"count\":" + count + ",\"anon\":" + (anon ? "true" : "false")
-           + ",\"at\":" + Q(at) + "}");
+           + ",\"at\":" + Q(at) + tail);
       }
     }
 
@@ -561,29 +573,101 @@ namespace NowPlaying {
     }
 
     // ------------------------------------------------------------- test fire
-    // Alert visuals cannot be iterated on by waiting for a real follower, so
-    // the same code path that renders a live event can be driven on demand.
+    //
+    // These build genuine EventSub notification envelopes, matching the payloads
+    // Twitch documents, and push them through the same HandleNotification the
+    // socket uses. An earlier version handed the pages a ready-made alert, which
+    // proved the visuals worked and nothing whatsoever about whether the payloads
+    // were being read correctly - the half that cannot be rehearsed any other way
+    // when the channel has no subscribers to test with.
+    //
+    // So a test exercises the JSON parsing, the field names, the tier and month
+    // handling, the gift de-duplication and the ring buffer. What it cannot cover
+    // is the websocket and Twitch's own delivery.
+    static int _testSeq;
+
+    static string Envelope(string type, string version, string eventJson) {
+      int n = Interlocked.Increment(ref _testSeq);
+      return "{\"metadata\":{\"message_id\":\"test-" + DateTime.UtcNow.Ticks + "-" + n + "\","
+           + "\"message_type\":\"notification\","
+           + "\"message_timestamp\":" + Q(DateTime.UtcNow.ToString("o")) + "},"
+           + "\"payload\":{\"subscription\":{\"type\":\"" + type + "\",\"version\":\"" + version
+           + "\",\"status\":\"enabled\"},\"event\":" + eventJson + "}}";
+    }
+
+    // Real notifications go through exactly this, dedup included.
+    static void Inject(string envelope) {
+      object msg;
+      try { msg = _ser.DeserializeObject(envelope); } catch { return; }
+      if (AlreadySeen(SNav(msg, "metadata", "message_id"))) return;
+      HandleNotification(msg, true);
+    }
+
+    static string Chan() {
+      string id = _broadcasterId.Length > 0 ? _broadcasterId : "000000";
+      return "\"broadcaster_user_id\":\"" + id + "\","
+           + "\"broadcaster_user_login\":" + Q(_channel.Length > 0 ? _channel : "channel") + ","
+           + "\"broadcaster_user_name\":" + Q(_channel.Length > 0 ? _channel : "channel") + ",";
+    }
+
+    static string Who(string user) {
+      return "\"user_id\":\"999999\","
+           + "\"user_login\":" + Q(user.ToLowerInvariant()) + ","
+           + "\"user_name\":" + Q(user) + ",";
+    }
+
     public static string TestFire(string kind, string user) {
       if (string.IsNullOrEmpty(user)) user = "TestUser";
-      string at = DateTime.UtcNow.ToString("o");
+      long before = CurrentSeq;
+      int injected = 0;
+
       switch (kind) {
         case "sub":
-          Push("{\"kind\":\"sub\",\"user\":" + Q(user) + ",\"tier\":\"1000\",\"months\":1,\"at\":" + Q(at) + ",\"test\":true}");
+          Inject(Envelope("channel.subscribe", "1",
+            "{" + Who(user) + Chan() + "\"tier\":\"1000\",\"is_gift\":false}"));
+          injected = 1;
           break;
+
         case "resub":
-          Push("{\"kind\":\"resub\",\"user\":" + Q(user) + ",\"tier\":\"2000\",\"months\":11,\"message\":"
-             + Q("Still here, still watching.") + ",\"at\":" + Q(at) + ",\"test\":true}");
+          Inject(Envelope("channel.subscription.message", "1",
+            "{" + Who(user) + Chan()
+            + "\"tier\":\"2000\","
+            + "\"message\":{\"text\":" + Q("Eleven months and still here every week.") + ",\"emotes\":[]},"
+            + "\"cumulative_months\":11,\"streak_months\":3,\"duration_months\":6}"));
+          injected = 1;
           break;
+
         case "gift":
-          Push("{\"kind\":\"gift\",\"user\":" + Q(user) + ",\"tier\":\"1000\",\"count\":5,\"anon\":false,\"at\":"
-             + Q(at) + ",\"test\":true}");
+          // A gift bomb on Twitch is one gift notification plus one
+          // channel.subscribe per recipient. Both halves are replayed here, so
+          // clicking this proves the recipients are actually being swallowed
+          // rather than merely being intended to be - the difference between one
+          // alert and six on a client's stream.
+          Inject(Envelope("channel.subscription.gift", "1",
+            "{" + Who(user) + Chan()
+            + "\"total\":5,\"tier\":\"1000\",\"cumulative_total\":50,\"is_anonymous\":false}"));
+          injected = 1;
+          for (int i = 1; i <= 5; i++) {
+            Inject(Envelope("channel.subscribe", "1",
+              "{" + Who("GiftRecipient" + i) + Chan() + "\"tier\":\"1000\",\"is_gift\":true}"));
+            injected++;
+          }
           break;
+
         default:
           kind = "follow";
-          Push("{\"kind\":\"follow\",\"user\":" + Q(user) + ",\"at\":" + Q(at) + ",\"test\":true}");
+          Inject(Envelope("channel.follow", "2",
+            "{" + Who(user) + "\"moderator_user_id\":\"000000\"," + Chan()
+            + "\"followed_at\":" + Q(DateTime.UtcNow.ToString("o")) + "}"));
+          injected = 1;
           break;
       }
-      return "{\"fired\":" + Q(kind) + ",\"user\":" + Q(user) + "}";
+
+      // Reporting both numbers makes the gift case self-checking: six events in,
+      // one alert out is the coalescing working.
+      return "{\"fired\":" + Q(kind) + ",\"user\":" + Q(user)
+           + ",\"injected\":" + injected
+           + ",\"alerts\":" + (CurrentSeq - before) + "}";
     }
 
     // ----------------------------------------------------------------- goals

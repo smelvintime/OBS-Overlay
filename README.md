@@ -366,6 +366,34 @@ different faults that otherwise look identical:
 If the second account already follows, unfollow and wait a moment before
 refollowing — Twitch only sends `channel.follow` on a genuine new follow.
 
+### Rehearsing subscriber alerts without any subscribers
+
+You cannot make a real subscription happen on a channel that has none, and on
+someone else's channel you cannot make one happen at all. The **Test sub / resub /
+gift** buttons exist for that gap.
+
+They are not mock-ups. Each one builds a genuine EventSub notification — the same
+envelope and the same field names Twitch sends — and pushes it through exactly the
+code a live event goes through. So a test covers the JSON parsing, the field names,
+the tier and cumulative-month handling, the gift de-duplication and the alert
+queue. It does **not** cover the websocket itself or Twitch's delivery.
+
+**Test gift is the one worth clicking.** A gift bomb on Twitch is one gift event
+*plus one `channel.subscribe` for every recipient*, so five gifted subs arrive as
+six notifications. The test replays all six, and `/twitch/test?type=gift` reports
+what happened:
+
+```json
+{"fired":"gift","injected":6,"alerts":1}
+```
+
+Six in, one out — the recipients are being swallowed rather than firing six alerts
+on the stream. If that ever reads `"alerts":6`, the de-duplication has broken.
+
+Test events deliberately leave no trace: they don't move the counts, don't become
+the "latest subscriber", and aren't written to disk. Rehearse as often as you like
+without leaving fake names on someone's overlay.
+
 Goals left at `0` track the next round number above the current count, so the bar
 always has somewhere to go without you editing a config file. Set a number to pin it.
 
