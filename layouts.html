@@ -27,6 +27,15 @@
                      linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
     background-size:40px 40px}
   iframe{position:relative;display:block;width:100%;border:0;background:transparent}
+  .tune{display:flex;align-items:center;gap:14px;padding:11px 18px;
+    border-top:1px solid var(--line);background:#131317;flex-wrap:wrap}
+  .tune label{display:flex;align-items:center;gap:9px;color:var(--dim);font-size:12.5px;
+    font-weight:600;letter-spacing:.02em;white-space:nowrap}
+  .tune input[type=range]{width:190px;accent-color:var(--accent);cursor:pointer}
+  .val{color:var(--fg);font-variant-numeric:tabular-nums;min-width:38px;font-weight:700}
+  .tune select{background:#101014;color:var(--fg);border:1px solid var(--line);
+    border-radius:6px;padding:5px 8px;font-size:12.5px;font-family:inherit;cursor:pointer}
+  .replay{background:#2a2a33;color:var(--fg);font-weight:600;padding:6px 12px}
   .url{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--line);
     background:#101014;flex-wrap:wrap}
   code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#cfe9d8;
@@ -68,25 +77,83 @@ var LAYOUTS = [
     desc:'No card or background at all. Just an accent bar, art and text with a heavy shadow so it stays readable over anything.' }
 ];
 
+var TRANSITIONS = [
+  ['slide','Slide in from the side'],
+  ['drop','Drop in from the top'],
+  ['fade','Fade only'],
+  ['none','No transition']
+];
+
 var grid = document.getElementById('grid');
 LAYOUTS.forEach(function(L){
-  var url = location.origin + '/?layout=' + L.id;
+  var state = { opacity:100, transition:'slide' };
+
   var el = document.createElement('div');
   el.className = 'card';
   el.innerHTML =
     '<div class="head"><h2>' + L.name + '</h2>' +
       '<span class="desc">' + L.desc + '</span>' +
       '<span class="dims">OBS ' + L.obs + '</span></div>' +
-    '<div class="stagewrap"><iframe src="' + url + '" height="' + L.h + '" scrolling="no"></iframe></div>' +
-    '<div class="url"><code>' + url + '</code><button type="button">Copy URL</button></div>';
-  el.querySelector('button').addEventListener('click', function(){
+    '<div class="stagewrap"><iframe height="' + L.h + '" scrolling="no"></iframe></div>' +
+    '<div class="tune">' +
+      '<label>Opacity <input type="range" min="10" max="100" step="5" value="100" />' +
+        '<span class="val">100%</span></label>' +
+      '<label>New song ' +
+        '<select>' + TRANSITIONS.map(function(t){
+            return '<option value="'+t[0]+'">'+t[1]+'</option>'; }).join('') +
+        '</select></label>' +
+      '<button type="button" class="replay">Preview</button>' +
+    '</div>' +
+    '<div class="url"><code></code><button type="button" class="copy">Copy URL</button></div>';
+
+  var frame  = el.querySelector('iframe'),
+      range  = el.querySelector('input[type=range]'),
+      val    = el.querySelector('.val'),
+      select = el.querySelector('select'),
+      code   = el.querySelector('code'),
+      copyBt = el.querySelector('.copy');
+
+  function url(){
+    var u = location.origin + '/?layout=' + L.id;
+    if(state.opacity !== 100)     u += '&opacity=' + state.opacity;
+    if(state.transition !== 'slide') u += '&transition=' + state.transition;
+    return u;
+  }
+
+  // Opacity is previewed on the iframe itself rather than by reloading it with
+  // a new query string - the overlay is the only thing in there, so the result
+  // is identical and the slider stays smooth. The transition does need a
+  // reload, but it only changes on an explicit pick.
+  function paint(){
+    val.textContent = state.opacity + '%';
+    frame.style.opacity = state.opacity / 100;
+    code.textContent = url();
+  }
+
+  function reload(){
+    frame.src = location.origin + '/?layout=' + L.id + '&transition=' + state.transition;
+  }
+
+  range.addEventListener('input', function(){
+    state.opacity = parseInt(this.value,10); paint();
+  });
+  select.addEventListener('change', function(){
+    state.transition = this.value; paint(); reload();
+  });
+  el.querySelector('.replay').addEventListener('click', function(){
+    frame.contentWindow.postMessage('nowplaying:preview-transition', location.origin);
+  });
+  copyBt.addEventListener('click', function(){
     var b = this;
-    navigator.clipboard.writeText(url).then(function(){
+    navigator.clipboard.writeText(url()).then(function(){
       b.textContent = 'Copied'; b.classList.add('copied');
       setTimeout(function(){ b.textContent='Copy URL'; b.classList.remove('copied'); }, 1400);
     });
   });
+
   grid.appendChild(el);
+  paint();
+  reload();
 });
 </script>
 </body>

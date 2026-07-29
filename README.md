@@ -93,7 +93,9 @@ no Visual Studio, no .NET SDK, no downloads. Output goes to `dist\`.
 ## Layouts
 
 Open **<http://127.0.0.1:8787/layouts>** to see all four side by side against a
-mock stream background, with a copy button for each URL.
+mock stream background. Each one has an **opacity slider** and a **new-song
+transition** picker that write straight into the URL you copy, plus a
+**Preview** button so you can watch the transition without skipping a track.
 
 | Layout | URL | OBS size | What it is |
 |---|---|---|---|
@@ -123,6 +125,8 @@ http://127.0.0.1:8787/?layout=big&accent=fa2d48&showAlbum=1
 | `scale` | e.g. `1.25` | `1` | Overall size multiplier |
 | `radius` | px, e.g. `24` | `18` | Corner roundness |
 | `speed` | px/sec, e.g. `90` | `60` | Ticker scroll speed |
+| `opacity` | `10`–`100` | `100` | Overall overlay opacity, in percent |
+| `transition` | `slide`, `drop`, `fade`, `none` | `slide` | How a new song arrives |
 | `showAlbum` | `0`, `1` | `0` | Show the album name line |
 | `showArt` | `0`, `1` | `1` | Show album art |
 | `hideWhenPaused` | `0`, `1` | `0` | `1` hides it while paused instead of dimming |
@@ -135,8 +139,24 @@ Some combinations worth trying:
 - Big with album name — `?layout=big&showAlbum=1`
 - Text only, no art — `?layout=minimal&showArt=0`
 - Only visible while actually playing — `?hideWhenPaused=1`
+- Sits back behind gameplay — `?layout=minimal&opacity=65`
 
 `theme=minimal` from older setups still works and maps to `layout=minimal`.
+
+### Song changes
+
+When the track changes, the overlay itself stays put and only its contents
+swap: the old title and art leave, the new ones arrive from the opposite edge
+and settle with a slight overshoot. `slide` comes in from the right, `drop`
+from the top, `fade` cross-fades in place, and `none` switches instantly. Only
+the very first song plays the full entry animation.
+
+The ticker works differently, because restarting a scrolling line chops it off
+mid-word. It runs as a conveyor instead — copies are added at the right edge as
+room appears and dropped once they clear the left — so a new song simply starts
+filling in behind the line already on screen. Nothing is ever cut off, and
+queued copies of the old track that haven't reached the screen yet are dropped
+so the new one arrives as soon as it can.
 
 ## Using a different port
 

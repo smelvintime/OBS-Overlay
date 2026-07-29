@@ -14,12 +14,15 @@
      ?scale=1.0                        size multiplier
      ?radius=18                        corner radius px
      ?speed=60                         ticker scroll px/sec       (default 60)
+     ?opacity=100                      overlay opacity 10-100     (default 100)
+     ?transition=slide|drop|fade|none  how a new song arrives     (default slide)
      ?showAlbum=0|1                    show album line
      ?showArt=0|1                      show album art             (default 1)
      ?hideWhenPaused=0|1               hide while paused vs dim
   ---------------------------------------------------------------------------- */
   :root{
     --accent:#1db954;
+    --overlay-opacity:1;
     --radius:18px;
     --card-bg:rgba(18,18,20,.82);
     --card-border:rgba(255,255,255,.08);
@@ -39,8 +42,27 @@
   .wrap{opacity:0;transform:translateY(140%);
     transition:transform .55s cubic-bezier(.2,.9,.25,1),opacity .45s ease;}
   #stage.v-top .wrap{transform:translateY(-140%)}
-  .wrap.show{opacity:1;transform:translateY(0)}
+  .wrap.show{opacity:var(--overlay-opacity,1);transform:translateY(0)}
   .wrap.paused{filter:saturate(.55) brightness(.82)}
+
+  /* ---------- song change transition ----------
+     The card itself holds still and only its contents swap, so the overlay
+     reads as one persistent widget instead of re-entering on every track.
+     Outgoing content leaves in the direction of travel, the new one arrives
+     from the opposite edge and settles with a very small overshoot. */
+  .swapper{transition:transform .34s cubic-bezier(.22,1.28,.35,1),opacity .3s ease}
+  body.tr-none .swapper{transition:none}
+
+  .wrap.swap-out .swapper{opacity:0;transition-duration:.19s;
+    transition-timing-function:cubic-bezier(.4,0,1,1)}
+  body.tr-slide .wrap.swap-out .swapper{transform:translateX(-16px)}
+  body.tr-drop  .wrap.swap-out .swapper{transform:translateY(14px)}
+
+  /* Staged off its mark with transitions suppressed; releasing the class one
+     frame later is what animates it home. */
+  .wrap.swap-in .swapper{opacity:0;transition:none}
+  body.tr-slide .wrap.swap-in .swapper{transform:translateX(20px)}
+  body.tr-drop  .wrap.swap-in .swapper{transform:translateY(-18px)}
 
   /* ---------- shared bits ---------- */
   /* Every layout reuses one markup tree, so parts are hidden by default and
@@ -143,14 +165,13 @@
     color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.14em;
     text-transform:uppercase;height:64px}
   body.layout-ticker .ticker-view{flex:1 1 auto;overflow:hidden;position:relative;height:64px}
+  /* Driven from JS, not a keyframe: see the conveyor below for why. */
   body.layout-ticker .ticker-track{display:flex;align-items:center;height:64px;
-    width:max-content;animation:ticker var(--tdur,20s) linear infinite}
-  body.layout-ticker .wrap.paused .ticker-track{animation-play-state:paused}
+    width:max-content;will-change:transform}
   body.layout-ticker .ticker-item{white-space:nowrap;padding-right:80px;
     color:var(--text);font-size:20px;font-weight:600}
   body.layout-ticker .ticker-item .by{color:var(--subtext);font-weight:400}
   body.layout-ticker .ticker-item .dot{color:var(--accent);padding:0 14px}
-  @keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
   /* ========================== LAYOUT: minimal ========================== */
   /* No card, no chrome - just legible text over whatever is behind it. */
@@ -183,11 +204,11 @@
         <span class="eq"><span></span><span></span><span></span><span></span><span></span></span>
         <span>Now Playing</span>
       </div>
-      <div class="art" id="artBox">
+      <div class="art swapper" id="artBox">
         <img id="art" alt="" style="display:none" />
         <div class="fallback" id="fallback">&#9835;</div>
       </div>
-      <div class="meta">
+      <div class="meta swapper">
         <div class="eyebrow">
           <span class="eq"><span></span><span></span><span></span><span></span><span></span></span>
           <span id="eyebrow-text">Now Playing</span>
@@ -218,6 +239,19 @@
   if(q.get('accent')) root.style.setProperty('--accent','#'+q.get('accent').replace('#',''));
   if(q.get('radius')) root.style.setProperty('--radius',parseInt(q.get('radius'),10)+'px');
   var scale = parseFloat(q.get('scale')||'1');
+
+  // Opacity is given as a percentage because that is what the slider shows.
+  // Floored at 10 so a stray 0 can't make the overlay silently invisible.
+  var opacity = parseFloat(q.get('opacity')||'100');
+  if(!isFinite(opacity)) opacity = 100;
+  if(opacity>0 && opacity<=1) opacity *= 100;   // accept 0.85 as well as 85
+  if(opacity<10) opacity = 10;                  // never let it vanish completely
+  if(opacity>100) opacity = 100;
+  root.style.setProperty('--overlay-opacity', (opacity/100).toFixed(3));
+
+  var transition = (q.get('transition')||'slide').toLowerCase();
+  if(['slide','drop','fade','none'].indexOf(transition)<0) transition='slide';
+  body.classList.add('tr-'+transition);
 
   var stage = document.getElementById('stage');
   stage.classList.add('h-' + (q.get('align')==='right' ? 'right' : 'left'));
@@ -265,41 +299,121 @@
     }
   }
 
-  // Ticker: the track is one repeating "set" duplicated once, scrolled -50%,
-  // which loops seamlessly. A short title would leave a visible gap, so the set
-  // repeats enough times to overfill the bar first. Duration follows the set
-  // width so px/sec stays constant no matter how long the title is.
-  function buildTicker(np){
-    var html = '<span class="ticker-item">'+esc(np.title)+
-               (np.artist ? '<span class="by"> by </span>'+esc(np.artist) : '')+
-               (showAlbum && np.album ? '<span class="dot">&bull;</span><span class="by">'+esc(np.album)+'</span>' : '')+
-               '<span class="dot">&bull;</span></span>';
-    tickerTrack.innerHTML = html;
-    var one = Math.max(1, tickerTrack.scrollWidth);
-    var viewW = tickerView.clientWidth || 1;
-    var reps = Math.max(1, Math.ceil(viewW / one));
-    var set = new Array(reps + 1).join(html);
-    tickerTrack.innerHTML = set + set;
-    var half = tickerTrack.scrollWidth / 2;
-    tickerTrack.style.setProperty('--tdur', (half / speed) + 's');
+  // ---- ticker conveyor -------------------------------------------------
+  // A CSS keyframe loop has to restart when the track changes, which chops the
+  // line off mid-word. Instead this is a conveyor: copies are appended on the
+  // right as room appears and dropped once they clear the left edge, so a song
+  // change only changes what gets appended next. Whatever is on screen always
+  // finishes, and the new song fills in behind it.
+  var tickerItems = [];      // {el,w} in left-to-right order
+  var tickerOffset = 0;      // px the track has travelled past item 0's left edge
+  var tickerHtml = '';
+  var tickerStopped = false;
+
+  function tickerItemHtml(np){
+    return esc(np.title)+
+           (np.artist ? '<span class="by"> by </span>'+esc(np.artist) : '')+
+           (showAlbum && np.album ? '<span class="dot">&bull;</span><span class="by">'+esc(np.album)+'</span>' : '')+
+           '<span class="dot">&bull;</span>';
   }
+
+  function tickerFill(){
+    if(!tickerHtml) return;
+    var viewW = tickerView.clientWidth || 0;
+    var total = 0, i;
+    for(i=0;i<tickerItems.length;i++) total += tickerItems[i].w;
+    // Guard the loop: a zero-width item (hidden bar, no fonts yet) would spin.
+    for(i=0; total - tickerOffset < viewW + 40 && i<40; i++){
+      var el = document.createElement('span');
+      el.className = 'ticker-item';
+      el.innerHTML = tickerHtml;
+      tickerTrack.appendChild(el);
+      var w = el.offsetWidth;
+      if(w<=0){ tickerTrack.removeChild(el); return; }
+      tickerItems.push({el:el,w:w});
+      total += w;
+    }
+  }
+
+  function tickerSet(np){
+    tickerHtml = tickerItemHtml(np);
+    // Discard queued copies of the previous track that have not reached the
+    // viewport yet, so the new song arrives at the right edge as soon as it
+    // can without ever cutting the line that is already on screen.
+    var viewW = tickerView.clientWidth || 0, x = -tickerOffset;
+    for(var i=0;i<tickerItems.length;i++){
+      if(x >= viewW){
+        while(tickerItems.length > i){
+          tickerTrack.removeChild(tickerItems[i].el);
+          tickerItems.splice(i,1);
+        }
+        break;
+      }
+      x += tickerItems[i].w;
+    }
+    tickerFill();
+  }
+
+  var tickerLast = 0;
+  function tickerStep(ts){
+    requestAnimationFrame(tickerStep);
+    var dt = tickerLast ? (ts - tickerLast)/1000 : 0;
+    tickerLast = ts;
+    if(dt > 0.1) dt = 0.1;                 // tab was backgrounded; don't jump
+    if(!tickerStopped) tickerOffset += speed * dt;
+    while(tickerItems.length && tickerOffset >= tickerItems[0].w){
+      tickerOffset -= tickerItems[0].w;
+      tickerTrack.removeChild(tickerItems[0].el);
+      tickerItems.shift();
+    }
+    tickerFill();
+    tickerTrack.style.transform = 'translateX(' + (-tickerOffset).toFixed(1) + 'px)';
+  }
+  if(layout==='ticker') requestAnimationFrame(tickerStep);
 
   function esc(s){ return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+  function render(np){
+    scroller.textContent = np.title;
+    artistEl.textContent = np.artist || '';
+    if(showAlbum && np.album){ albumEl.textContent=np.album; albumEl.style.display='block'; }
+    else albumEl.style.display='none';
+    setArt(np.id, np.hasArt);
+    if(layout==='ticker') tickerSet(np);
+    requestAnimationFrame(fitMarquee);
+  }
+
+  // A track change swaps the contents in place. The old one leaves first, then
+  // the new one is written while it is still off its mark and released a frame
+  // later so the browser animates it home. Only the very first song plays the
+  // whole-overlay entry - after that the card stays put.
+  var swapTimer = null;
+  function changeSong(np){
+    if(transition==='none' || !wrap.classList.contains('show')){ render(np); return; }
+    clearTimeout(swapTimer);
+    wrap.classList.add('swap-out');
+    swapTimer = setTimeout(function(){
+      render(np);
+      wrap.classList.remove('swap-out');
+      wrap.classList.add('swap-in');
+      void wrap.offsetWidth;              // flush, so the staged position counts
+      function release(){ wrap.classList.remove('swap-in'); }
+      requestAnimationFrame(release);
+      // rAF stops in a browser source that isn't rendering; without this the
+      // staged frame could stick and leave the overlay looking blank.
+      setTimeout(release, 60);
+    }, 200);
+  }
+
+  var lastNp = null;
   function apply(np){
     if(!np || !np.title){ wrap.classList.remove('show'); lastId=null; return; }
+    lastNp = np;
 
     if(np.id !== lastId){
       lastId = np.id;
-      scroller.textContent = np.title;
-      artistEl.textContent = np.artist || '';
-      if(showAlbum && np.album){ albumEl.textContent=np.album; albumEl.style.display='block'; }
-      else albumEl.style.display='none';
-      setArt(np.id, np.hasArt);
-      if(layout==='ticker') buildTicker(np);
-      wrap.classList.remove('show'); void wrap.offsetWidth; wrap.classList.add('show');
-      setTimeout(function(){ fitMarquee(); if(layout==='ticker') buildTicker(np); }, 80);
+      changeSong(np);
     }
 
     if(np.playing){
@@ -309,6 +423,7 @@
       wrap.classList.add('paused'); eyebrow.textContent='Paused';
       if(hideWhenPaused) wrap.classList.remove('show'); else wrap.classList.add('show');
     }
+    tickerStopped = !np.playing;
   }
 
   // ---- live equaliser -------------------------------------------------
@@ -385,6 +500,15 @@
   }
   tick();
   window.addEventListener('resize', function(){ fitMarquee(); });
+
+  // The layouts page pokes this so the transition can be judged without having
+  // to skip a track in Spotify. Same origin only, and it replays the current
+  // song rather than accepting any content from the message.
+  window.addEventListener('message', function(ev){
+    if(ev.origin !== location.origin) return;
+    if(ev.data !== 'nowplaying:preview-transition') return;
+    if(lastNp) changeSong(lastNp);
+  });
 })();
 </script>
 </body>
