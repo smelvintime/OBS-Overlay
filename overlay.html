@@ -44,7 +44,7 @@
      snapping. Same reason for the accent transitions further down. */
   .wrap{opacity:0;transform:translateY(140%);
     transition:transform .55s cubic-bezier(.2,.9,.25,1),opacity .45s ease,
-               border-color .45s ease;}
+               border-color .25s ease;}
   #stage.v-top .wrap{transform:translateY(-140%)}
   .wrap.show{opacity:var(--overlay-opacity,1);transform:translateY(0)}
   .wrap.paused{filter:saturate(.55) brightness(.82)}
@@ -89,10 +89,13 @@
   .eyebrow{display:flex;align-items:center;gap:8px;color:var(--accent);
     font-weight:700;letter-spacing:.14em;text-transform:uppercase}
   .eq{display:inline-flex;align-items:flex-end;gap:2px;height:12px}
+  /* Matched to the .34s the incoming content takes to fly home, so the colour
+     arrives with it. Any slower and the words have already settled while the
+     accent is still catching up, which reads as two separate events. */
   .accent-bar,.badge,.ticker-item .dot{
-    transition:color .45s ease,background-color .45s ease,box-shadow .45s ease}
+    transition:color .25s ease,background-color .25s ease,box-shadow .25s ease}
   .eq span{width:3px;background:var(--accent);border-radius:2px;height:30%;
-    animation:bounce 1s ease-in-out infinite;transition:background-color .45s ease}
+    animation:bounce 1s ease-in-out infinite;transition:background-color .25s ease}
   .eq span:nth-child(2){animation-delay:.2s}.eq span:nth-child(3){animation-delay:.4s}
   .eq span:nth-child(4){animation-delay:.15s}.eq span:nth-child(5){animation-delay:.35s}
   .wrap.paused .eq span{animation-play-state:paused;height:30%}
@@ -399,24 +402,53 @@
   if(styleScale !== 1) wrap.style.zoom = styleScale;
   if(!showArt) body.classList.add('noart');
 
-  var lastId=null;
+  var lastId=null, rendered=false;
 
-  function setArt(id, hasArt){
-    if(showArt && hasArt){
-      img.onload=function(){
-        img.style.display='block'; fb.style.display='none';
-        refreshAutoAccent();
-      };
-      img.onerror=function(){
-        img.style.display='none'; fb.style.display='flex';
-        refreshAutoAccent();
-      };
-      img.src='/art?id='+encodeURIComponent(id);
-      backdrop.style.backgroundImage="url('/art?id="+encodeURIComponent(id)+"')";
+  // Everything a track change touches is made ready before the swap begins:
+  // the cover is fetched and decoded off-screen and its accent colour worked
+  // out up front. Assigning img.src at swap time only *starts* a download, so
+  // the title would change on cue while the artwork arrived whenever the fetch
+  // finished and the colour later still - three staggered updates instead of
+  // one movement.
+  function prepare(np, go){
+    var url = (showArt && np.hasArt) ? '/art?id='+encodeURIComponent(np.id) : null;
+    if(!url){ np._art=null; np._accent=null; go(); return; }
+
+    var pre = new Image(), done = false;
+    function finish(artUrl, sample){
+      if(done) return;
+      done = true;
+      np._art = artUrl;
+      np._accent = (sample && autoAccent) ? pickAccent(pre) : null;
+      go();
+    }
+    pre.onload = function(){
+      // decode() moves the expensive part off the frame that runs the
+      // animation, so the swap doesn't stutter on a large cover.
+      if(pre.decode) pre.decode().then(function(){ finish(url,true); },
+                                       function(){ finish(url,true); });
+      else finish(url,true);
+    };
+    pre.onerror = function(){ finish(null,false); };
+    // A slow or unreachable cover must never hold the overlay back: show the
+    // song on time and let the picture catch up on its own.
+    setTimeout(function(){ finish(url,false); }, 600);
+    pre.src = url;
+  }
+
+  // By the time this runs the image is already decoded in cache, so pointing
+  // the visible element at the same URL paints it in this frame.
+  function setArt(np){
+    if(np._art){
+      img.onload = null;
+      img.onerror = function(){ img.style.display='none'; fb.style.display='flex'; };
+      img.src = np._art;
+      img.style.display='block'; fb.style.display='none';
+      backdrop.style.backgroundImage = "url('" + np._art + "')";
     } else {
+      img.onload = img.onerror = null;
       img.style.display='none'; fb.style.display='flex'; img.removeAttribute('src');
       backdrop.style.backgroundImage='';
-      refreshAutoAccent();          // nothing to sample: back to the default
     }
   }
 
@@ -508,13 +540,19 @@
   function esc(s){ return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+  // One synchronous burst: words, cover and colour all land in the same frame.
   function render(np){
     scroller.textContent = np.title;
     artistEl.textContent = np.artist || '';
     if(showAlbum && np.album){ albumEl.textContent=np.album; albumEl.style.display='block'; }
     else albumEl.style.display='none';
-    setArt(np.id, np.hasArt);
+    setArt(np);
+    if(autoAccent){
+      if(np._accent) root.style.setProperty('--accent', np._accent);
+      else root.style.removeProperty('--accent');
+    }
     if(layout==='ticker') tickerSet(np);
+    rendered = true;
     requestAnimationFrame(fitMarquee);
   }
 
@@ -540,22 +578,36 @@
     }, 200);
   }
 
-  var lastNp = null;
-  function apply(np){
-    if(!np || !np.title){ wrap.classList.remove('show'); lastId=null; return; }
-    lastNp = np;
-
-    if(np.id !== lastId){
-      lastId = np.id;
-      changeSong(np);
-    }
-
+  // Held back until something has actually been rendered, so the overlay never
+  // slides a placeholder on screen while the first cover is still loading.
+  function showState(np){
+    if(!rendered) return;
     if(np.playing){
       wrap.classList.remove('paused'); eyebrow.textContent='Now Playing';
       wrap.classList.add('show');
     } else {
       wrap.classList.add('paused'); eyebrow.textContent='Paused';
       if(hideWhenPaused) wrap.classList.remove('show'); else wrap.classList.add('show');
+    }
+  }
+
+  var lastNp = null, prepToken = 0;
+  function apply(np){
+    if(!np || !np.title){ wrap.classList.remove('show'); lastId=null; return; }
+    lastNp = np;
+
+    if(np.id !== lastId){
+      lastId = np.id;
+      // Skipping tracks quickly can leave several preloads in flight; only the
+      // newest one is allowed to reach the screen.
+      var mine = ++prepToken;
+      prepare(np, function(){
+        if(mine !== prepToken) return;
+        changeSong(np);
+        showState(np);
+      });
+    } else {
+      showState(np);
     }
     tickerStopped = !np.playing;
   }
