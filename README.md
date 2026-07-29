@@ -229,8 +229,10 @@ The app captures whatever Windows is playing, runs an FFT over it, and streams t
 frequency bands to the overlay about 30 times a second. **Left bars follow bass, right
 bars follow treble** — kick drums punch the left, hi-hats and cymbals flicker on the right.
 
-It works with any audio because it reads the sound card output, not a specific app.
-Nothing to configure.
+**It listens only to the player the overlay is showing.** If the card says Spotify, the
+bars follow Spotify — a friend talking in Discord, a YouTube video, or a game will not
+move them. The analyser follows the source picker automatically, so pinning a player
+pins the equaliser too. Nothing to configure.
 
 More bars looks better on the bigger layouts:
 
@@ -247,9 +249,14 @@ http://127.0.0.1:8787/?layout=card&bars=12
 If audio capture is unavailable it falls back to the old animation on its own, so the
 overlay never shows a row of dead bars.
 
-**It reflects everything your PC plays**, not just music — Discord, notifications and
-game audio move the bars too. If you route music to a separate output device, the
-analyser follows the *default* device.
+Per-app capture needs **Windows 11 or Windows 10 build 20348+**. On anything older it
+falls back to capturing all system audio, which still works — other sounds just move the
+bars too. `/spectrum.json` reports which mode is in use:
+
+```
+"status":"capturing Spotify.exe only (2ch 48000Hz)"
+"status":"capturing all system audio (2ch 48000Hz)"
+```
 
 Costs about 0.15% CPU.
 

@@ -392,6 +392,9 @@ namespace NowPlaying {
             }
           }
           _current = snap;
+          // Keep the equaliser listening to whatever the overlay is showing, so
+          // voice chat or a video in another tab cannot drive the bars.
+          AudioSpectrum.SetTargetApp(snap.App);
         } catch {
           // never let a transient media-API failure kill the poller
         }
@@ -769,6 +772,7 @@ namespace NowPlaying {
       var sb = new StringBuilder();
       sb.Append("{\"active\":").Append(AudioSpectrum.Active ? "true" : "false");
       sb.Append(",\"status\":").Append(Q(AudioSpectrum.Status));
+      sb.Append(",\"target\":").Append(Q(AudioSpectrum.Target));
       sb.Append(",\"bands\":[");
       for (int i = 0; i < bands.Length; i++) {
         if (i > 0) sb.Append(',');
