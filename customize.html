@@ -638,10 +638,23 @@
     var s = twitch.status, cls = 'warn', html = '';
     if(s === 'live'){
       cls = 'ok';
-      html = 'Connected to Twitch as <strong>' + (twitch.channel || '?') + '</strong>. '
-           + 'The preview is showing real numbers.';
+      var ev = twitch.events || {listening:[], received:0};
+      var listening = (ev.listening || []).map(function(t){
+        return t.replace('channel.subscription.message','resubs')
+                .replace('channel.subscription.gift','gifts')
+                .replace('channel.subscribe','subs')
+                .replace('channel.follow','follows'); });
+      html = 'Connected to Twitch as <strong>' + (twitch.channel || '?') + '</strong>'
+           + (listening.length ? ', listening for <strong>' + listening.join(', ') + '</strong>.'
+                               : ', but not subscribed to any events yet.');
       if(twitch.subs && twitch.subs.total === -2)
-        html += ' Subscriptions are unavailable on this channel, so that box stays hidden.';
+        html += ' Subscriptions are unavailable with this token or channel, so that box stays hidden.';
+      // The count is the thing to watch when testing with a second account: it
+      // separates "Twitch sent nothing" from "the page failed to draw it".
+      html += '<br><strong>' + ev.received + '</strong> event'
+           + (ev.received === 1 ? '' : 's') + ' received since start'
+           + (ev.lastAt ? ' &mdash; last was <strong>' + ev.lastKind + '</strong> at ' + ev.lastAt : '')
+           + '.';
     } else if(s === 'bad-token' || s === 'missing-scope'){
       cls = 'bad';
       html = '<strong>' + twitch.detail + '</strong> Alerts and counts will not update until this is fixed.';
@@ -659,16 +672,21 @@
     bannerEl.innerHTML = html;
   }
 
-  fetch('/twitch',{cache:'no-store'})
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      twitch = d;
-      var wasDemo = statsDemo;
-      statsDemo = (d.status !== 'live');
-      showBanner();
-      if(current === 'stats' && wasDemo !== statsDemo) reloadFrame();
-    })
-    .catch(function(){});
+  // Polled rather than read once, so the banner doubles as a test readout: follow
+  // from a second account and the received count ticks up here within seconds.
+  (function pollTwitch(){
+    fetch('/twitch',{cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        twitch = d;
+        var wasDemo = statsDemo;
+        statsDemo = (d.status !== 'live');
+        showBanner();
+        if(current === 'stats' && wasDemo !== statsDemo) reloadFrame();
+      })
+      .catch(function(){})
+      .finally(function(){ setTimeout(pollTwitch, 3000); });
+  })();
 
   // With auto on there is no colour in the state to show, so this page borrows
   // whatever the preview settled on. It makes the controls themselves shift

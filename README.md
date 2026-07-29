@@ -302,14 +302,26 @@ wrong scopes and belongs to a different client, so it will not work here.
 1. **Register an app** in the [Twitch Developer Console](https://dev.twitch.tv/console).
    Note its **Client ID** — this one is not secret.
 
-2. **Get a user token** for your own account with both of these scopes:
-   - `moderator:read:followers` — follower count and who followed
-   - `channel:read:subscriptions` — subscriber count
+2. **Get a user token** for your own account. Only one scope is actually required:
 
-   Easiest official route is the [Twitch CLI](https://dev.twitch.tv/docs/cli/):
+   | Scope | Needed for | Required? |
+   |---|---|---|
+   | `moderator:read:followers` | Follower alerts, count and latest follower | **Yes** |
+   | `channel:read:subscriptions` | Subscriber alerts and count | Optional |
+
+   Easiest official route is the [Twitch CLI](https://dev.twitch.tv/docs/cli/).
+   Followers only — the simplest thing that works:
+   ```
+   twitch token -u -s "moderator:read:followers"
+   ```
+   Or both, if you want subscriber alerts too:
    ```
    twitch token -u -s "moderator:read:followers channel:read:subscriptions"
    ```
+
+   A followers-only token is a fully supported setup, not a degraded one. The
+   subscriber box hides itself, sub alerts simply never fire, and follows work
+   exactly as they would otherwise.
 
 3. **Put both in `twitch-config.json`** next to the app (it is read from the exe's
    folder or up to three levels above, so `dist\` works):
@@ -330,6 +342,29 @@ wrong scopes and belongs to a different client, so it will not work here.
 > used a generator site rather than your own app, you must use *that site's* Client ID.
 > Twitch checks the pair and rejects every request otherwise — which shows up as
 > `Twitch rejected the token (401)`.
+
+### Testing it with a second account
+
+You can't follow your own channel, so a real end-to-end test needs another account.
+
+1. Open **`/customize`** and pick the **Twitch alerts** tab. Leave it on screen.
+2. The banner at the top should read *Connected to Twitch as &lt;you&gt;, listening for
+   **follows***, followed by a running count of events received.
+3. Follow the channel from the second account.
+4. Within a second or two the count ticks up to *1 event received — last was
+   **channel.follow** at hh:mm:ss*, and the alert plays in the preview.
+
+That count is the useful part when something goes wrong, because it separates three
+different faults that otherwise look identical:
+
+| Symptom | Means |
+|---|---|
+| Banner never says *listening for follows* | The subscription was rejected — scope or Client ID problem |
+| Listening, but count stays at `0` | Twitch never sent the event — check you actually followed from a *different* account, and that it wasn't already following |
+| Count goes up but no alert appears | The event arrived; the problem is in the page or its position in OBS |
+
+If the second account already follows, unfollow and wait a moment before
+refollowing — Twitch only sends `channel.follow` on a genuine new follow.
 
 Goals left at `0` track the next round number above the current count, so the bar
 always has somewhere to go without you editing a config file. Set a number to pin it.
@@ -365,8 +400,10 @@ real event happens. Leave it off the URL you actually use.
 - **The most recent subscriber only ever arrives as an event** — Twitch's subscriber
   API carries no timestamp, so there is nothing to sort by. It is remembered across
   restarts, but a brand-new setup shows only the goal face until someone subscribes.
-- A **non-affiliate channel** cannot expose subscriptions at all. The subscriber box
-  hides itself rather than showing a zero; the follower box is unaffected.
+- **Subscriptions are optional throughout.** A followers-only token, or a channel
+  that isn't affiliate, fails every subscription-related request — and that is
+  treated as "no sub data", never as a broken token. The subscriber box hides
+  itself rather than showing a zero, and follow alerts are completely unaffected.
 - An **expired token** is reported in the tray and the customizer instead of the
   counts silently freezing. User tokens expire — regenerate when that happens.
 - The alerts page stays **completely invisible** when nothing is happening and when it

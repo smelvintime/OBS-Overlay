@@ -356,10 +356,11 @@ namespace NowPlaying {
         var root = _ser.DeserializeObject(s);
         _subTotal = INav(root, "total");
         _subPoints = INav(root, "points");
-      } else if (http == 400 || http == 403) {
-        // Non-affiliate channels cannot expose subscriptions at all. That is a
-        // fact about the channel, not a fault, so the follower half carries on
-        // and the pages hide the sub box instead of showing a broken one.
+      } else if (http == 400 || http == 401 || http == 403) {
+        // Either the channel cannot have subscriptions, or the token was never
+        // given the scope. Both mean the same thing to the pages - there is no
+        // sub data - and neither is a fault worth interrupting followers over.
+        // 401 is included because a missing scope is what Twitch returns it for.
         _subTotal = -2;
       }
     }
@@ -454,42 +455,64 @@ namespace NowPlaying {
       }
     }
 
+    // Which event types Twitch actually accepted, so the pages can say what is
+    // being listened for rather than implying everything works.
+    static readonly List<string> _active = new List<string>();
+
     static bool CreateSubscriptions(string sessionId) {
       if (sessionId.Length == 0) return false;
+      lock (_active) _active.Clear();
 
       // channel.follow is v2 and needs a moderator_user_id; the broadcaster is
       // always a moderator of their own channel, so it doubles as both.
       bool ok = Sub("channel.follow", "2",
         "{\"broadcaster_user_id\":\"" + _broadcasterId + "\",\"moderator_user_id\":\"" + _broadcasterId + "\"}",
-        sessionId);
+        sessionId, true);
 
-      // A non-affiliate channel legitimately cannot subscribe to these, so a
-      // failure here must not take the follower half down with it.
-      Sub("channel.subscribe", "1",
-        "{\"broadcaster_user_id\":\"" + _broadcasterId + "\"}", sessionId);
-      Sub("channel.subscription.message", "1",
-        "{\"broadcaster_user_id\":\"" + _broadcasterId + "\"}", sessionId);
-      Sub("channel.subscription.gift", "1",
-        "{\"broadcaster_user_id\":\"" + _broadcasterId + "\"}", sessionId);
+      // These three are optional on purpose. A token scoped only for followers,
+      // or a channel that cannot have subscribers, fails every one of them - and
+      // that must not be mistaken for a dead token, because treating it as one
+      // would abandon the socket and take working follow alerts down with it.
+      bool subs = Sub("channel.subscribe", "1",
+        "{\"broadcaster_user_id\":\"" + _broadcasterId + "\"}", sessionId, false);
+      subs |= Sub("channel.subscription.message", "1",
+        "{\"broadcaster_user_id\":\"" + _broadcasterId + "\"}", sessionId, false);
+      subs |= Sub("channel.subscription.gift", "1",
+        "{\"broadcaster_user_id\":\"" + _broadcasterId + "\"}", sessionId, false);
+      if (!subs) _subTotal = -2;      // pages hide the subscriber box entirely
 
       return ok;
     }
 
-    static bool Sub(string type, string version, string condition, string sessionId) {
+    static bool Sub(string type, string version, string condition, string sessionId, bool critical) {
       string body = "{\"type\":\"" + type + "\",\"version\":\"" + version + "\","
                   + "\"condition\":" + condition + ","
                   + "\"transport\":{\"method\":\"websocket\",\"session_id\":\"" + sessionId + "\"}}";
       int http;
       string resp = HelixPost("https://api.twitch.tv/helix/eventsub/subscriptions", body, out http);
-      if (resp != null && (http == 200 || http == 202)) return true;
-      if (NoteAuthFailure(http, type)) return false;
+      if (resp != null && (http == 200 || http == 202)) {
+        lock (_active) _active.Add(type);
+        return true;
+      }
+      if (critical) NoteAuthFailure(http, type);
       return false;
     }
+
+    // A record that something genuinely arrived from Twitch. Without it, "no
+    // alert appeared" is ambiguous between nothing being sent, the socket being
+    // down, and the page failing to draw - three different things to go and fix.
+    static volatile int _eventCount;
+    static volatile string _lastEventKind = "";
+    static volatile string _lastEventAt = "";
 
     static void HandleNotification(object msg) {
       string type = SNav(msg, "payload", "subscription", "type");
       object ev = Nav(msg, "payload", "event");
       if (ev == null) return;
+
+      _eventCount++;
+      _lastEventKind = type;
+      _lastEventAt = DateTime.Now.ToString("HH:mm:ss");
 
       string user = SNav(ev, "user_name");
       if (user.Length == 0) user = SNav(ev, "user_login");
@@ -591,6 +614,16 @@ namespace NowPlaying {
       sb.Append("\"detail\":").Append(Q(_detail)).Append(',');
       sb.Append("\"channel\":").Append(Q(_channel)).Append(',');
       sb.Append("\"seq\":").Append(CurrentSeq).Append(',');
+      sb.Append("\"events\":{\"listening\":[");
+      lock (_active) {
+        for (int i = 0; i < _active.Count; i++) {
+          if (i > 0) sb.Append(',');
+          sb.Append(Q(_active[i]));
+        }
+      }
+      sb.Append("],\"received\":").Append(_eventCount)
+        .Append(",\"lastKind\":").Append(Q(_lastEventKind))
+        .Append(",\"lastAt\":").Append(Q(_lastEventAt)).Append("},");
       sb.Append("\"followers\":{\"total\":").Append(ft)
         .Append(",\"goal\":").Append(fg)
         .Append(",\"latest\":").Append(Q(lf))
