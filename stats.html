@@ -345,6 +345,28 @@
       es.onerror = function(){};
     }
   }
+
+  // The recommended OBS source size is a guess; the true footprint depends on
+  // which boxes are visible, the current cycle face and the scale/width knobs.
+  // Reporting the measured stack lets the customizer show a real number rather
+  // than one that leaves empty space or clips a long name.
+  if(window.top !== window.self && window.ResizeObserver){
+    var stackEl = document.getElementById('stack');
+    var lastReport = '';
+    function reportSize(){
+      var r = stackEl.getBoundingClientRect();
+      if(r.width <= 0 || r.height <= 0) return;
+      var w = Math.round(r.width), h = Math.round(r.height);
+      var key = w + 'x' + h;
+      if(key === lastReport) return;
+      lastReport = key;
+      try {
+        window.parent.postMessage({type:'nowplaying:content-size', w:w, h:h}, location.origin);
+      } catch(e){}
+    }
+    new ResizeObserver(reportSize).observe(stackEl);
+    window.addEventListener('load', reportSize);
+  }
 })();
 </script>
 </body>

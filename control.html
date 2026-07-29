@@ -56,6 +56,10 @@
   .saved{color:var(--accent);font-size:13.5px;font-weight:600;opacity:0;transition:opacity .25s}
   .saved.show{opacity:1}
   .note{color:var(--warn);font-size:13px;margin-top:12px;line-height:1.5}
+  /* ?embed=1 drops this page's own title into the dashboard shell at /app,
+     which already has one - two headers stacked would just be noise. */
+  body.embed header{display:none}
+  body.embed .wrap{padding-top:20px}
 </style>
 </head>
 <body>
@@ -217,6 +221,9 @@
       })
       .catch(function(){});
   }
+
+  if(new URLSearchParams(location.search).get('embed') === '1')
+    document.body.classList.add('embed');
 
   refresh();
   setInterval(refresh, 2000);

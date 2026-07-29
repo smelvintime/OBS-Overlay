@@ -198,11 +198,15 @@ namespace NowPlaying {
 
       var header = new ToolStripMenuItem("Now Playing Overlay") { Enabled = false };
       menu.Items.Add(header);
+      menu.Items.Add("Open dashboard...", null, (s, e) => OpenUrl("/app"));
       menu.Items.Add(new ToolStripSeparator());
 
-      menu.Items.Add("Choose which player to follow...", null, (s, e) => OpenUrl("/control"));
-      menu.Items.Add("Customize the overlay...", null, (s, e) => OpenUrl("/customize"));
-      menu.Items.Add("Compare layouts...", null, (s, e) => OpenUrl("/layouts"));
+      // Deep links into the same dashboard rather than the old standalone
+      // pages - one address to remember, with these as shortcuts to a tab
+      // rather than a separate site each.
+      menu.Items.Add("Choose which player to follow...", null, (s, e) => OpenUrl("/app#control"));
+      menu.Items.Add("Customize the overlay...", null, (s, e) => OpenUrl("/app#customize"));
+      menu.Items.Add("Compare layouts...", null, (s, e) => OpenUrl("/app#layouts"));
       menu.Items.Add("Preview overlay...", null, (s, e) => OpenUrl("/"));
       menu.Items.Add(new ToolStripSeparator());
 
@@ -251,6 +255,16 @@ namespace NowPlaying {
       };
       menu.Items.Add(startup);
       menu.Items.Add(new ToolStripSeparator());
+      menu.Items.Add("Open log folder", null, (s, e) => {
+        try {
+          string dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "NowPlayingOverlay");
+          Directory.CreateDirectory(dir);
+          System.Diagnostics.Process.Start("explorer.exe", dir);
+        } catch { }
+      });
+      menu.Items.Add(new ToolStripSeparator());
       menu.Items.Add("Exit", null, (s, e) => { Shutdown(); });
 
       // Keep the tooltip showing whatever is on screen right now.
@@ -271,10 +285,11 @@ namespace NowPlaying {
         Visible = true,
         ContextMenuStrip = menu
       };
-      _tray.DoubleClick += (s, e) => OpenUrl("/control");
+      _tray.DoubleClick += (s, e) => OpenUrl("/app");
     }
 
     static void Shutdown() {
+      AppLog.Write("shutdown requested from tray menu");
       try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); } } catch { }
       try { Application.Exit(); } catch { }
       Environment.Exit(0);
@@ -286,20 +301,79 @@ namespace NowPlaying {
                            MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
+    static DateTime _startTime;
+    static int _relaunchCount;
+    static string[] _relaunchArgs = new string[0];
+
+    // A crash within the first 10s of starting almost certainly repeats
+    // immediately on relaunch too - bad config, a port fight, corrupt state -
+    // so relaunching forever in that case would spin CPU instead of actually
+    // recovering. A short-lived process before the crash is what distinguishes
+    // "one bad API response" from "this will just crash again immediately".
+    static void TryRelaunch() {
+      try {
+        if (_relaunchCount >= 5) {
+          AppLog.Write("giving up after " + _relaunchCount + " auto-relaunches - start it manually.");
+          return;
+        }
+        if ((DateTime.Now - _startTime).TotalSeconds < 10) {
+          AppLog.Write("crashed within 10s of starting - not auto-relaunching (would likely just loop).");
+          return;
+        }
+        string exe = Assembly.GetExecutingAssembly().Location;
+        string cmdArgs = string.Join(" ", _relaunchArgs) + " -relaunch:" + (_relaunchCount + 1);
+        AppLog.Write("auto-relaunching (attempt " + (_relaunchCount + 1) + "): " + cmdArgs);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, cmdArgs) {
+          UseShellExecute = true
+        });
+      } catch (Exception ex2) {
+        AppLog.Write("auto-relaunch itself failed: " + ex2);
+      }
+    }
+
     [STAThread]
     static int Main(string[] args) {
+      _startTime = DateTime.Now;
       _hasConsole = AttachConsole(-1);      // -1 = parent process
+
+      // An unhandled exception on any thread - the UI thread or a background
+      // one - takes the whole process down with it by default, which is why a
+      // single bad Twitch API response used to mean restarting OBS to get the
+      // song overlay back too. Nothing here can prevent that termination, but
+      // logging first turns "it just vanished" into a line pointing at why, and
+      // relaunching means the pages (which already retry forever on their own)
+      // find a live server again in a couple of seconds without anyone touching
+      // OBS - the same URLs come back to life instead of staying dead until a
+      // person notices and restarts the exe by hand.
+      AppLog.Write("startup: pid=" + System.Diagnostics.Process.GetCurrentProcess().Id);
+      AppDomain.CurrentDomain.UnhandledException += (s, e) => {
+        AppLog.Write("FATAL unhandled exception (terminating=" + e.IsTerminating + "): "
+          + (e.ExceptionObject as Exception));
+        if (e.IsTerminating) TryRelaunch();
+      };
+      Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+      Application.ThreadException += (s, e) => {
+        AppLog.Write("UI thread exception (caught, continuing): " + e.Exception);
+      };
+
       Application.EnableVisualStyles();
       LoadSettings();     // command line below overrides the saved choice
 
+      var keepArgs = new List<string>();
       for (int i = 0; i < args.Length; i++) {
         var a = args[i].TrimStart('-', '/').ToLowerInvariant();
+        if (a.StartsWith("relaunch:")) {
+          int.TryParse(a.Substring("relaunch:".Length), out _relaunchCount);
+          continue;   // never carried forward literally; TryRelaunch appends its own
+        }
+        keepArgs.Add(args[i]);
         if ((a == "port" || a == "p") && i + 1 < args.Length) {
-          int p; if (int.TryParse(args[i + 1], out p)) { _port = p; i++; }
+          int p; if (int.TryParse(args[i + 1], out p)) { _port = p; }
+          keepArgs.Add(args[i + 1]); i++;
         } else if (a == "prefer" && i + 1 < args.Length) {
-          _pinApp = args[++i]; _mode = "prefer";
+          i++; _pinApp = args[i]; _mode = "prefer"; keepArgs.Add(args[i]);
         } else if (a == "only" && i + 1 < args.Length) {
-          _pinApp = args[++i]; _mode = "only";
+          i++; _pinApp = args[i]; _mode = "only"; keepArgs.Add(args[i]);
         } else if (a == "auto") {
           _pinApp = ""; _mode = "auto";
         } else if (a == "startup" && i + 1 < args.Length) {
@@ -334,20 +408,40 @@ namespace NowPlaying {
         }
       }
       if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
+      _relaunchArgs = keepArgs.ToArray();
+      if (_relaunchCount > 0) AppLog.Write("this is relaunch #" + _relaunchCount + " after a crash");
 
-      TcpListener listener;
-      try {
-        listener = new TcpListener(IPAddress.Loopback, _port);
-        listener.Start();
-      } catch (SocketException ex) {
+      // A crashed instance's socket is not always released the instant the
+      // process dies - an auto-relaunch (below) can spawn fast enough to hit
+      // that gap and see the port as taken when nothing is really listening on
+      // it anymore. A few short retries absorb that without changing what a
+      // genuine "another copy is already running" conflict looks like: that
+      // case still fails, just a couple of seconds later than before.
+      TcpListener listener = null;
+      SocketException bindFailure = null;
+      for (int attempt = 0; attempt < 10; attempt++) {
+        try {
+          listener = new TcpListener(IPAddress.Loopback, _port);
+          listener.Start();
+          bindFailure = null;
+          break;
+        } catch (SocketException ex) {
+          bindFailure = ex;
+          listener = null;
+          Thread.Sleep(300);
+        }
+      }
+      if (listener == null) {
+        AppLog.Write("could not bind port " + _port + " after retrying: " + bindFailure.Message);
         // With no console this would otherwise fail invisibly at every login.
-        Fatal("Could not open port " + _port + ".\r\n\r\n" + ex.Message
+        Fatal("Could not open port " + _port + ".\r\n\r\n" + bindFailure.Message
               + "\r\n\r\nAnother copy is probably already running"
               + " (check the system tray).\r\n"
               + "To use a different port:  NowPlayingOverlay.exe -port " + (_port + 1)
               + "\r\nThen use that same port in the OBS browser source URL.");
         return 1;
       }
+      AppLog.Write("listening on port " + _port);
 
       var poller = new Thread(PollLoop);
       poller.IsBackground = true;
@@ -380,14 +474,9 @@ namespace NowPlaying {
       SayColor("    Add this as an OBS Browser Source:", ConsoleColor.Cyan);
       SayColor("        http://127.0.0.1:" + _port + "/", ConsoleColor.Cyan);
       Say("");
-      SayColor("    Customize how it looks:", ConsoleColor.Cyan);
-      SayColor("        http://127.0.0.1:" + _port + "/customize", ConsoleColor.Cyan);
-      Say("");
-      SayColor("    Compare the layouts here:", ConsoleColor.Cyan);
-      SayColor("        http://127.0.0.1:" + _port + "/layouts", ConsoleColor.Cyan);
-      Say("");
-      SayColor("    Choose which player to follow:", ConsoleColor.Cyan);
-      SayColor("        http://127.0.0.1:" + _port + "/control", ConsoleColor.Cyan);
+      SayColor("    Everything else - customizing, layouts, choosing a source,", ConsoleColor.Cyan);
+      SayColor("    Twitch alerts - is one dashboard now:", ConsoleColor.Cyan);
+      SayColor("        http://127.0.0.1:" + _port + "/app", ConsoleColor.Cyan);
       Say("");
       if (_mode != "auto") {
         SayColor("    Source: " + (_mode == "only" ? "locked to \"" : "preferring \"")
@@ -795,6 +884,8 @@ namespace NowPlaying {
             SaveSettings();
             var body = "{\"mode\":" + Q(_mode) + ",\"app\":" + Q(_pinApp) + "}";
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(body));
+          } else if (route == "/app" || route == "/app/") {
+            SendResource(ns, "app.html");
           } else if (route == "/control" || route == "/control/") {
             SendResource(ns, "control.html");
           } else if (route == "/layouts" || route == "/layouts/") {

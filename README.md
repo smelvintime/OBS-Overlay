@@ -20,6 +20,12 @@ Nothing to install.
 
 That's it — play a song and the card appears. It updates automatically as tracks change.
 
+Everything else — customizing how it looks, comparing layouts, choosing which player to
+follow, Twitch alerts — lives in one dashboard: **<http://127.0.0.1:8787/app>** (or
+right-click the tray icon → **Open dashboard…**). The individual pages it's built from
+(`/customize`, `/layouts`, `/control`) still work as direct links too, if you'd rather
+bookmark one tab on its own.
+
 It's a single 40 KB file. Nothing to install, no PowerShell, no runtime download: it
 uses the .NET Framework already present on every Windows 10/11 machine, and the overlay
 pages are embedded inside the executable.
@@ -36,14 +42,17 @@ Use a different port with `NowPlayingOverlay.exe -port 8788`.
 
 There's no window. Everything lives on the tray icon (a green ♫). **Right-click** it for:
 
-- **Choose which player to follow…** — opens the source control page
-- **Compare layouts…** and **Preview overlay…**
-- **Twitch alerts and stats** — previews, source URLs, and the connection state
+- **Open dashboard…** — everything below, in one place: choosing a source,
+  customizing, layouts, Twitch. `http://127.0.0.1:8787/app`
+- **Choose which player to follow…**, **Customize the overlay…**, **Compare layouts…**
+  — shortcuts straight into that dashboard's matching tab
+- **Preview overlay…** and **Twitch alerts and stats** — the raw OBS source pages themselves
 - **Copy OBS browser source URL** — straight to the clipboard
 - **Start with Windows** — tick to launch automatically at login
+- **Open log folder** — where to look if something needs troubleshooting
 - **Exit** — this is how you stop it
 
-**Double-click** the icon to jump to the source control page. Hovering shows the current
+**Double-click** the icon to jump to the dashboard. Hovering shows the current
 track, so you can confirm it's working at a glance.
 
 > Windows often hides new tray icons behind the **^** arrow. If you don't see it, click
@@ -69,6 +78,30 @@ it will use that port at login too.
 
 Because it starts silently in the tray, you can leave it enabled permanently and forget
 about it — OBS will just find the overlay whenever you stream.
+
+## If it crashes
+
+Every page here already retries forever on its own — the now-playing overlay refetches
+every 1.5s, the dashboard's Twitch banner and source picker poll every few seconds, and
+the alert/stats pages use `EventSource`, which reconnects by itself. None of them ever
+give up. So the moment the exe is back, whatever OBS already has open picks the overlay
+back up **with nothing clicked in OBS** — same source, same URL, no refresh needed.
+
+The exe also tries to relaunch itself. If it crashes, it attempts to start a fresh copy
+with the same port and settings, up to 5 times. It deliberately does **not** retry a crash
+that happens in the first 10 seconds of starting — that almost always means something
+will just crash again immediately (a bad config, a port fight), and retrying forever
+would spin instead of actually recovering. If you ever see the tray icon gone and it
+hasn't come back, that's what happened; check the log (tray icon → **Open log folder**,
+or `%APPDATA%\NowPlayingOverlay\app.log`) for what it hit and start it by hand.
+
+**The one thing that's a genuine OBS setting, not this app:** if a Browser Source has
+**"Shutdown source when not visible"** turned on, OBS destroys that page whenever the
+scene isn't active and loads it fresh next time — if that reload happens to land while
+the exe is mid-relaunch, the source can show blank until you switch scenes again or
+right-click it and choose **Refresh**. Leaving that setting **off** avoids the gap
+entirely: the same page just sits there quietly retrying, exactly as described above.
+**"Refresh browser when scene becomes active"** is fine to leave on either way.
 
 ## Alternative: run from source
 

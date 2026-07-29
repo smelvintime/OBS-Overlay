@@ -383,6 +383,7 @@ namespace NowPlaying {
     static void WsLoop() {
       int backoff = 5;
       string url = "wss://eventsub.wss.twitch.tv/ws";
+      bool everConnected = false;
 
       while (true) {
         ClientWebSocket ws = null;
@@ -390,6 +391,11 @@ namespace NowPlaying {
           ws = new ClientWebSocket();
           ws.ConnectAsync(new Uri(url), CancellationToken.None).Wait();
           url = "wss://eventsub.wss.twitch.tv/ws";   // reconnect_url is single-use
+          if (everConnected) {
+            _reconnects++;
+            AppLog.Write("twitch: socket reconnected (reconnect #" + _reconnects + ")");
+          }
+          everConnected = true;
 
           var buf = new byte[16384];
           var acc = new StringBuilder();
@@ -425,26 +431,32 @@ namespace NowPlaying {
               string sid = SNav(msg, "payload", "session", "id");
               int ka = INav(msg, "payload", "session", "keepalive_timeout_seconds");
               if (ka > 0) keepalive = ka;
+              _sessionId = sid;
+              _connectedAt = DateTime.Now.ToString("HH:mm:ss");
               // Twitch closes the socket if no subscription is created within
               // 10s of the welcome, so this cannot be deferred.
               subscribed = CreateSubscriptions(sid);
               if (subscribed) { _status = "live"; _detail = ""; backoff = 5; }
+              AppLog.Write("twitch: session_welcome, session=" + sid + " status=" + _status);
             } else if (type == "session_keepalive") {
-              // nothing to do; receiving it is the point
+              _lastKeepaliveAt = DateTime.Now.ToString("HH:mm:ss");
             } else if (type == "session_reconnect") {
               string next = SNav(msg, "payload", "session", "reconnect_url");
               if (next.Length > 0) url = next;
+              AppLog.Write("twitch: session_reconnect requested by Twitch");
               break;   // reconnect immediately rather than overlapping sockets
             } else if (type == "revocation") {
               _status = "missing-scope";
               _detail = "Twitch revoked a subscription: " + SNav(msg, "payload", "status");
+              AppLog.Write("twitch: revocation - " + _detail);
             } else if (type == "notification") {
               if (!AlreadySeen(mid)) HandleNotification(msg);
             }
           }
-        } catch {
-          // fall through to backoff
+        } catch (Exception ex) {
+          AppLog.Write("twitch: socket loop exception: " + ex.Message);
         } finally {
+          _sessionId = "";
           try { if (ws != null) ws.Dispose(); } catch { }
         }
 
@@ -504,6 +516,16 @@ namespace NowPlaying {
     static volatile int _eventCount;
     static volatile string _lastEventKind = "";
     static volatile string _lastEventAt = "";
+
+    // Socket health, separate from "received an event" - a channel with no
+    // activity yet looks identical to a dead socket unless the connection's
+    // own state is visible too. sessionId blanks out between sockets so a
+    // reconnect in progress cannot be mistaken for the previous one still
+    // holding.
+    static volatile string _sessionId = "";
+    static volatile string _connectedAt = "";
+    static volatile string _lastKeepaliveAt = "";
+    static volatile int _reconnects;
 
     static void HandleNotification(object msg) { HandleNotification(msg, false); }
 
@@ -708,6 +730,15 @@ namespace NowPlaying {
       sb.Append("],\"received\":").Append(_eventCount)
         .Append(",\"lastKind\":").Append(Q(_lastEventKind))
         .Append(",\"lastAt\":").Append(Q(_lastEventAt)).Append("},");
+      // sessionId blank means no socket is currently up - either between
+      // reconnect attempts, or the feed never started. Distinguishing that
+      // from "connected but Twitch has sent nothing" is the point of exposing
+      // it: a socket that connects and instantly drops looks like "live" for
+      // an instant and then like nothing happened, with no other visible sign.
+      sb.Append("\"socket\":{\"connected\":").Append(_sessionId.Length > 0 ? "true" : "false")
+        .Append(",\"connectedAt\":").Append(Q(_connectedAt))
+        .Append(",\"lastKeepaliveAt\":").Append(Q(_lastKeepaliveAt))
+        .Append(",\"reconnects\":").Append(_reconnects).Append("},");
       sb.Append("\"followers\":{\"total\":").Append(ft)
         .Append(",\"goal\":").Append(fg)
         .Append(",\"latest\":").Append(Q(lf))
@@ -738,10 +769,26 @@ namespace NowPlaying {
       } catch { }
 
       _status = "connecting";
+      AppLog.Write("twitch: starting for channel \"" + _channel + "\"");
 
       var t = new Thread(() => {
-        if (!ResolveBroadcaster()) return;
-        PollTotals();
+        // ResolveBroadcaster and this first PollTotals only guard against the
+        // Twitch responses they know how to recognise (WebException, expected
+        // JSON shape). Anything else - a malformed body, an unexpected null -
+        // used to propagate out of this thread unhandled, which kills the
+        // entire process, not just the Twitch feature. One odd API response
+        // should never be the reason the song overlay needs restarting too.
+        try {
+          if (!ResolveBroadcaster()) {
+            AppLog.Write("twitch: ResolveBroadcaster failed, status=" + _status + " detail=" + _detail);
+            return;
+          }
+          PollTotals();
+        } catch (Exception ex) {
+          _status = "error"; _detail = "unexpected failure starting up: " + ex.Message;
+          AppLog.Write("twitch: startup exception: " + ex);
+          return;
+        }
 
         var ws = new Thread(WsLoop);
         ws.IsBackground = true;
@@ -749,7 +796,8 @@ namespace NowPlaying {
 
         while (true) {
           Thread.Sleep(60000);
-          try { PollTotals(); } catch { }
+          try { PollTotals(); }
+          catch (Exception ex) { AppLog.Write("twitch: PollTotals exception: " + ex); }
         }
       });
       t.IsBackground = true;

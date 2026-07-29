@@ -700,6 +700,27 @@
       applyStyle(d);
     }
   });
+
+  // The recommended OBS source size is a guess; the card's true footprint
+  // moves with title length, theme and scale. Reporting the measured box lets
+  // the customizer show a real number instead of one that is sometimes too
+  // big (empty space around the card) or too small (a clipped title).
+  if(window.top !== window.self && window.ResizeObserver){
+    var lastReport = '';
+    function reportSize(){
+      var r = wrap.getBoundingClientRect();
+      if(r.width <= 0 || r.height <= 0) return;
+      var w = Math.round(r.width), h = Math.round(r.height);
+      var key = w + 'x' + h;
+      if(key === lastReport) return;
+      lastReport = key;
+      try {
+        window.parent.postMessage({type:'nowplaying:content-size', w:w, h:h}, location.origin);
+      } catch(e){}
+    }
+    new ResizeObserver(reportSize).observe(wrap);
+    window.addEventListener('load', reportSize);
+  }
 })();
 </script>
 </body>

@@ -15,6 +15,12 @@
   h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
   header p{margin:0;color:var(--dim);font-size:14px;max-width:820px;line-height:1.5}
 
+  /* ?embed=1 drops this page's own title into the dashboard shell at /app,
+     which already has one - the source tabs below (Now playing / Twitch
+     alerts / Followers & subs) are a different thing and stay. */
+  body.embed header{display:none}
+  body.embed .tabs{padding-top:20px}
+
   /* ---------------- source tabs ---------------- */
   .tabs{display:flex;gap:8px;padding:18px 32px 0;flex-wrap:wrap}
   .tab{background:var(--panel);border:1px solid var(--line);color:var(--dim);
@@ -39,6 +45,10 @@
 
   .stagewrap{position:relative;display:flex;align-items:center;justify-content:center;
     min-height:120px;padding:18px;box-sizing:border-box;transition:background .2s}
+  .sizehint{display:none;padding:11px 16px;font-size:12.5px;line-height:1.5;color:var(--dim);
+    border-top:1px solid var(--line);background:#101014}
+  .sizehint.on{display:block}
+  .sizehint b{color:var(--fg);font-variant-numeric:tabular-nums}
   .stagewrap.bg-stream{background:linear-gradient(135deg,#2b3a55 0%,#4a3b63 45%,#7a4b53 100%)}
   .stagewrap.bg-dark{background:#07070a}
   .stagewrap.bg-light{background:#e9e9ee}
@@ -149,6 +159,7 @@
         <iframe id="frame" scrolling="no" title="Preview"></iframe>
       </div>
     </div>
+    <div class="sizehint" id="sizehint"></div>
   </div>
 
   <div class="groups" id="groups"></div>
@@ -194,6 +205,11 @@
   var TARGETS = {
     overlay: {
       label:'Now playing', path:'/', store:'nowplaying.customize', onlyKey:'layout',
+      // The recommended OBS size is a guess at what the card will need; the
+      // real footprint moves with title length, theme and scale. sizeToContent
+      // asks the frame to measure itself so the panel can show the true number
+      // instead of one that is sometimes too big and sometimes clips a long title.
+      sizeToContent:true,
       blurb:'Everything is live &mdash; the preview is the real overlay showing whatever is playing '
           + 'right now. When it looks right, copy the URL into an OBS <strong>Browser Source</strong>. '
           + '<a href="/layouts">The layouts page</a> is still there for a side-by-side comparison.',
@@ -296,6 +312,7 @@
 
     stats: {
       label:'Followers & subs', path:'/stats', store:'nowplaying.customize.stats',
+      sizeToContent:true,
       blurb:'Two boxes stacked on top of each other, each one alternating between who was most recent '
           + 'and how close the count is to the next goal. Add it as its own OBS '
           + '<strong>Browser Source</strong> so it can be positioned away from the now-playing card.',
@@ -354,6 +371,7 @@
   });
 
   var qp = new URLSearchParams(location.search);
+  if(qp.get('embed') === '1') document.body.classList.add('embed');
   var current = qp.get('source');
   if(ORDER.indexOf(current) < 0) current = 'overlay';
   // A ?layout= on this page's own URL wins, so "customize this one" links work.
@@ -373,7 +391,8 @@
       groupsEl = document.getElementById('groups'),
       actionsEl = document.getElementById('actions'),
       bannerEl = document.getElementById('banner'),
-      blurbEl = document.getElementById('blurb');
+      blurbEl = document.getElementById('blurb'),
+      sizehintEl = document.getElementById('sizehint');
 
   // Stats has nothing to draw without credentials, so the preview falls back to
   // sample numbers rather than showing an empty rectangle. The copied URL never
@@ -411,11 +430,34 @@
     }, location.origin);
   }
 
+  // The recommended SIZES are a static guess; the actual footprint depends on
+  // title length, theme, scale and which boxes are visible. The frame measures
+  // its own content and reports back, so this holds the true number instead.
+  var contentSize = null;
+  function renderSizehint(){
+    if(!T.sizeToContent){ sizehintEl.className = 'sizehint'; return; }
+    sizehintEl.className = 'sizehint on';
+    sizehintEl.innerHTML = contentSize
+      ? 'Content right now measures <b>' + contentSize.w + ' &times; ' + contentSize.h + '</b> px. '
+        + 'Set your OBS Browser Source to that &mdash; a bigger box just leaves empty space around it.'
+      : 'Measuring the actual content size&hellip;';
+  }
+
+  window.addEventListener('message', function(ev){
+    if(ev.origin !== location.origin) return;
+    var d = ev.data;
+    if(d && d.type === 'nowplaying:content-size' && ev.source === frame.contentWindow){
+      contentSize = {w:d.w, h:d.h};
+      renderSizehint();
+    }
+  });
+
   var lastFrameUrl = '', reloadTimer = null;
   function doReload(){
     var u = frameUrl();
     if(u === lastFrameUrl){ pushLive(); return; }
     lastFrameUrl = u;
+    contentSize = null; renderSizehint();   // stale until the fresh page reports in
     frame.onload = pushLive;      // the fresh document starts from the URL again
     frame.src = u;
   }
@@ -491,6 +533,7 @@
     zoomEl.style.display = fitK < 1 ? '' : 'none';
     zoomBtn.textContent = zoomMode === 'fit' ? 'Zoom to 100%' : 'Fit whole canvas';
     zoomBtn.setAttribute('aria-pressed', String(zoomMode === 'actual'));
+    renderSizehint();
     urlEl.textContent = url();
     var acc = state.accent || state.followColor;
     if(acc && acc !== 'auto') document.documentElement.style.setProperty('--accent', '#' + acc);
@@ -728,6 +771,15 @@
            + (ev.received === 1 ? '' : 's') + ' received since start'
            + (ev.lastAt ? ' &mdash; last was <strong>' + ev.lastKind + '</strong> at ' + ev.lastAt : '')
            + '.';
+      // "Live" only means the subscriptions were accepted once - the socket can
+      // still drop silently afterwards and sit reconnecting with nothing to show
+      // for it. Without this line that state looks identical to a quiet channel.
+      var sock = twitch.socket;
+      if(sock && !sock.connected){
+        cls = 'warn';
+        html += '<br>Socket reconnecting'
+             + (sock.reconnects ? ' (' + sock.reconnects + ' so far)' : '') + '&hellip;';
+      }
     } else if(s === 'bad-token' || s === 'missing-scope'){
       cls = 'bad';
       html = '<strong>' + twitch.detail + '</strong> Alerts and counts will not update until this is fixed.';

@@ -23,9 +23,11 @@ $sysRt   = "$env:windir\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.
 $src     = "$PSScriptRoot\src\NowPlayingOverlay.cs"
 $srcAudio = "$PSScriptRoot\src\AudioSpectrum.cs"
 $srcTwitch = "$PSScriptRoot\src\TwitchEvents.cs"
+$srcLog  = "$PSScriptRoot\src\AppLog.cs"
 $overlay = "$PSScriptRoot\overlay.html"
 $layouts = "$PSScriptRoot\layouts.html"
 $control = "$PSScriptRoot\control.html"
+$app     = "$PSScriptRoot\app.html"
 $custom  = "$PSScriptRoot\customize.html"
 $alerts  = "$PSScriptRoot\alerts.html"
 $stats   = "$PSScriptRoot\stats.html"
@@ -38,7 +40,7 @@ if (-not (Test-Path $sysRt))   { $missing += "System.Runtime facade: $sysRt" }
 foreach ($n in 'Windows.Media.winmd','Windows.Foundation.winmd','Windows.Storage.winmd') {
   if (-not (Test-Path (Join-Path $winmd $n))) { $missing += "WinRT metadata: $n" }
 }
-foreach ($f in $src,$srcAudio,$srcTwitch,$overlay,$layouts,$control,$custom,$alerts,$stats) {
+foreach ($f in $src,$srcAudio,$srcTwitch,$srcLog,$overlay,$layouts,$control,$custom,$alerts,$stats,$app) {
   if (-not (Test-Path $f)) { $missing += "source file: $f" }
 }
 if ($missing.Count) {
@@ -77,11 +79,13 @@ $cscArgs = @(
   "/resource:$custom,customize.html"
   "/resource:$alerts,alerts.html"
   "/resource:$stats,stats.html"
+  "/resource:$app,app.html"
   # System.Web.Extensions (JavaScriptSerializer, used to read Twitch JSON) is
   # already in csc.rsp, so referencing it here would be a duplicate-import error.
   $src
   $srcAudio
   $srcTwitch
+  $srcLog
 )
 
 $output = & $csc @cscArgs 2>&1

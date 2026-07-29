@@ -53,6 +53,11 @@
   .sectionhead{padding:26px 32px 0;margin:0}
   .sectionhead h2{margin:0 0 6px;font-size:20px;letter-spacing:-.01em}
   .sectionhead p{margin:0;color:var(--dim);font-size:14px;max-width:760px;line-height:1.5}
+  /* ?embed=1 drops this page's own title and the link back to /customize - the
+     dashboard shell at /app already has both a header and a Customize tab. */
+  body.embed header{display:none}
+  body.embed footer{display:none}
+  body.embed .grid:first-of-type{padding-top:20px}
 </style>
 </head>
 <body>
@@ -227,6 +232,9 @@ TWITCH.forEach(function(S){
 
   tgrid.appendChild(el);
 });
+
+if(new URLSearchParams(location.search).get('embed') === '1')
+  document.body.classList.add('embed');
 </script>
 </body>
 </html>
