@@ -19,6 +19,9 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
 using Microsoft.Win32;
 using Windows.Foundation;
 using Windows.Media.Control;
@@ -118,7 +121,146 @@ namespace NowPlaying {
     }
 
     // ------------------------------------------------------------------ entry
+    // Built as a windows app so double-clicking shows no console. When it IS
+    // launched from a terminal, attach to that terminal so CLI use still prints.
+    [DllImport("kernel32.dll")] static extern bool AttachConsole(int processId);
+    static bool _hasConsole;
+
+    static void Say(string s) { if (_hasConsole) Console.WriteLine(s); }
+    static void SayColor(string s, ConsoleColor c) {
+      if (!_hasConsole) return;
+      Console.ForegroundColor = c; Console.WriteLine(s); Console.ResetColor();
+    }
+
+    // Startup registration lives in the per-user Run key: no admin needed, and
+    // it shows up in Task Manager's Startup tab so it can always be turned off.
+    const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    const string RunValueName = "NowPlayingOverlay";
+
+    static string ExePath() {
+      return Assembly.GetExecutingAssembly().Location;
+    }
+
+    static bool StartupEnabled() {
+      try {
+        using (var k = Registry.CurrentUser.OpenSubKey(RunKeyPath))
+          return k != null && k.GetValue(RunValueName) != null;
+      } catch { return false; }
+    }
+
+    static bool SetStartup(bool on) {
+      try {
+        using (var k = Registry.CurrentUser.CreateSubKey(RunKeyPath)) {
+          if (k == null) return false;
+          if (on) {
+            // Preserve a non-default port so autostart matches how it was run.
+            string cmd = "\"" + ExePath() + "\"";
+            if (_port != 8787) cmd += " -port " + _port;
+            k.SetValue(RunValueName, cmd);
+          } else {
+            k.DeleteValue(RunValueName, false);
+          }
+        }
+        return true;
+      } catch { return false; }
+    }
+
+    static void OpenUrl(string suffix) {
+      try { System.Diagnostics.Process.Start("http://127.0.0.1:" + _port + suffix); } catch { }
+    }
+
+    // Drawn rather than shipped as a .ico file, so the build stays a single
+    // source file with no binary assets.
+    static Icon MakeTrayIcon() {
+      try {
+        using (var bmp = new Bitmap(32, 32)) {
+          using (var g = Graphics.FromImage(bmp)) {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+            using (var b = new SolidBrush(Color.FromArgb(29, 185, 84)))
+              g.FillEllipse(b, 1, 1, 30, 30);
+            using (var f = new Font("Segoe UI Symbol", 17, FontStyle.Bold))
+            using (var w = new SolidBrush(Color.White)) {
+              var sf = new StringFormat { Alignment = StringAlignment.Center,
+                                          LineAlignment = StringAlignment.Center };
+              g.DrawString("♫", f, w, new RectangleF(0, 0, 32, 32), sf);
+            }
+          }
+          return Icon.FromHandle(bmp.GetHicon());
+        }
+      } catch { return SystemIcons.Application; }
+    }
+
+    static NotifyIcon _tray;
+
+    static void BuildTray() {
+      var menu = new ContextMenuStrip();
+
+      var header = new ToolStripMenuItem("Now Playing Overlay") { Enabled = false };
+      menu.Items.Add(header);
+      menu.Items.Add(new ToolStripSeparator());
+
+      menu.Items.Add("Choose which player to follow...", null, (s, e) => OpenUrl("/control"));
+      menu.Items.Add("Compare layouts...", null, (s, e) => OpenUrl("/layouts"));
+      menu.Items.Add("Preview overlay...", null, (s, e) => OpenUrl("/"));
+      menu.Items.Add(new ToolStripSeparator());
+
+      var copy = new ToolStripMenuItem("Copy OBS browser source URL");
+      copy.Click += (s, e) => {
+        try { Clipboard.SetText("http://127.0.0.1:" + _port + "/"); } catch { }
+      };
+      menu.Items.Add(copy);
+
+      var startup = new ToolStripMenuItem("Start with Windows") { CheckOnClick = true };
+      startup.Checked = StartupEnabled();
+      startup.Click += (s, e) => {
+        if (!SetStartup(startup.Checked)) {
+          startup.Checked = StartupEnabled();
+          MessageBox.Show("Could not change the startup setting.", "Now Playing Overlay",
+                          MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+      };
+      menu.Items.Add(startup);
+      menu.Items.Add(new ToolStripSeparator());
+      menu.Items.Add("Exit", null, (s, e) => { Shutdown(); });
+
+      // Keep the tooltip showing whatever is on screen right now.
+      var timer = new System.Windows.Forms.Timer { Interval = 2000 };
+      timer.Tick += (s, e) => {
+        var n = _current;
+        string t = (n != null && n.Title.Length > 0)
+          ? (n.Title + (n.Artist.Length > 0 ? " - " + n.Artist : ""))
+          : "Nothing playing";
+        if (t.Length > 60) t = t.Substring(0, 57) + "...";   // NotifyIcon caps at 63
+        try { _tray.Text = t; } catch { }
+      };
+      timer.Start();
+
+      _tray = new NotifyIcon {
+        Icon = MakeTrayIcon(),
+        Text = "Now Playing Overlay",
+        Visible = true,
+        ContextMenuStrip = menu
+      };
+      _tray.DoubleClick += (s, e) => OpenUrl("/control");
+    }
+
+    static void Shutdown() {
+      try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); } } catch { }
+      try { Application.Exit(); } catch { }
+      Environment.Exit(0);
+    }
+
+    static void Fatal(string message) {
+      if (_hasConsole) { SayColor("  " + message, ConsoleColor.Red); }
+      else MessageBox.Show(message, "Now Playing Overlay",
+                           MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+
+    [STAThread]
     static int Main(string[] args) {
+      _hasConsole = AttachConsole(-1);      // -1 = parent process
+      Application.EnableVisualStyles();
       LoadSettings();     // command line below overrides the saved choice
 
       for (int i = 0; i < args.Length; i++) {
@@ -131,14 +273,32 @@ namespace NowPlaying {
           _pinApp = args[++i]; _mode = "only";
         } else if (a == "auto") {
           _pinApp = ""; _mode = "auto";
+        } else if (a == "startup" && i + 1 < args.Length) {
+          string v = args[++i].Trim().ToLowerInvariant();
+          if (v == "on" || v == "off") {
+            bool want = (v == "on");
+            bool ok = SetStartup(want);
+            string msg = ok
+              ? ("Start with Windows is now " + (want ? "ON" : "OFF") + ".")
+              : "Could not change the startup setting.";
+            if (_hasConsole) Say("  " + msg);
+            else MessageBox.Show(msg, "Now Playing Overlay", MessageBoxButtons.OK,
+                                 ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+          } else {
+            Say("  Use -startup on  or  -startup off");
+          }
+          return 0;
         } else if (a == "help" || a == "h" || a == "?") {
-          Console.WriteLine("Usage: NowPlayingOverlay.exe [-port 8787] [-prefer <app> | -only <app> | -auto]");
-          Console.WriteLine();
-          Console.WriteLine("  -prefer spotify   follow Spotify when it has something, else fall back");
-          Console.WriteLine("  -only itunes      never show anything but iTunes");
-          Console.WriteLine("  -auto             follow whatever is actually playing (default)");
-          Console.WriteLine();
-          Console.WriteLine("  The same choice is available live at http://127.0.0.1:8787/control");
+          Say("Usage: NowPlayingOverlay.exe [-port 8787] [-prefer <app> | -only <app> | -auto]");
+          Say("                             [-startup on|off]");
+          Say("");
+          Say("  -prefer spotify   follow Spotify when it has something, else fall back");
+          Say("  -only itunes      never show anything but iTunes");
+          Say("  -auto             follow whatever is actually playing (default)");
+          Say("  -startup on       run automatically when Windows starts");
+          Say("");
+          Say("  It runs in the system tray - no window. Right-click the tray icon");
+          Say("  for settings, or open http://127.0.0.1:8787/control");
           return 0;
         } else {
           int p; if (int.TryParse(a, out p)) _port = p;
@@ -151,18 +311,12 @@ namespace NowPlaying {
         listener = new TcpListener(IPAddress.Loopback, _port);
         listener.Start();
       } catch (SocketException ex) {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine();
-        Console.WriteLine("  Could not open port " + _port + ".");
-        Console.WriteLine("  " + ex.Message);
-        Console.ResetColor();
-        Console.WriteLine();
-        Console.WriteLine("  Another copy may already be running. Try a different port:");
-        Console.WriteLine("      NowPlayingOverlay.exe -port " + (_port + 1));
-        Console.WriteLine("  (then use that same port in the OBS Browser Source URL)");
-        Console.WriteLine();
-        Console.WriteLine("  Press any key to close.");
-        try { Console.ReadKey(true); } catch { }
+        // With no console this would otherwise fail invisibly at every login.
+        Fatal("Could not open port " + _port + ".\r\n\r\n" + ex.Message
+              + "\r\n\r\nAnother copy is probably already running"
+              + " (check the system tray).\r\n"
+              + "To use a different port:  NowPlayingOverlay.exe -port " + (_port + 1)
+              + "\r\nThen use that same port in the OBS browser source URL.");
         return 1;
       }
 
@@ -170,45 +324,44 @@ namespace NowPlaying {
       poller.IsBackground = true;
       poller.Start();          // left MTA on purpose - see Await()
 
-      Banner();
+      var accept = new Thread(() => {
+        while (true) {
+          TcpClient client;
+          try { client = listener.AcceptTcpClient(); } catch { break; }
+          ThreadPool.QueueUserWorkItem(_ => Handle(client));
+        }
+      });
+      accept.IsBackground = true;
+      accept.Start();
 
-      while (true) {
-        TcpClient client;
-        try { client = listener.AcceptTcpClient(); } catch { break; }
-        ThreadPool.QueueUserWorkItem(_ => Handle(client));
-      }
+      Banner();
+      BuildTray();
+      Application.Run();       // tray message loop; Exit comes from the menu
       return 0;
     }
 
     static void Banner() {
-      Console.Title = "Now Playing Overlay";
-      Console.WriteLine();
-      Console.ForegroundColor = ConsoleColor.Green;
-      Console.WriteLine("  Now Playing overlay is running.");
-      Console.ResetColor();
-      Console.WriteLine();
-      Console.ForegroundColor = ConsoleColor.Cyan;
-      Console.WriteLine("    Add this as an OBS Browser Source:");
-      Console.WriteLine("        http://127.0.0.1:" + _port + "/");
-      Console.WriteLine();
-      Console.WriteLine("    Compare the layouts here:");
-      Console.WriteLine("        http://127.0.0.1:" + _port + "/layouts");
-      Console.WriteLine();
-      Console.WriteLine("    Choose which player to follow:");
-      Console.WriteLine("        http://127.0.0.1:" + _port + "/control");
-      Console.ResetColor();
-      Console.WriteLine();
+      if (!_hasConsole) return;      // running in the tray, nothing to print to
+      Say("");
+      SayColor("  Now Playing overlay is running.", ConsoleColor.Green);
+      Say("");
+      SayColor("    Add this as an OBS Browser Source:", ConsoleColor.Cyan);
+      SayColor("        http://127.0.0.1:" + _port + "/", ConsoleColor.Cyan);
+      Say("");
+      SayColor("    Compare the layouts here:", ConsoleColor.Cyan);
+      SayColor("        http://127.0.0.1:" + _port + "/layouts", ConsoleColor.Cyan);
+      Say("");
+      SayColor("    Choose which player to follow:", ConsoleColor.Cyan);
+      SayColor("        http://127.0.0.1:" + _port + "/control", ConsoleColor.Cyan);
+      Say("");
       if (_mode != "auto") {
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("    Source: " + (_mode == "only" ? "locked to \"" : "preferring \"")
-                          + _pinApp + "\"");
-        Console.ResetColor();
+        SayColor("    Source: " + (_mode == "only" ? "locked to \"" : "preferring \"")
+                 + _pinApp + "\"", ConsoleColor.Yellow);
       }
-      Console.ForegroundColor = ConsoleColor.DarkGray;
-      Console.WriteLine("    Sources: Windows media session + iTunes");
-      Console.WriteLine("    Keep this window open while streaming. Ctrl+C to stop.");
-      Console.ResetColor();
-      Console.WriteLine();
+      SayColor("    Sources: Windows media session + iTunes", ConsoleColor.DarkGray);
+      SayColor("    Running in the system tray - right-click the icon to exit.",
+               ConsoleColor.DarkGray);
+      Say("");
     }
 
     // ----------------------------------------------------------------- poller

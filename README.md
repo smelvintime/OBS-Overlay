@@ -8,8 +8,8 @@ Nothing to install.
 
 ## Quick start (recommended: the app)
 
-1. Download **`dist/NowPlayingOverlay.exe`** and double-click it. Leave the window
-   open while streaming.
+1. Download **`dist/NowPlayingOverlay.exe`** and double-click it. No window appears —
+   it runs quietly in the **system tray** (bottom-right, next to the clock).
 2. In OBS: **Sources → + → Browser**
 3. Set **URL** to:
    ```
@@ -32,6 +32,43 @@ pages are embedded inside the executable.
 
 Use a different port with `NowPlayingOverlay.exe -port 8788`.
 
+## The tray icon
+
+There's no window. Everything lives on the tray icon (a green ♫). **Right-click** it for:
+
+- **Choose which player to follow…** — opens the source control page
+- **Compare layouts…** and **Preview overlay…**
+- **Copy OBS browser source URL** — straight to the clipboard
+- **Start with Windows** — tick to launch automatically at login
+- **Exit** — this is how you stop it
+
+**Double-click** the icon to jump to the source control page. Hovering shows the current
+track, so you can confirm it's working at a glance.
+
+> Windows often hides new tray icons behind the **^** arrow. If you don't see it, click
+> that arrow — and drag the icon onto the visible part of the taskbar to keep it there.
+
+## Running automatically at startup
+
+Easiest: right-click the tray icon and tick **Start with Windows**.
+
+Or from a terminal:
+
+```
+NowPlayingOverlay.exe -startup on
+NowPlayingOverlay.exe -startup off
+```
+
+This adds a per-user entry under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` — no administrator rights needed.
+It also appears in **Task Manager → Startup apps**, so you can always disable it there.
+
+A non-default port is preserved: if you set startup while running with `-port 8788`,
+it will use that port at login too.
+
+Because it starts silently in the tray, you can leave it enabled permanently and forget
+about it — OBS will just find the overlay whenever you stream.
+
 ## Alternative: run from source
 
 The PowerShell version needs no build step and is easier to audit or tweak:
@@ -39,7 +76,9 @@ The PowerShell version needs no build step and is easier to audit or tweak:
 1. Double-click **`Start-Overlay.bat`**
 2. Same OBS steps as above.
 
-Both versions serve the identical overlay and support all the same options.
+Both serve the identical overlay and support all the same options. The difference is
+that the PowerShell version keeps a console window open and has no tray icon or startup
+option — for running quietly in the background, use the `.exe`.
 
 ## Building the .exe yourself
 

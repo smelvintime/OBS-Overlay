@@ -51,10 +51,14 @@ Write-Host "  Building NowPlayingOverlay.exe ..." -ForegroundColor Cyan
 
 $cscArgs = @(
   '/nologo'
-  '/target:exe'
+  # winexe = no console window when double-clicked; it lives in the tray instead.
+  # CLI use still prints, via AttachConsole to the parent terminal.
+  '/target:winexe'
   '/platform:x64'
   '/optimize+'
   "/out:$outExe"
+  "/reference:$fw\System.Windows.Forms.dll"
+  "/reference:$fw\System.Drawing.dll"
   "/reference:$winmd\Windows.Media.winmd"
   "/reference:$winmd\Windows.Foundation.winmd"
   "/reference:$winmd\Windows.Storage.winmd"
