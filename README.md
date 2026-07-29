@@ -38,6 +38,7 @@ There's no window. Everything lives on the tray icon (a green ♫). **Right-clic
 
 - **Choose which player to follow…** — opens the source control page
 - **Compare layouts…** and **Preview overlay…**
+- **Twitch alerts and stats** — previews, source URLs, and the connection state
 - **Copy OBS browser source URL** — straight to the clipboard
 - **Start with Windows** — tick to launch automatically at login
 - **Exit** — this is how you stop it
@@ -107,12 +108,18 @@ transition** picker that write straight into the URL you copy, plus a
 Ticker sits nicely along the very top or bottom edge; pair it with `valign=top`.
 Big suits a dedicated music scene or a "starting soon" screen.
 
+The same page has a **Twitch sources** section below the layouts, for the follow/sub
+alerts and the follower/subscriber boxes — see
+[Twitch alerts and follower/sub boxes](#twitch-alerts-and-followersub-boxes).
+
 ## Customizing
 
 Open **<http://127.0.0.1:8787/customize>** (or right-click the tray icon →
 *Customize the overlay*). Every option below has a control there, with a live
 preview of whatever is playing right now, a background switcher so you can
 check it stays readable over gameplay, and a **Replay song change** button.
+Tabs at the top switch between the three OBS sources — the now-playing overlay,
+the Twitch alerts, and the follower/subscriber boxes.
 Copy the URL from the bar at the bottom when it looks right. Your choices are
 remembered in that browser, and **Reset all** puts everything back.
 
@@ -199,6 +206,11 @@ matching port in the OBS URL.
 | `GET /sources` | Diagnostic: what each provider sees, which one won, current pin |
 | `GET /setsource?mode=prefer\|only\|auto&app=<name>` | Change which player is followed |
 | `GET /` | The overlay page itself |
+| `GET /alerts` | Twitch follow/sub alert source (.exe only for live data) |
+| `GET /stats` | Twitch follower and subscriber boxes (.exe only for live data) |
+| `GET /twitch` | JSON: connection status, follower/sub totals, goals, most recent of each |
+| `GET /twitch/events` | Server-sent event stream of follows and subs (.exe only) |
+| `GET /twitch/test?type=follow\|sub\|resub\|gift&user=<name>` | Fire a fake alert, for styling without waiting for a real one |
 | `GET /layouts` | Side-by-side layout previews |
 | `GET /customize` | Full customizer with a live preview |
 | `GET /control` | Source picker page |
@@ -253,10 +265,11 @@ Templates support `{title}`, `{artist}`, `{album}`, and `{app}`.
 
 ### Security
 
-`twitch-config.json` holds a token that can post to chat as you. It's listed in
-`.gitignore` so it won't be committed — keep it that way, and regenerate the token
-in Twitch if it ever leaks. Tokens also expire; if the bot starts reporting a login
-failure, generate a fresh one.
+`twitch-config.json` holds a token that can post to chat as you, and — once the
+alerts are set up — a second one that can read your follower and subscriber lists.
+It's listed in `.gitignore` so it won't be committed — keep it that way, and
+regenerate either token in Twitch if it ever leaks. Tokens also expire; if the bot
+reports a login failure, or the tray menu says the token expired, generate a fresh one.
 
 ### Behavior details
 
@@ -267,6 +280,97 @@ failure, generate a fresh one.
   an invisible character appended to stay visible.
 - If the overlay server isn't running, it replies with a clear message rather than
   going silent.
+
+## Twitch alerts and follower/sub boxes
+
+Two more browser sources, separate from the now-playing card so they can be
+positioned independently:
+
+| Source | URL | What it does |
+|---|---|---|
+| **Alerts** | `/alerts` | Fires when someone follows, subscribes, resubscribes or gifts. Invisible between events, so it can cover the whole canvas. |
+| **Followers & subs** | `/stats` | Two boxes stacked on top of each other, each alternating between who was most recent and a progress bar to the next goal. |
+
+Both need `NowPlayingOverlay.exe` — `server.ps1` serves the pages but does not talk
+to Twitch, so under it they stay empty.
+
+### Setup
+
+This needs a **second, different token** from the `!song` bot. The chat token has the
+wrong scopes and belongs to a different client, so it will not work here.
+
+1. **Register an app** in the [Twitch Developer Console](https://dev.twitch.tv/console).
+   Note its **Client ID** — this one is not secret.
+
+2. **Get a user token** for your own account with both of these scopes:
+   - `moderator:read:followers` — follower count and who followed
+   - `channel:read:subscriptions` — subscriber count
+
+   Easiest official route is the [Twitch CLI](https://dev.twitch.tv/docs/cli/):
+   ```
+   twitch token -u -s "moderator:read:followers channel:read:subscriptions"
+   ```
+
+3. **Put both in `twitch-config.json`** next to the app (it is read from the exe's
+   folder or up to three levels above, so `dist\` works):
+   ```json
+   {
+     "channel": "your_channel",
+     "clientId": "your_client_id",
+     "apiToken": "your_user_token",
+     "followerGoal": 0,
+     "subGoal": 0
+   }
+   ```
+
+4. **Restart the app.** The tray menu's *Twitch alerts and stats* submenu shows the
+   connection state, and `/customize` shows a banner explaining any problem.
+
+> **The most common mistake:** using a Client ID that did not issue the token. If you
+> used a generator site rather than your own app, you must use *that site's* Client ID.
+> Twitch checks the pair and rejects every request otherwise — which shows up as
+> `Twitch rejected the token (401)`.
+
+Goals left at `0` track the next round number above the current count, so the bar
+always has somewhere to go without you editing a config file. Set a number to pin it.
+
+### Styling them
+
+Open `/customize` and use the tabs at the top — the alert page has **Test follow / sub /
+resub / gift** buttons so you can style it without waiting for a real event. Every
+option is a query parameter, so the URLs can also be hand-edited:
+
+**Alerts** — `?style=slide|pop|bar` · `hold=6` (seconds on screen) ·
+`followColor=1db954` · `subColor=a970ff` · `giftColor=ff9d3f` ·
+`align=left|center|right` · `valign=top|middle|bottom` · `scale` · `radius` ·
+`opacity` · `showMessage=0|1` · `demo=1`
+
+**Followers & subs** — `?cycle=8` (seconds per face) · `transition=slide|fade|none` ·
+`width=300` · `gap=12` · `followGoal=500` · `subGoal=50` · `showFollowers=0|1` ·
+`showSubs=0|1` · `theme=glass|solid` · plus the same position, scale, radius,
+opacity and colour options · `demo=1`
+
+`demo=1` fills either page with sample data so you can position it in OBS before any
+real event happens. Leave it off the URL you actually use.
+
+### Behavior details
+
+- Follows and subs arrive over an **EventSub websocket**, so alerts appear within a
+  second. Totals are polled separately every 60s, because EventSub has no "the count
+  changed" event.
+- **Gift subs fire one alert, not twenty.** Twitch also sends a separate event for each
+  recipient of a gift bomb; those are suppressed so the gifter is announced once.
+- Alerts are **queued**, so two follows a second apart play in turn with a full hold
+  each rather than overwriting one another.
+- **The most recent subscriber only ever arrives as an event** — Twitch's subscriber
+  API carries no timestamp, so there is nothing to sort by. It is remembered across
+  restarts, but a brand-new setup shows only the goal face until someone subscribes.
+- A **non-affiliate channel** cannot expose subscriptions at all. The subscriber box
+  hides itself rather than showing a zero; the follower box is unaffected.
+- An **expired token** is reported in the tray and the customizer instead of the
+  counts silently freezing. User tokens expire — regenerate when that happens.
+- The alerts page stays **completely invisible** when nothing is happening and when it
+  cannot reach the server, so a connection problem never puts a box on your stream.
 
 ## Live equaliser
 

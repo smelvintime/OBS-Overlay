@@ -13,8 +13,14 @@
     GET /            -> overlay page (add this URL as an OBS Browser Source)
     GET /layouts     -> side-by-side preview of every layout
     GET /customize   -> full customizer with a live preview
+    GET /alerts      -> Twitch follow/sub alert source
+    GET /stats       -> Twitch follower and subscriber boxes
     GET /np          -> JSON  { playing, title, artist, album, app, source, id, hasArt }
     GET /art?id=...  -> current album art (image bytes)
+
+  The Twitch pages are served here so they can be previewed, but the EventSub
+  client that feeds them only exists in NowPlayingOverlay.exe. Under this
+  server /twitch always reports "off" and the pages stay empty.
 
   Usage:   powershell -ExecutionPolicy Bypass -File server.ps1 [-Port 8787]
 #>
@@ -339,6 +345,8 @@ $overlayPath = Join-Path $ScriptDir 'overlay.html'
 $layoutsPath = Join-Path $ScriptDir 'layouts.html'
 $controlPath = Join-Path $ScriptDir 'control.html'
 $customPath  = Join-Path $ScriptDir 'customize.html'
+$alertsPath  = Join-Path $ScriptDir 'alerts.html'
+$statsPath   = Join-Path $ScriptDir 'stats.html'
 
 Import-Settings
 
@@ -351,6 +359,8 @@ Write-Host "  OBS Browser Source URL:  http://127.0.0.1:$Port/" -ForegroundColor
 Write-Host "  Customize how it looks:  http://127.0.0.1:$Port/customize" -ForegroundColor Cyan
 Write-Host "  Compare layouts:         http://127.0.0.1:$Port/layouts" -ForegroundColor Cyan
 Write-Host "  Choose which player:     http://127.0.0.1:$Port/control" -ForegroundColor Cyan
+Write-Host "  Twitch alerts / stats:   http://127.0.0.1:$Port/alerts  and  /stats" -ForegroundColor DarkGray
+Write-Host "  (Twitch data needs NowPlayingOverlay.exe, not this script.)" -ForegroundColor DarkGray
 if ($script:mode -ne 'auto') {
   $verb = if ($script:mode -eq 'only') { 'locked to' } else { 'preferring' }
   Write-Host "  Source: $verb ""$($script:pinApp)""" -ForegroundColor Yellow
@@ -421,6 +431,20 @@ try {
         '^/control/?$' { Send-File $ns $controlPath 'text/html; charset=utf-8'; break }
         '^/layouts/?$' { Send-File $ns $layoutsPath 'text/html; charset=utf-8'; break }
         '^/customize/?$' { Send-File $ns $customPath 'text/html; charset=utf-8'; break }
+        '^/alerts/?$'  { Send-File $ns $alertsPath 'text/html; charset=utf-8'; break }
+        '^/stats/?$'   { Send-File $ns $statsPath 'text/html; charset=utf-8'; break }
+        '^/twitch' {
+          # This server serves the Twitch pages so they can be previewed, but it
+          # does not run an EventSub client - that lives in the compiled exe.
+          # Reporting "off" is what makes the pages hide themselves and the
+          # customizer explain why, instead of them waiting on a stream that is
+          # never going to produce an event.
+          $body = '{"status":"off","detail":"server.ps1 does not run the Twitch client - use NowPlayingOverlay.exe","channel":"","seq":0,' +
+                  '"followers":{"total":-1,"goal":0,"latest":"","at":""},' +
+                  '"subs":{"total":-1,"goal":0,"points":-1,"latest":"","tier":"","at":""}}'
+          Send-Response $ns 200 'application\json; charset=utf-8' ([System.Text.Encoding]::UTF8.GetBytes($body))
+          break
+        }
         '^/$'          { Send-File $ns $overlayPath 'text/html; charset=utf-8'; break }
         default {
           Send-Response $ns 404 'text/plain' ([System.Text.Encoding]::UTF8.GetBytes('Not found'))

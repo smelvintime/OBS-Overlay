@@ -22,10 +22,13 @@ $fw      = "$env:windir\Microsoft.NET\Framework64\v4.0.30319"
 $sysRt   = "$env:windir\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.0.0__b03f5f7f11d50a3a\System.Runtime.dll"
 $src     = "$PSScriptRoot\src\NowPlayingOverlay.cs"
 $srcAudio = "$PSScriptRoot\src\AudioSpectrum.cs"
+$srcTwitch = "$PSScriptRoot\src\TwitchEvents.cs"
 $overlay = "$PSScriptRoot\overlay.html"
 $layouts = "$PSScriptRoot\layouts.html"
 $control = "$PSScriptRoot\control.html"
 $custom  = "$PSScriptRoot\customize.html"
+$alerts  = "$PSScriptRoot\alerts.html"
+$stats   = "$PSScriptRoot\stats.html"
 $outExe  = Join-Path $OutDir 'NowPlayingOverlay.exe'
 
 # Fail with a useful message rather than a compiler error further down.
@@ -35,7 +38,7 @@ if (-not (Test-Path $sysRt))   { $missing += "System.Runtime facade: $sysRt" }
 foreach ($n in 'Windows.Media.winmd','Windows.Foundation.winmd','Windows.Storage.winmd') {
   if (-not (Test-Path (Join-Path $winmd $n))) { $missing += "WinRT metadata: $n" }
 }
-foreach ($f in $src,$srcAudio,$overlay,$layouts,$control,$custom) {
+foreach ($f in $src,$srcAudio,$srcTwitch,$overlay,$layouts,$control,$custom,$alerts,$stats) {
   if (-not (Test-Path $f)) { $missing += "source file: $f" }
 }
 if ($missing.Count) {
@@ -72,8 +75,13 @@ $cscArgs = @(
   "/resource:$layouts,layouts.html"
   "/resource:$control,control.html"
   "/resource:$custom,customize.html"
+  "/resource:$alerts,alerts.html"
+  "/resource:$stats,stats.html"
+  # System.Web.Extensions (JavaScriptSerializer, used to read Twitch JSON) is
+  # already in csc.rsp, so referencing it here would be a duplicate-import error.
   $src
   $srcAudio
+  $srcTwitch
 )
 
 $output = & $csc @cscArgs 2>&1

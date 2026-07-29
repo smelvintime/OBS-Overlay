@@ -15,6 +15,13 @@
   h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
   header p{margin:0;color:var(--dim);font-size:14px;max-width:820px;line-height:1.5}
 
+  /* ---------------- source tabs ---------------- */
+  .tabs{display:flex;gap:8px;padding:18px 32px 0;flex-wrap:wrap}
+  .tab{background:var(--panel);border:1px solid var(--line);color:var(--dim);
+    border-radius:10px;padding:9px 16px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+  .tab[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#06210f}
+  .tab:not([aria-pressed=true]):hover{color:var(--fg)}
+
   .page{padding:18px 32px 40px;display:flex;flex-direction:column;gap:20px}
 
   /* ---------------- preview ---------------- */
@@ -87,6 +94,16 @@
     padding:7px 13px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
   button.action:hover{background:#35353f}
 
+  /* Connection state for the Twitch sources, so a missing token is visible
+     here rather than only as two boxes that never appear on stream. */
+  .banner{display:none;margin:0 0 4px;padding:11px 14px;border-radius:10px;
+    font-size:13px;line-height:1.5;border:1px solid}
+  .banner.on{display:block}
+  .banner.warn{background:#2a1f10;border-color:#5a4420;color:#f2d6a2}
+  .banner.bad{background:#2a1414;border-color:#5c2626;color:#f3bcbc}
+  .banner.ok{background:#10231a;border-color:#1f4a33;color:#a9e6c4}
+  .banner code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}
+
   /* ---------------- sticky output ---------------- */
   .out{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;
     padding:14px 18px;background:#101014;border:1px solid var(--line);border-radius:12px;
@@ -103,23 +120,24 @@
 <body>
 <header>
   <h1>Customize overlay</h1>
-  <p>Everything is live &mdash; the preview above the controls is the real overlay showing whatever
-     is playing right now. When it looks right, copy the URL at the bottom into an OBS
-     <strong>Browser Source</strong>. Your choices are remembered in this browser, and
-     <a href="/layouts">the layouts page</a> is still there for a side-by-side comparison.</p>
+  <p id="blurb"></p>
 </header>
 
+<div class="tabs" id="tabs"></div>
+
 <div class="page">
+  <div class="banner" id="banner"></div>
+
   <div class="preview">
     <div class="previewbar">
       <h2>Preview</h2>
       <span class="dims" id="dims"></span>
       <span class="spacer"></span>
-      <button type="button" class="action" id="replay">Replay song change</button>
+      <span class="chipset" id="actions"></span>
       <div class="chipset" id="bgs"></div>
     </div>
     <div class="stagewrap bg-stream" id="stagewrap">
-      <iframe id="frame" scrolling="no" title="Overlay preview"></iframe>
+      <iframe id="frame" scrolling="no" title="Preview"></iframe>
     </div>
   </div>
 
@@ -139,18 +157,8 @@
 
 <script>
 (function(){
-  // ---- what the overlay understands, and what it defaults to ---------------
-  // Anything still at its default is left out of the generated URL, so the
-  // result stays short and readable instead of listing fifteen parameters.
-  var DEFAULTS = {
-    layout:'card', accent:'1db954', theme:'glass', align:'left', valign:'bottom',
-    scale:1, radius:18, opacity:100, transition:'slide', eq:'live', bars:5,
-    speed:60, showAlbum:0, showArt:1, hideWhenPaused:0
-  };
-
-  // Options the overlay can apply without being reloaded. Everything else is
-  // read once at startup, so changing it reloads the preview frame.
-  var LIVE = ['accent','radius','scale','opacity'];
+  var SWATCHES = ['1db954','fa2d48','ff0055','7b5cff','00c2ff','ffb300','ffffff','9a9aa8'];
+  var BACKGROUNDS = [['stream','Gameplay'],['dark','Dark'],['light','Light'],['grid','Grid']];
 
   var SIZES = {
     card:   {h:200, obs:'600 x 200'},
@@ -159,118 +167,268 @@
     minimal:{h:120, obs:'600 x 120'}
   };
 
-  var GROUPS = [
-    { title:'Layout', controls:[
-      { key:'layout', label:'Style', type:'seg', options:[
-        ['card','Card'],['big','Big'],['ticker','Ticker'],['minimal','Minimal']] }
-    ]},
-    { title:'Look', controls:[
-      { key:'accent', label:'Accent', type:'color',
-        note:'Auto takes the strongest colour out of the album art and follows it from song to song.' },
-      { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']],
-        note:'Card and Big only.' },
-      { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
-    ]},
-    { title:'Position and size', controls:[
-      { key:'align', label:'Side', type:'seg', options:[['left','Left'],['right','Right']] },
-      { key:'valign', label:'Vertical', type:'seg', options:[['bottom','Bottom'],['top','Top']] },
-      { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
-      { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' }
-    ]},
-    { title:'New song', controls:[
-      { key:'transition', label:'Arrives', type:'seg', options:[
-        ['slide','Slide'],['drop','Drop'],['fade','Fade'],['none','Instant']],
-        note:'Slide comes in from the right, drop from the top. Use Replay above to watch it.' }
-    ]},
-    { title:'Equalizer', controls:[
-      { key:'eq', label:'Bars', type:'seg', options:[['live','Live audio'],['anim','Looping'],['off','Hidden']],
-        note:'Live follows the player the overlay is showing, not the rest of your desktop.' },
-      { key:'bars', label:'Count', type:'range', min:3, max:32, step:1, unit:'' }
-    ]},
-    { title:'Content', controls:[
-      { key:'showArt', label:'', type:'toggle', text:'Show album art' },
-      { key:'showAlbum', label:'', type:'toggle', text:'Show the album name' },
-      { key:'hideWhenPaused', label:'', type:'toggle', text:'Hide completely while paused' }
-    ]},
-    { title:'Ticker', only:'ticker', controls:[
-      { key:'speed', label:'Speed', type:'range', min:20, max:200, step:5, unit:' px/s' }
-    ]}
-  ];
+  function alertPreview(kind, extra){
+    return function(win){
+      var a = {kind:kind, user:'TestUser'};
+      for(var k in extra) a[k] = extra[k];
+      win.postMessage({type:'nowplaying:alert-preview', alert:a}, location.origin);
+    };
+  }
 
-  var SWATCHES = ['1db954','fa2d48','ff0055','7b5cff','00c2ff','ffb300','ffffff','9a9aa8'];
-  var BACKGROUNDS = [['stream','Gameplay'],['dark','Dark'],['light','Light'],['grid','Grid']];
+  // ---- the three OBS sources this page can dress -----------------------------
+  // Each one owns its parameters, its defaults and its controls; everything
+  // below is generic and just renders whichever is selected. Anything still at
+  // its default is left out of the generated URL, so the result stays short.
+  var TARGETS = {
+    overlay: {
+      label:'Now playing', path:'/', store:'nowplaying.customize', onlyKey:'layout',
+      blurb:'Everything is live &mdash; the preview is the real overlay showing whatever is playing '
+          + 'right now. When it looks right, copy the URL into an OBS <strong>Browser Source</strong>. '
+          + '<a href="/layouts">The layouts page</a> is still there for a side-by-side comparison.',
+      // Options the overlay can apply without being reloaded. Everything else
+      // is read once at startup, so changing it reloads the preview frame.
+      live:['accent','radius','scale','opacity'],
+      defaults:{
+        layout:'card', accent:'1db954', theme:'glass', align:'left', valign:'bottom',
+        scale:1, radius:18, opacity:100, transition:'slide', eq:'live', bars:5,
+        speed:60, showAlbum:0, showArt:1, hideWhenPaused:0
+      },
+      size:function(st){ return SIZES[st.layout]; },
+      actions:[['Replay song change', function(win){
+        win.postMessage('nowplaying:preview-transition', location.origin); }]],
+      groups:[
+        { title:'Layout', controls:[
+          { key:'layout', label:'Style', type:'seg', options:[
+            ['card','Card'],['big','Big'],['ticker','Ticker'],['minimal','Minimal']] }
+        ]},
+        { title:'Look', controls:[
+          { key:'accent', label:'Accent', type:'color',
+            note:'Auto takes the strongest colour out of the album art and follows it from song to song.' },
+          { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']],
+            note:'Card and Big only.' },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+        ]},
+        { title:'Position and size', controls:[
+          { key:'align', label:'Side', type:'seg', options:[['left','Left'],['right','Right']] },
+          { key:'valign', label:'Vertical', type:'seg', options:[['bottom','Bottom'],['top','Top']] },
+          { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
+          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' }
+        ]},
+        { title:'New song', controls:[
+          { key:'transition', label:'Arrives', type:'seg', options:[
+            ['slide','Slide'],['drop','Drop'],['fade','Fade'],['none','Instant']],
+            note:'Slide comes in from the right, drop from the top. Use Replay above to watch it.' }
+        ]},
+        { title:'Equalizer', controls:[
+          { key:'eq', label:'Bars', type:'seg', options:[['live','Live audio'],['anim','Looping'],['off','Hidden']],
+            note:'Live follows the player the overlay is showing, not the rest of your desktop.' },
+          { key:'bars', label:'Count', type:'range', min:3, max:32, step:1, unit:'' }
+        ]},
+        { title:'Content', controls:[
+          { key:'showArt', label:'', type:'toggle', text:'Show album art' },
+          { key:'showAlbum', label:'', type:'toggle', text:'Show the album name' },
+          { key:'hideWhenPaused', label:'', type:'toggle', text:'Hide completely while paused' }
+        ]},
+        { title:'Ticker', only:'ticker', controls:[
+          { key:'speed', label:'Speed', type:'range', min:20, max:200, step:5, unit:' px/s' }
+        ]}
+      ]
+    },
 
-  var STORE = 'nowplaying.customize';
+    alerts: {
+      label:'Twitch alerts', path:'/alerts', store:'nowplaying.customize.alerts',
+      blurb:'A follow or subscription alert, as its own OBS <strong>Browser Source</strong> sized to the '
+          + 'whole canvas. Nothing is drawn between events, so it can sit over everything else. '
+          + 'Use the test buttons to see each kind without waiting for a real one.',
+      live:[],
+      defaults:{
+        style:'slide', accent:'1db954', followColor:'1db954', subColor:'a970ff',
+        giftColor:'ff9d3f', align:'center', valign:'top', scale:1, radius:16,
+        opacity:100, hold:6, showMessage:1
+      },
+      size:function(){ return {h:300, obs:'1920 x 1080'}; },
+      actions:[
+        ['Test follow', alertPreview('follow', {user:'NewViewer42'})],
+        ['Test sub',    alertPreview('sub',    {user:'StreamFan', tier:'1000'})],
+        ['Test resub',  alertPreview('resub',  {user:'LongTimer', tier:'2000', months:11,
+                          message:'Eleven months and still here every week.'})],
+        ['Test gift',   alertPreview('gift',   {user:'BigSpender', tier:'1000', count:5})]
+      ],
+      groups:[
+        { title:'Look', controls:[
+          { key:'style', label:'Arrives', type:'seg', options:[
+            ['slide','Slide'],['pop','Pop'],['bar','Banner']],
+            note:'Use the test buttons above to watch it arrive.' },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
+          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
+        ]},
+        { title:'Position', controls:[
+          { key:'align', label:'Side', type:'seg', options:[
+            ['left','Left'],['center','Centre'],['right','Right']] },
+          { key:'valign', label:'Vertical', type:'seg', options:[
+            ['top','Top'],['middle','Middle'],['bottom','Bottom']] }
+        ]},
+        { title:'Colours', controls:[
+          { key:'followColor', label:'Follow', type:'color' },
+          { key:'subColor', label:'Sub', type:'color' },
+          { key:'giftColor', label:'Gift', type:'color',
+            note:'Each kind of event gets its own colour so they are told apart at a glance.' }
+        ]},
+        { title:'Timing and content', controls:[
+          { key:'hold', label:'On screen', type:'range', min:2, max:20, step:1, unit:'s' },
+          { key:'showMessage', label:'', type:'toggle', text:'Show the message a resubscriber wrote' }
+        ]}
+      ]
+    },
 
-  // ---- state ---------------------------------------------------------------
-  var state = {};
-  for(var k in DEFAULTS) state[k] = DEFAULTS[k];
-  try {
-    var saved = JSON.parse(localStorage.getItem(STORE) || '{}');
-    for(var s in saved) if(s in DEFAULTS) state[s] = saved[s];
-  } catch(e){}
-  // A ?layout= on this page's own URL wins, so "customize this one" links work.
+    stats: {
+      label:'Followers & subs', path:'/stats', store:'nowplaying.customize.stats',
+      blurb:'Two boxes stacked on top of each other, each one alternating between who was most recent '
+          + 'and how close the count is to the next goal. Add it as its own OBS '
+          + '<strong>Browser Source</strong> so it can be positioned away from the now-playing card.',
+      live:[],
+      defaults:{
+        accent:'1db954', followColor:'1db954', subColor:'a970ff', theme:'glass',
+        align:'left', valign:'top', scale:1, radius:14, opacity:100, cycle:8,
+        transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1
+      },
+      size:function(){ return {h:240, obs:'360 x 240'}; },
+      groups:[
+        { title:'Look', controls:[
+          { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']] },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
+          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
+        ]},
+        { title:'Position and shape', controls:[
+          { key:'align', label:'Side', type:'seg', options:[
+            ['left','Left'],['center','Centre'],['right','Right']] },
+          { key:'valign', label:'Vertical', type:'seg', options:[
+            ['top','Top'],['middle','Middle'],['bottom','Bottom']] },
+          { key:'width', label:'Width', type:'range', min:180, max:520, step:10, unit:'px' },
+          { key:'gap', label:'Spacing', type:'range', min:0, max:40, step:2, unit:'px' }
+        ]},
+        { title:'Cycle', controls:[
+          { key:'cycle', label:'Each face', type:'range', min:3, max:30, step:1, unit:'s' },
+          { key:'transition', label:'Changes', type:'seg', options:[
+            ['slide','Slide'],['fade','Fade'],['none','Instant']],
+            note:'A box with only one thing to show holds it instead of cycling to a blank face.' }
+        ]},
+        { title:'Colours', controls:[
+          { key:'followColor', label:'Followers', type:'color' },
+          { key:'subColor', label:'Subs', type:'color' }
+        ]},
+        { title:'Boxes', controls:[
+          { key:'showFollowers', label:'', type:'toggle', text:'Show the follower box' },
+          { key:'showSubs', label:'', type:'toggle', text:'Show the subscriber box' }
+        ]}
+      ]
+    }
+  };
+
+  var ORDER = ['overlay','alerts','stats'];
+
+  // ---- state -----------------------------------------------------------------
+  var states = {};
+  ORDER.forEach(function(name){
+    var T = TARGETS[name], st = {};
+    for(var k in T.defaults) st[k] = T.defaults[k];
+    try {
+      var saved = JSON.parse(localStorage.getItem(T.store) || '{}');
+      for(var s in saved) if(s in T.defaults) st[s] = saved[s];
+    } catch(e){}
+    states[name] = st;
+  });
+
   var qp = new URLSearchParams(location.search);
-  if(qp.get('layout') && SIZES[qp.get('layout')]) state.layout = qp.get('layout');
+  var current = qp.get('source');
+  if(ORDER.indexOf(current) < 0) current = 'overlay';
+  // A ?layout= on this page's own URL wins, so "customize this one" links work.
+  if(qp.get('layout') && SIZES[qp.get('layout')]){
+    states.overlay.layout = qp.get('layout');
+    if(!qp.get('source')) current = 'overlay';
+  }
+
+  var T, state;
+  function selectTarget(name){ current = name; T = TARGETS[name]; state = states[name]; }
+  selectTarget(current);
 
   var frame = document.getElementById('frame'),
       stagewrap = document.getElementById('stagewrap'),
       urlEl = document.getElementById('url'),
-      dimsEl = document.getElementById('dims');
+      dimsEl = document.getElementById('dims'),
+      groupsEl = document.getElementById('groups'),
+      actionsEl = document.getElementById('actions'),
+      bannerEl = document.getElementById('banner'),
+      blurbEl = document.getElementById('blurb');
+
+  // Stats has nothing to draw without credentials, so the preview falls back to
+  // sample numbers rather than showing an empty rectangle. The copied URL never
+  // carries it - demo is a property of the preview, not of the source.
+  var statsDemo = true;
+
+  function params(skipLive){
+    var out = '';
+    for(var key in T.defaults){
+      if(skipLive && T.live.indexOf(key) >= 0) continue;
+      if(String(state[key]) === String(T.defaults[key])) continue;
+      out += (out ? '&' : '') + key + '=' + encodeURIComponent(state[key]);
+    }
+    return out;
+  }
 
   function url(){
-    var u = location.origin + '/?layout=' + state.layout;
-    for(var key in DEFAULTS){
-      if(key === 'layout') continue;
-      if(String(state[key]) === String(DEFAULTS[key])) continue;
-      u += '&' + key + '=' + encodeURIComponent(state[key]);
-    }
-    return u;
+    var p = params(false);
+    return location.origin + T.path + (p ? '?' + p : '');
   }
 
   // The preview frame only carries the reload-only options; the live ones are
-  // pushed over postMessage so dragging a slider doesn't restart the overlay.
+  // pushed over postMessage so dragging a slider doesn't restart the source.
   function frameUrl(){
-    var u = location.origin + '/?layout=' + state.layout;
-    for(var key in DEFAULTS){
-      if(key === 'layout' || LIVE.indexOf(key) >= 0) continue;
-      if(String(state[key]) === String(DEFAULTS[key])) continue;
-      u += '&' + key + '=' + encodeURIComponent(state[key]);
-    }
-    return u;
+    var p = params(true);
+    if(current === 'stats' && statsDemo) p += (p ? '&' : '') + 'demo=1';
+    return location.origin + T.path + (p ? '?' + p : '');
   }
 
   function pushLive(){
-    if(!frame.contentWindow) return;
+    if(!frame.contentWindow || !T.live.length) return;
     frame.contentWindow.postMessage({
       type:'nowplaying:style', accent:state.accent, radius:state.radius,
       scale:state.scale, opacity:state.opacity
     }, location.origin);
   }
 
-  var lastFrameUrl = '';
-  function reloadFrame(){
+  var lastFrameUrl = '', reloadTimer = null;
+  function doReload(){
     var u = frameUrl();
     if(u === lastFrameUrl){ pushLive(); return; }
     lastFrameUrl = u;
     frame.onload = pushLive;      // the fresh document starts from the URL again
     frame.src = u;
   }
+  // Targets with no live parameters reload on every change, and a range slider
+  // fires on every pixel of travel, so coalesce the burst into one load.
+  function reloadFrame(){
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(doReload, 110);
+  }
 
   function paint(){
-    var size = SIZES[state.layout];
+    var size = T.size(state);
     frame.height = size.h;
     dimsEl.textContent = 'OBS source size  ' + size.obs;
     urlEl.textContent = url();
-    if(state.accent !== 'auto') document.documentElement.style.setProperty('--accent', '#' + state.accent);
-    // Ticker settings are pointless on the other layouts; grey them out rather
-    // than hiding them, so the page doesn't reflow every time you switch.
+    var acc = state.accent || state.followColor;
+    if(acc && acc !== 'auto') document.documentElement.style.setProperty('--accent', '#' + acc);
+    // Settings that only apply to one layout are greyed out rather than hidden,
+    // so the page doesn't reflow every time you switch.
     [].forEach.call(document.querySelectorAll('.group[data-only]'), function(g){
-      var on = g.getAttribute('data-only') === state.layout;
+      var on = g.getAttribute('data-only') === state[T.onlyKey];
       g.classList.toggle('dim', !on);
       [].forEach.call(g.querySelectorAll('input,button'), function(c){ c.disabled = !on; });
     });
-    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch(e){}
+    try { localStorage.setItem(T.store, JSON.stringify(state)); } catch(e){}
   }
 
   function set(key, value, live){
@@ -279,139 +437,187 @@
     if(live) pushLive(); else reloadFrame();
   }
 
-  // ---- control rendering ---------------------------------------------------
-  var groupsEl = document.getElementById('groups');
+  // ---- control rendering -----------------------------------------------------
   var refresh = [];    // re-sync every control's visual state after a reset
 
-  GROUPS.forEach(function(G){
-    var g = document.createElement('div');
-    g.className = 'group';
-    if(G.only) g.setAttribute('data-only', G.only);
-    g.innerHTML = '<h3>' + G.title + '</h3>';
+  function buildControls(){
+    groupsEl.innerHTML = '';
+    refresh = [];
 
-    G.controls.forEach(function(C){
-      var live = LIVE.indexOf(C.key) >= 0;
-      var row = document.createElement('div');
-      row.className = 'row';
+    T.groups.forEach(function(G){
+      var g = document.createElement('div');
+      g.className = 'group';
+      if(G.only) g.setAttribute('data-only', G.only);
+      g.innerHTML = '<h3>' + G.title + '</h3>';
 
-      if(C.type === 'toggle'){
-        var lab = document.createElement('label');
-        lab.className = 'toggle';
-        lab.innerHTML = '<input type="checkbox" /><span class="track"></span><span>' + C.text + '</span>';
-        var box = lab.querySelector('input');
-        box.checked = state[C.key] === 1;
-        box.addEventListener('change', function(){ set(C.key, this.checked ? 1 : 0, live); });
-        refresh.push(function(){ box.checked = state[C.key] === 1; });
-        row.appendChild(lab);
+      G.controls.forEach(function(C){
+        var live = T.live.indexOf(C.key) >= 0;
+        var row = document.createElement('div');
+        row.className = 'row';
 
-      } else {
-        row.innerHTML = '<span class="lbl">' + C.label + '</span>';
-        var ctl = document.createElement('div');
-        ctl.className = 'ctl';
+        if(C.type === 'toggle'){
+          var lab = document.createElement('label');
+          lab.className = 'toggle';
+          lab.innerHTML = '<input type="checkbox" /><span class="track"></span><span>' + C.text + '</span>';
+          var box = lab.querySelector('input');
+          box.checked = state[C.key] === 1;
+          box.addEventListener('change', function(){ set(C.key, this.checked ? 1 : 0, live); });
+          refresh.push(function(){ box.checked = state[C.key] === 1; });
+          row.appendChild(lab);
 
-        if(C.type === 'seg'){
-          var seg = document.createElement('div');
-          seg.className = 'seg';
-          C.options.forEach(function(o){
-            var b = document.createElement('button');
-            b.type = 'button'; b.textContent = o[1];
-            b.setAttribute('aria-pressed', String(state[C.key] === o[0]));
-            b.addEventListener('click', function(){
-              set(C.key, o[0], live);
-              [].forEach.call(seg.children, function(x){
-                x.setAttribute('aria-pressed', String(x === b)); });
+        } else {
+          row.innerHTML = '<span class="lbl">' + C.label + '</span>';
+          var ctl = document.createElement('div');
+          ctl.className = 'ctl';
+
+          if(C.type === 'seg'){
+            var seg = document.createElement('div');
+            seg.className = 'seg';
+            C.options.forEach(function(o){
+              var b = document.createElement('button');
+              b.type = 'button'; b.textContent = o[1];
+              b.setAttribute('aria-pressed', String(state[C.key] === o[0]));
+              b.addEventListener('click', function(){
+                set(C.key, o[0], live);
+                [].forEach.call(seg.children, function(x){
+                  x.setAttribute('aria-pressed', String(x === b)); });
+              });
+              seg.appendChild(b);
             });
-            seg.appendChild(b);
-          });
-          refresh.push(function(){
-            [].forEach.call(seg.children, function(x, i){
-              x.setAttribute('aria-pressed', String(C.options[i][0] === state[C.key])); });
-          });
-          ctl.appendChild(seg);
+            refresh.push(function(){
+              [].forEach.call(seg.children, function(x, i){
+                x.setAttribute('aria-pressed', String(C.options[i][0] === state[C.key])); });
+            });
+            ctl.appendChild(seg);
 
-        } else if(C.type === 'range'){
-          var rng = document.createElement('input');
-          rng.type = 'range'; rng.min = C.min; rng.max = C.max; rng.step = C.step;
-          rng.value = state[C.key];
-          var val = document.createElement('span');
-          val.className = 'val';
-          function show(){ val.textContent = state[C.key] + C.unit; }
-          show();
-          rng.addEventListener('input', function(){
-            var n = parseFloat(this.value);
-            // Keep 1.25 as 1.25 but 18 as 18, so the URL never grows ".00".
-            set(C.key, C.step < 1 ? Math.round(n*100)/100 : n, live);
+          } else if(C.type === 'range'){
+            var rng = document.createElement('input');
+            rng.type = 'range'; rng.min = C.min; rng.max = C.max; rng.step = C.step;
+            rng.value = state[C.key];
+            var val = document.createElement('span');
+            val.className = 'val';
+            var show = function(){ val.textContent = state[C.key] + C.unit; };
             show();
-          });
-          refresh.push(function(){ rng.value = state[C.key]; show(); });
-          ctl.appendChild(rng); ctl.appendChild(val);
-
-        } else if(C.type === 'color'){
-          // 'auto' is a mode, not a colour, so the last real colour is kept
-          // aside - turning auto off should go back to what you had picked.
-          var lastHex = state[C.key] === 'auto' ? DEFAULTS[C.key] : state[C.key];
-
-          var auto = document.createElement('button');
-          auto.type = 'button'; auto.className = 'chip'; auto.textContent = 'Auto from art';
-
-          var pick = document.createElement('input');
-          pick.type = 'color'; pick.value = '#' + lastHex;
-
-          var sws = document.createElement('div');
-          sws.className = 'swatches';
-          SWATCHES.forEach(function(hex){
-            var b = document.createElement('button');
-            b.type = 'button'; b.className = 'sw'; b.title = '#' + hex;
-            b.style.background = '#' + hex;
-            b.addEventListener('click', function(){
-              lastHex = hex; pick.value = '#' + hex; set(C.key, hex, live); syncSw();
+            rng.addEventListener('input', function(){
+              var n = parseFloat(this.value);
+              // Keep 1.25 as 1.25 but 18 as 18, so the URL never grows ".00".
+              set(C.key, C.step < 1 ? Math.round(n*100)/100 : n, live);
+              show();
             });
-            sws.appendChild(b);
-          });
+            refresh.push(function(){ rng.value = state[C.key]; show(); });
+            ctl.appendChild(rng); ctl.appendChild(val);
 
-          function syncSw(){
-            var on = state[C.key] === 'auto';
-            auto.setAttribute('aria-pressed', String(on));
-            pick.disabled = on;
-            pick.style.opacity = sws.style.opacity = on ? '.4' : '';
-            [].forEach.call(sws.children, function(x, i){
-              x.disabled = on;
-              x.setAttribute('aria-pressed', String(!on && SWATCHES[i] === state[C.key]));
-            });
+          } else if(C.type === 'color'){
+            (function(){
+              // 'auto' is a mode, not a colour, so the last real colour is kept
+              // aside - turning auto off should go back to what you had picked.
+              var supportsAuto = (C.key === 'accent' && current === 'overlay');
+              var lastHex = state[C.key] === 'auto' ? T.defaults[C.key] : state[C.key];
+
+              var auto = null;
+              if(supportsAuto){
+                auto = document.createElement('button');
+                auto.type = 'button'; auto.className = 'chip'; auto.textContent = 'Auto from art';
+              }
+
+              var pick = document.createElement('input');
+              pick.type = 'color'; pick.value = '#' + lastHex;
+
+              var sws = document.createElement('div');
+              sws.className = 'swatches';
+              SWATCHES.forEach(function(hex){
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'sw'; b.title = '#' + hex;
+                b.style.background = '#' + hex;
+                b.addEventListener('click', function(){
+                  lastHex = hex; pick.value = '#' + hex; set(C.key, hex, live); syncSw();
+                });
+                sws.appendChild(b);
+              });
+
+              function syncSw(){
+                var on = state[C.key] === 'auto';
+                if(auto) auto.setAttribute('aria-pressed', String(on));
+                pick.disabled = on;
+                pick.style.opacity = sws.style.opacity = on ? '.4' : '';
+                [].forEach.call(sws.children, function(x, i){
+                  x.disabled = on;
+                  x.setAttribute('aria-pressed', String(!on && SWATCHES[i] === state[C.key]));
+                });
+              }
+
+              if(auto) auto.addEventListener('click', function(){
+                set(C.key, state[C.key] === 'auto' ? lastHex : 'auto', live); syncSw();
+              });
+              pick.addEventListener('input', function(){
+                lastHex = this.value.replace('#','').toLowerCase();
+                set(C.key, lastHex, live); syncSw();
+              });
+              refresh.push(function(){
+                lastHex = state[C.key] === 'auto' ? T.defaults[C.key] : state[C.key];
+                pick.value = '#' + lastHex; syncSw();
+              });
+
+              if(auto) ctl.appendChild(auto);
+              ctl.appendChild(pick); ctl.appendChild(sws);
+              syncSw();
+            })();
           }
 
-          auto.addEventListener('click', function(){
-            set(C.key, state[C.key] === 'auto' ? lastHex : 'auto', live); syncSw();
-          });
-          pick.addEventListener('input', function(){
-            lastHex = this.value.replace('#','').toLowerCase();
-            set(C.key, lastHex, live); syncSw();
-          });
-          refresh.push(function(){
-            lastHex = state[C.key] === 'auto' ? DEFAULTS[C.key] : state[C.key];
-            pick.value = '#' + lastHex; syncSw();
-          });
-
-          ctl.appendChild(auto); ctl.appendChild(pick); ctl.appendChild(sws);
-          syncSw();
+          row.appendChild(ctl);
         }
 
-        row.appendChild(ctl);
-      }
+        g.appendChild(row);
+        if(C.note){
+          var n = document.createElement('div');
+          n.className = 'note'; n.style.margin = '-4px 0 12px';
+          n.textContent = C.note;
+          g.appendChild(n);
+        }
+      });
 
-      g.appendChild(row);
-      if(C.note){
-        var n = document.createElement('div');
-        n.className = 'note'; n.style.margin = '-4px 0 12px';
-        n.textContent = C.note;
-        g.appendChild(n);
-      }
+      groupsEl.appendChild(g);
     });
+  }
 
-    groupsEl.appendChild(g);
+  function buildActions(){
+    actionsEl.innerHTML = '';
+    (T.actions || []).forEach(function(a){
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'action'; b.textContent = a[0];
+      b.addEventListener('click', function(){
+        if(frame.contentWindow) a[1](frame.contentWindow);
+      });
+      actionsEl.appendChild(b);
+    });
+  }
+
+  // ---- source tabs -----------------------------------------------------------
+  var tabsEl = document.getElementById('tabs');
+  ORDER.forEach(function(name){
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'tab'; b.textContent = TARGETS[name].label;
+    b.setAttribute('aria-pressed', String(name === current));
+    b.addEventListener('click', function(){
+      selectTarget(name);
+      [].forEach.call(tabsEl.children, function(x){
+        x.setAttribute('aria-pressed', String(x === b)); });
+      lastFrameUrl = '';        // force a load even if the URL happens to match
+      render();
+    });
+    tabsEl.appendChild(b);
   });
 
-  // ---- preview background --------------------------------------------------
+  function render(){
+    blurbEl.innerHTML = T.blurb;
+    buildActions();
+    buildControls();
+    showBanner();
+    paint();
+    reloadFrame();
+  }
+
+  // ---- preview background ----------------------------------------------------
   var bgs = document.getElementById('bgs');
   BACKGROUNDS.forEach(function(b, i){
     var el = document.createElement('button');
@@ -425,21 +631,56 @@
     bgs.appendChild(el);
   });
 
+  // ---- Twitch connection state ----------------------------------------------
+  var twitch = null;
+  function showBanner(){
+    if(current === 'overlay' || !twitch){ bannerEl.className = 'banner'; return; }
+    var s = twitch.status, cls = 'warn', html = '';
+    if(s === 'live'){
+      cls = 'ok';
+      html = 'Connected to Twitch as <strong>' + (twitch.channel || '?') + '</strong>. '
+           + 'The preview is showing real numbers.';
+      if(twitch.subs && twitch.subs.total === -2)
+        html += ' Subscriptions are unavailable on this channel, so that box stays hidden.';
+    } else if(s === 'bad-token' || s === 'missing-scope'){
+      cls = 'bad';
+      html = '<strong>' + twitch.detail + '</strong> Alerts and counts will not update until this is fixed.';
+    } else if(s === 'off'){
+      html = 'Twitch is not set up yet (' + (twitch.detail || 'no credentials') + '), so these sources '
+           + 'have no data. The preview below uses sample numbers. See the README for the '
+           + '<code>clientId</code> and <code>apiToken</code> setup.';
+    } else if(s === 'connecting'){
+      html = 'Connecting to Twitch...';
+    } else {
+      cls = 'bad';
+      html = twitch.detail || 'Twitch connection problem.';
+    }
+    bannerEl.className = 'banner on ' + cls;
+    bannerEl.innerHTML = html;
+  }
+
+  fetch('/twitch',{cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      twitch = d;
+      var wasDemo = statsDemo;
+      statsDemo = (d.status !== 'live');
+      showBanner();
+      if(current === 'stats' && wasDemo !== statsDemo) reloadFrame();
+    })
+    .catch(function(){});
+
   // With auto on there is no colour in the state to show, so this page borrows
   // whatever the preview settled on. It makes the controls themselves shift
   // with the album, which is the clearest way to show what auto is doing.
   setInterval(function(){
-    if(state.accent !== 'auto') return;
+    if(current !== 'overlay' || state.accent !== 'auto') return;
     try {
       var c = getComputedStyle(frame.contentDocument.documentElement)
                 .getPropertyValue('--accent').trim();
       if(/^#[0-9a-f]{6}$/i.test(c)) document.documentElement.style.setProperty('--accent', c);
     } catch(e){}
   }, 1000);
-
-  document.getElementById('replay').addEventListener('click', function(){
-    if(frame.contentWindow) frame.contentWindow.postMessage('nowplaying:preview-transition', location.origin);
-  });
 
   document.getElementById('copy').addEventListener('click', function(){
     var b = this;
@@ -450,14 +691,13 @@
   });
 
   document.getElementById('reset').addEventListener('click', function(){
-    for(var k in DEFAULTS) state[k] = DEFAULTS[k];
+    for(var k in T.defaults) state[k] = T.defaults[k];
     refresh.forEach(function(f){ f(); });
     paint();
     reloadFrame();
   });
 
-  paint();
-  reloadFrame();
+  render();
 })();
 </script>
 </body>

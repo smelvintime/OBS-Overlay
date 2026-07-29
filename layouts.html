@@ -50,6 +50,9 @@
   a.action:hover{background:#35353f}
   footer{color:var(--dim);font-size:13px;padding:0 32px 50px;line-height:1.6}
   footer code{color:#cfe9d8;font-size:12.5px}
+  .sectionhead{padding:26px 32px 0;margin:0}
+  .sectionhead h2{margin:0 0 6px;font-size:20px;letter-spacing:-.01em}
+  .sectionhead p{margin:0;color:var(--dim);font-size:14px;max-width:760px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -61,6 +64,13 @@
 </header>
 
 <div class="grid" id="grid"></div>
+
+<div class="sectionhead">
+  <h2>Twitch sources</h2>
+  <p>Separate browser sources, so they can be positioned independently of the now-playing card.
+     Both previews below use sample data &mdash; on stream they follow your real channel.</p>
+</div>
+<div class="grid" id="twitchgrid"></div>
 
 <footer>
   Want to change the colour, position, size, equalizer or anything else?
@@ -158,6 +168,64 @@ LAYOUTS.forEach(function(L){
   grid.appendChild(el);
   paint();
   reload();
+});
+
+// ---- Twitch sources --------------------------------------------------------
+// These take no per-card options: the alert look and the box cycle are picked
+// in the customizer, and duplicating that here would mean two places to keep
+// in step. What the cards are for is seeing them move.
+var TWITCH = [
+  { id:'alerts', name:'Alerts', h:230, obs:'1920 x 1080', src:'/alerts',
+    desc:'Fires when someone follows, subscribes, resubscribes or gifts. Invisible the rest of the time, so it can cover the whole canvas.',
+    tests:[
+      ['Follow', {kind:'follow', user:'NewViewer42'}],
+      ['Sub',    {kind:'sub', user:'StreamFan', tier:'1000'}],
+      ['Resub',  {kind:'resub', user:'LongTimer', tier:'2000', months:11,
+                  message:'Eleven months and still here every week.'}],
+      ['Gift',   {kind:'gift', user:'BigSpender', tier:'1000', count:5}]
+    ]},
+  { id:'stats', name:'Followers & subs', h:230, obs:'360 x 240', src:'/stats?demo=1',
+    desc:'Two boxes stacked on top of each other. Each alternates between who was most recent and how close the count is to the next goal.',
+    tests:[] }
+];
+
+var tgrid = document.getElementById('twitchgrid');
+TWITCH.forEach(function(S){
+  var el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML =
+    '<div class="head"><h2>' + S.name + '</h2>' +
+      '<span class="desc">' + S.desc + '</span>' +
+      '<span class="dims">OBS ' + S.obs + '</span></div>' +
+    '<div class="stagewrap"><iframe height="' + S.h + '" scrolling="no"></iframe></div>' +
+    (S.tests.length ? '<div class="tune"><span style="color:var(--dim);font-size:12.5px">Try one</span>' +
+      S.tests.map(function(t, i){
+        return '<button type="button" class="test" data-i="' + i + '">' + t[0] + '</button>'; }).join('') +
+      '</div>' : '') +
+    '<div class="url"><code>' + location.origin + '/' + S.id + '</code>' +
+      '<a class="action" href="/customize?source=' + S.id + '">Customize this one</a>' +
+      '<button type="button" class="copy">Copy URL</button></div>';
+
+  var frame = el.querySelector('iframe');
+  frame.src = location.origin + S.src;
+
+  [].forEach.call(el.querySelectorAll('.test'), function(b){
+    b.addEventListener('click', function(){
+      var t = S.tests[parseInt(this.getAttribute('data-i'), 10)];
+      if(frame.contentWindow)
+        frame.contentWindow.postMessage({type:'nowplaying:alert-preview', alert:t[1]}, location.origin);
+    });
+  });
+
+  el.querySelector('.copy').addEventListener('click', function(){
+    var b = this;
+    navigator.clipboard.writeText(location.origin + '/' + S.id).then(function(){
+      b.textContent = 'Copied'; b.classList.add('copied');
+      setTimeout(function(){ b.textContent='Copy URL'; b.classList.remove('copied'); }, 1400);
+    });
+  });
+
+  tgrid.appendChild(el);
 });
 </script>
 </body>

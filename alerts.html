@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Twitch alerts</title>
+<style>
+  /* ---------------- Options via URL query params (all optional) ----------------
+     ?style=slide|pop|bar          how the alert arrives        (default slide)
+     ?accent=1db954                base accent, hex no #
+     ?followColor=1db954           per-kind colours, hex no #
+     ?subColor=a970ff
+     ?giftColor=ff9d3f
+     ?align=left|center|right      horizontal position          (default center)
+     ?valign=top|middle|bottom     vertical position            (default top)
+     ?scale=1.0                    size multiplier
+     ?radius=16                    corner radius px
+     ?opacity=100                  alert opacity 10-100         (default 100)
+     ?hold=6                       seconds on screen            (default 6)
+     ?showMessage=0|1              show the resub message       (default 1)
+     ?demo=1                       cycle fake alerts, no server needed
+
+     The page is deliberately empty and fully transparent when nothing is
+     happening - it is meant to sit over the whole canvas as its own OBS source.
+  ---------------------------------------------------------------------------- */
+  :root{
+    --accent:#1db954;
+    --follow:#1db954;
+    --sub:#a970ff;
+    --gift:#ff9d3f;
+    --overlay-opacity:1;
+    --radius:16px;
+    --card-bg:rgba(18,18,20,.86);
+    --card-border:rgba(255,255,255,.09);
+    --text:#fff;
+    --subtext:rgba(255,255,255,.66);
+  }
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  #stage{position:fixed;inset:0;display:flex;padding:32px;box-sizing:border-box;}
+  #stage.h-left{justify-content:flex-start}
+  #stage.h-center{justify-content:center}
+  #stage.h-right{justify-content:flex-end}
+  #stage.v-top{align-items:flex-start}
+  #stage.v-middle{align-items:center}
+  #stage.v-bottom{align-items:flex-end}
+
+  /* --c is set per alert kind, so every accented part of the card follows the
+     event type without each rule having to know which kind is showing. */
+  .alert{
+    --c:var(--accent);
+    position:relative;display:flex;align-items:center;gap:16px;
+    padding:16px 22px 16px 18px;border-radius:var(--radius);
+    background:var(--card-bg);border:1px solid var(--card-border);
+    box-shadow:0 10px 34px rgba(0,0,0,.45),0 0 0 1px rgba(0,0,0,.25);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    color:var(--text);max-width:min(560px,88vw);
+    opacity:0;will-change:transform,opacity;
+  }
+  .alert::before{content:"";position:absolute;left:0;top:14%;bottom:14%;width:3px;
+    border-radius:3px;background:var(--c);box-shadow:0 0 14px var(--c)}
+
+  .icon{flex:0 0 auto;width:46px;height:46px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1;
+    background:color-mix(in srgb,var(--c) 22%,transparent);
+    border:1px solid color-mix(in srgb,var(--c) 55%,transparent);
+    color:var(--c)}
+  .body{min-width:0}
+  .head{font-size:19px;font-weight:700;letter-spacing:-.01em;line-height:1.25;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .who{color:var(--c)}
+  .sub{margin-top:3px;font-size:13.5px;color:var(--subtext);line-height:1.35;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .msg{margin-top:6px;font-size:13.5px;color:var(--text);opacity:.9;line-height:1.4;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+  /* ---- looks -------------------------------------------------------------
+     Every look spells out all three states - staged, resting, leaving - at the
+     same specificity and under the same body class. Writing the off-mark on
+     the bare .alert instead would out-rank the resting rule and pin the card
+     permanently off its mark, since a compound selector beats a plain one. */
+  .alert{transition:transform .42s cubic-bezier(.22,1.28,.35,1),opacity .3s ease}
+  body.st-none .alert{transition:none}
+
+  body.style-slide .alert.pre{transform:translateX(-28px)}
+  body.style-slide .alert.in {transform:none}
+  body.style-slide .alert.out{transform:translateX(-18px)}
+  body.style-slide.from-right .alert.pre{transform:translateX(28px)}
+  body.style-slide.from-right .alert.out{transform:translateX(18px)}
+
+  body.style-pop .alert.pre{transform:scale(.82)}
+  body.style-pop .alert.in {transform:none}
+  body.style-pop .alert.out{transform:scale(.94)}
+
+  body.style-bar .alert{width:min(760px,92vw);max-width:none}
+  body.style-bar .alert.pre{transform:translateY(-22px)}
+  body.style-bar .alert.in {transform:none}
+  body.style-bar .alert.out{transform:translateY(-14px)}
+  body.style-bar.v-bottom-body .alert.pre{transform:translateY(22px)}
+  body.style-bar.v-bottom-body .alert.out{transform:translateY(14px)}
+
+  .alert.in{opacity:var(--overlay-opacity)}
+  /* Leaving is quicker than arriving and does not bounce: an overshoot on the
+     way out reads as a second event starting. */
+  .alert.out{opacity:0;transition-duration:.26s;
+    transition-timing-function:cubic-bezier(.4,0,1,1)}
+</style>
+</head>
+<body>
+<div id="stage"><div class="alert" id="alert">
+  <div class="icon" id="icon"></div>
+  <div class="body">
+    <div class="head" id="head"></div>
+    <div class="sub" id="sub"></div>
+    <div class="msg" id="msg"></div>
+  </div>
+</div></div>
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var root = document.documentElement, stage = document.getElementById('stage');
+  var card = document.getElementById('alert');
+  var iconEl = document.getElementById('icon'), headEl = document.getElementById('head');
+  var subEl = document.getElementById('sub'), msgEl = document.getElementById('msg');
+
+  function hex(name, cssVar){
+    var v = (qs.get(name) || '').replace('#','');
+    if(/^[0-9a-fA-F]{3,8}$/.test(v)) root.style.setProperty(cssVar, '#'+v);
+  }
+  hex('accent','--accent'); hex('followColor','--follow');
+  hex('subColor','--sub');  hex('giftColor','--gift');
+
+  var style = (qs.get('style')||'slide').toLowerCase();
+  if(['slide','pop','bar'].indexOf(style) < 0) style = 'slide';
+  document.body.className = 'style-' + style;
+
+  var align  = (qs.get('align')||'center').toLowerCase();
+  var valign = (qs.get('valign')||'top').toLowerCase();
+  if(['left','center','right'].indexOf(align) < 0) align = 'center';
+  if(['top','middle','bottom'].indexOf(valign) < 0) valign = 'top';
+  stage.className = 'h-'+align+' v-'+valign;
+  // A card pinned to the right should arrive from the right; sliding in from
+  // the far side would cross the whole canvas.
+  if(align === 'right') document.body.classList.add('from-right');
+  if(valign === 'bottom') document.body.classList.add('v-bottom-body');
+
+  var r = parseInt(qs.get('radius'),10);
+  if(isFinite(r) && r >= 0 && r <= 80) root.style.setProperty('--radius', r+'px');
+
+  var sc = parseFloat(qs.get('scale'));
+  if(isFinite(sc) && sc > 0 && sc <= 4 && sc !== 1) card.style.zoom = sc;
+
+  var op = parseFloat(qs.get('opacity'));
+  if(isFinite(op)){
+    if(op > 0 && op <= 1) op *= 100;
+    op = Math.max(10, Math.min(100, op));
+    root.style.setProperty('--overlay-opacity', (op/100).toFixed(3));
+  }
+
+  var hold = parseFloat(qs.get('hold'));
+  if(!isFinite(hold) || hold < 1 || hold > 30) hold = 6;
+  var holdMs = hold * 1000;
+
+  var showMessage = qs.get('showMessage') !== '0';
+
+  // ---- rendering --------------------------------------------------------
+  function tierName(t){
+    if(!t) return '';
+    t = String(t);
+    if(t.toLowerCase() === 'prime') return 'Prime';
+    if(t === '1000') return 'Tier 1';
+    if(t === '2000') return 'Tier 2';
+    if(t === '3000') return 'Tier 3';
+    return t;
+  }
+
+  function plural(n, one, many){ return n + ' ' + (n === 1 ? one : many); }
+
+  function render(a){
+    var kind = a.kind, colour = 'var(--follow)', icon = '♥', head = '', sub = '', msg = '';
+
+    if(kind === 'follow'){
+      head = a.user; sub = 'just followed';
+    } else if(kind === 'sub'){
+      colour = 'var(--sub)'; icon = '★';
+      head = a.user; sub = 'subscribed' + (tierName(a.tier) ? ' · ' + tierName(a.tier) : '');
+    } else if(kind === 'resub'){
+      colour = 'var(--sub)'; icon = '★';
+      head = a.user;
+      var bits = [];
+      if(a.months > 0) bits.push(plural(a.months, 'month', 'months'));
+      if(tierName(a.tier)) bits.push(tierName(a.tier));
+      sub = 'resubscribed' + (bits.length ? ' · ' + bits.join(' · ') : '');
+      if(showMessage && a.message) msg = a.message;
+    } else if(kind === 'gift'){
+      colour = 'var(--gift)'; icon = '◆';
+      head = a.user;
+      sub = 'gifted ' + plural(a.count || 1, 'sub', 'subs')
+          + (tierName(a.tier) ? ' · ' + tierName(a.tier) : '');
+    } else {
+      return false;   // unknown kind: better to show nothing than a blank card
+    }
+
+    card.style.setProperty('--c', colour);
+    iconEl.textContent = icon;
+    headEl.textContent = head;
+    subEl.textContent = sub;
+    msgEl.textContent = msg;
+    msgEl.style.display = msg ? '' : 'none';
+    return true;
+  }
+
+  // ---- queue ------------------------------------------------------------
+  // Two follows a second apart must not overwrite each other, so alerts are
+  // played one at a time with a full hold each and a gap between.
+  var queue = [], showing = false;
+
+  function enqueue(a){
+    if(!a || !a.kind) return;
+    // A gift bomb plus a raid can flood this; past a point the backlog is
+    // stale anyway and holding it just delays live events further.
+    if(queue.length >= 20) queue.shift();
+    queue.push(a);
+    if(!showing) playNext();
+  }
+
+  function playNext(){
+    if(!queue.length){ showing = false; return; }
+    showing = true;
+    var a = queue.shift();
+    if(!render(a)){ playNext(); return; }
+
+    // Stage it off-mark with transitions suppressed, force the browser to take
+    // that position, then release a frame later so the arrival animates from
+    // there instead of from wherever the previous alert finished.
+    document.body.classList.add('st-none');
+    card.classList.remove('in','out');
+    card.classList.add('pre');
+    void card.offsetWidth;
+    document.body.classList.remove('st-none');
+
+    function enter(){ card.classList.remove('pre'); card.classList.add('in'); }
+    requestAnimationFrame(enter);
+    // An OBS browser source that is not compositing never fires rAF, which
+    // would leave the alert staged off-screen forever. The timer is the net.
+    setTimeout(enter, 60);
+
+    setTimeout(function(){
+      card.classList.remove('in');
+      card.classList.add('out');
+      setTimeout(function(){
+        card.classList.remove('out');
+        setTimeout(playNext, 380);    // breathing room between alerts
+      }, 300);
+    }, holdMs);
+  }
+
+  // ---- source -----------------------------------------------------------
+  if(qs.get('demo') === '1'){
+    var samples = [
+      {kind:'follow', user:'NewViewer42'},
+      {kind:'sub',    user:'StreamFan',  tier:'1000'},
+      {kind:'resub',  user:'LongTimer',  tier:'2000', months:11,
+       message:'Eleven months and still here every week.'},
+      {kind:'gift',   user:'BigSpender', tier:'1000', count:5}
+    ], di = 0;
+    (function loop(){
+      enqueue(samples[di++ % samples.length]);
+      setTimeout(loop, (hold + 1.2) * 1000);
+    })();
+  } else if(window.EventSource){
+    var es = new EventSource('/twitch/events');
+    es.onmessage = function(ev){
+      var d;
+      try { d = JSON.parse(ev.data); } catch(e){ return; }
+      enqueue(d);
+    };
+    // EventSource reconnects on its own, and an alerts page with no connection
+    // should stay invisible rather than announce the problem over the stream.
+    es.onerror = function(){};
+  }
+
+  // Lets the customize page fire a preview without a round trip to Twitch.
+  window.addEventListener('message', function(ev){
+    if(ev.origin !== location.origin) return;
+    var d = ev.data;
+    if(d && d.type === 'nowplaying:alert-preview') enqueue(d.alert);
+  });
+})();
+</script>
+</body>
+</html>

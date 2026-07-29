@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Followers and subscribers</title>
+<style>
+  /* ---------------- Options via URL query params (all optional) ----------------
+     ?accent=1db954                base accent, hex no #
+     ?followColor=1db954           per-box colours, hex no #
+     ?subColor=a970ff
+     ?align=left|center|right      horizontal position          (default left)
+     ?valign=top|middle|bottom     vertical position            (default top)
+     ?scale=1.0                    size multiplier
+     ?radius=14                    corner radius px
+     ?opacity=100                  box opacity 10-100           (default 100)
+     ?theme=glass|solid            box chrome                   (default glass)
+     ?cycle=8                      seconds per face             (default 8)
+     ?transition=slide|fade        how faces change             (default slide)
+     ?width=300                    box width px                 (default 300)
+     ?gap=12                       space between boxes px       (default 12)
+     ?showFollowers=0|1            show the follower box        (default 1)
+     ?showSubs=0|1                 show the subscriber box      (default 1)
+     ?followGoal=500               override the automatic goal
+     ?subGoal=50
+     ?demo=1                       fake data, no server needed
+
+     Each box alternates two faces: who was most recent, and how far the count
+     has come toward the next goal. A box with only one usable face holds that
+     face instead of cycling to a blank one.
+  ---------------------------------------------------------------------------- */
+  :root{
+    --accent:#1db954;
+    --follow:#1db954;
+    --sub:#a970ff;
+    --overlay-opacity:1;
+    --radius:14px;
+    --box-w:300px;
+    --gap:12px;
+    --card-bg:rgba(18,18,20,.82);
+    --card-border:rgba(255,255,255,.08);
+    --text:#fff;
+    --subtext:rgba(255,255,255,.6);
+  }
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  #stage{position:fixed;inset:0;display:flex;padding:24px;box-sizing:border-box;}
+  #stage.h-left{justify-content:flex-start}
+  #stage.h-center{justify-content:center}
+  #stage.h-right{justify-content:flex-end}
+  #stage.v-top{align-items:flex-start}
+  #stage.v-middle{align-items:center}
+  #stage.v-bottom{align-items:flex-end}
+
+  #stack{display:flex;flex-direction:column;gap:var(--gap)}
+
+  .box{
+    --c:var(--accent);
+    position:relative;width:var(--box-w);box-sizing:border-box;
+    padding:12px 16px 12px 18px;border-radius:var(--radius);
+    background:var(--card-bg);border:1px solid var(--card-border);
+    box-shadow:0 8px 26px rgba(0,0,0,.4);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    color:var(--text);opacity:0;transform:translateY(8px);
+    transition:opacity .45s ease,transform .45s cubic-bezier(.22,1.28,.35,1);
+  }
+  body.solid .box{background:#131316;backdrop-filter:none;-webkit-backdrop-filter:none}
+  .box.show{opacity:var(--overlay-opacity);transform:none}
+  .box.hidden{display:none}
+  .box::before{content:"";position:absolute;left:0;top:16%;bottom:16%;width:3px;
+    border-radius:3px;background:var(--c);box-shadow:0 0 12px var(--c)}
+
+  /* A fixed face height is what stops the stack twitching every time a box
+     flips between a name and a progress bar, since the two are different
+     shapes. Both faces are laid out in the same box and cross-faded. */
+  .faces{position:relative;height:46px}
+  .face{position:absolute;inset:0;opacity:0;pointer-events:none;
+    transition:transform .34s cubic-bezier(.22,1.28,.35,1),opacity .28s ease}
+  .face.on{opacity:1}
+  body.tr-none .face{transition:none}
+
+  body.tr-slide .face{transform:translateY(14px)}
+  body.tr-slide .face.on{transform:none}
+  body.tr-slide .face.leaving{transform:translateY(-14px);opacity:0}
+  body.tr-fade .face,body.tr-fade .face.leaving{transform:none}
+
+  .label{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--c);opacity:.95}
+  .value{margin-top:3px;font-size:20px;font-weight:700;letter-spacing:-.01em;
+    line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .value .of{font-size:13px;font-weight:600;color:var(--subtext);margin-left:2px}
+  .empty{color:var(--subtext);font-weight:600;font-size:15px}
+
+  .bar{margin-top:7px;height:6px;border-radius:6px;overflow:hidden;
+    background:rgba(255,255,255,.11)}
+  .fill{height:100%;width:0;border-radius:6px;background:var(--c);
+    box-shadow:0 0 10px var(--c);
+    transition:width .6s cubic-bezier(.22,.9,.3,1)}
+
+  /* The count nudges when a real event lands, so a change is noticeable even
+     if the box happens to be showing the other face at the time. */
+  @keyframes bump{0%{transform:none}35%{transform:translateY(-3px)}100%{transform:none}}
+  .box.bump{animation:bump .5s ease}
+</style>
+</head>
+<body>
+<div id="stage"><div id="stack">
+
+  <div class="box" id="boxFollow">
+    <div class="faces">
+      <div class="face" data-face="latest">
+        <div class="label">Latest follower</div>
+        <div class="value" data-latest></div>
+      </div>
+      <div class="face" data-face="goal">
+        <div class="label">Follower goal</div>
+        <div class="value"><span data-count></span><span class="of" data-of></span></div>
+        <div class="bar"><div class="fill" data-fill></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="box" id="boxSub">
+    <div class="faces">
+      <div class="face" data-face="latest">
+        <div class="label">Latest subscriber</div>
+        <div class="value" data-latest></div>
+      </div>
+      <div class="face" data-face="goal">
+        <div class="label">Subscriber goal</div>
+        <div class="value"><span data-count></span><span class="of" data-of></span></div>
+        <div class="bar"><div class="fill" data-fill></div></div>
+      </div>
+    </div>
+  </div>
+
+</div></div>
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var root = document.documentElement, stage = document.getElementById('stage');
+
+  function hex(name, cssVar){
+    var v = (qs.get(name) || '').replace('#','');
+    if(/^[0-9a-fA-F]{3,8}$/.test(v)) root.style.setProperty(cssVar, '#'+v);
+  }
+  hex('accent','--accent'); hex('followColor','--follow'); hex('subColor','--sub');
+
+  var align  = (qs.get('align')||'left').toLowerCase();
+  var valign = (qs.get('valign')||'top').toLowerCase();
+  if(['left','center','right'].indexOf(align) < 0) align = 'left';
+  if(['top','middle','bottom'].indexOf(valign) < 0) valign = 'top';
+  stage.className = 'h-'+align+' v-'+valign;
+
+  var tr = (qs.get('transition')||'slide').toLowerCase();
+  if(['slide','fade','none'].indexOf(tr) < 0) tr = 'slide';
+  document.body.className = 'tr-' + tr;
+  if((qs.get('theme')||'glass').toLowerCase() === 'solid') document.body.classList.add('solid');
+
+  function px(name, cssVar, lo, hi){
+    var v = parseInt(qs.get(name),10);
+    if(isFinite(v) && v >= lo && v <= hi) root.style.setProperty(cssVar, v+'px');
+  }
+  px('radius','--radius',0,80); px('width','--box-w',140,900); px('gap','--gap',0,120);
+
+  var sc = parseFloat(qs.get('scale'));
+  if(isFinite(sc) && sc > 0 && sc <= 4 && sc !== 1) document.getElementById('stack').style.zoom = sc;
+
+  var op = parseFloat(qs.get('opacity'));
+  if(isFinite(op)){
+    if(op > 0 && op <= 1) op *= 100;
+    op = Math.max(10, Math.min(100, op));
+    root.style.setProperty('--overlay-opacity', (op/100).toFixed(3));
+  }
+
+  var cycle = parseFloat(qs.get('cycle'));
+  if(!isFinite(cycle) || cycle < 2 || cycle > 120) cycle = 8;
+
+  var wantFollow = qs.get('showFollowers') !== '0';
+  var wantSubs   = qs.get('showSubs') !== '0';
+
+  function goalOverride(name){
+    var v = parseInt(qs.get(name),10);
+    return (isFinite(v) && v > 0) ? v : 0;
+  }
+  var followGoalOverride = goalOverride('followGoal');
+  var subGoalOverride    = goalOverride('subGoal');
+
+  // ---- boxes ------------------------------------------------------------
+  function Box(id, colourVar, want){
+    var el = document.getElementById(id);
+    el.style.setProperty('--c', colourVar);
+    var faces = el.querySelectorAll('.face');
+    return {
+      el: el, want: want,
+      latestFace: faces[0], goalFace: faces[1],
+      latestEl: faces[0].querySelector('[data-latest]'),
+      countEl:  faces[1].querySelector('[data-count]'),
+      ofEl:     faces[1].querySelector('[data-of]'),
+      fillEl:   faces[1].querySelector('[data-fill]'),
+      latest: '', total: -1, goal: 0,
+      current: null, live: false
+    };
+  }
+  var follow = Box('boxFollow','var(--follow)', wantFollow);
+  var subs   = Box('boxSub','var(--sub)', wantSubs);
+
+  function faceUsable(box, which){
+    if(which === 'latest') return box.latest.length > 0;
+    return box.total >= 0;
+  }
+
+  function paint(box){
+    box.latestEl.textContent = box.latest;
+    if(box.total >= 0){
+      box.countEl.textContent = box.total.toLocaleString();
+      box.ofEl.textContent = ' / ' + box.goal.toLocaleString();
+      var pct = box.goal > 0 ? Math.min(100, (box.total / box.goal) * 100) : 0;
+      box.fillEl.style.width = pct.toFixed(2) + '%';
+    }
+  }
+
+  // Showing a face is two steps so the outgoing one animates away rather than
+  // being cut, and the same rAF-plus-timer net the alerts page uses applies:
+  // an OBS source that is not compositing never fires rAF.
+  function showFace(box, which){
+    if(box.current === which) return;
+    var next = which === 'latest' ? box.latestFace : box.goalFace;
+    var prev = box.current === 'latest' ? box.latestFace
+             : box.current === 'goal'   ? box.goalFace : null;
+    box.current = which;
+
+    if(prev){
+      prev.classList.remove('on');
+      prev.classList.add('leaving');
+      setTimeout(function(){ prev.classList.remove('leaving'); }, 340);
+    }
+    function on(){ next.classList.add('on'); }
+    next.classList.remove('leaving');
+    requestAnimationFrame(on);
+    setTimeout(on, 60);
+  }
+
+  function refreshBox(box){
+    var usable = [];
+    if(faceUsable(box,'latest')) usable.push('latest');
+    if(faceUsable(box,'goal'))   usable.push('goal');
+
+    if(!box.want || !box.live || usable.length === 0){
+      box.el.classList.remove('show');
+      box.el.classList.add('hidden');
+      return;
+    }
+    box.el.classList.remove('hidden');
+    paint(box);
+    // Nothing to alternate with: hold whichever face has content.
+    if(usable.length === 1) showFace(box, usable[0]);
+    else if(box.current === null) showFace(box, 'latest');
+    requestAnimationFrame(function(){ box.el.classList.add('show'); });
+    setTimeout(function(){ box.el.classList.add('show'); }, 60);
+  }
+
+  // Both boxes flip together; independent timers drift apart and read as two
+  // unrelated widgets rather than one stack.
+  setInterval(function(){
+    [follow, subs].forEach(function(box){
+      if(box.el.classList.contains('hidden')) return;
+      var usable = [];
+      if(faceUsable(box,'latest')) usable.push('latest');
+      if(faceUsable(box,'goal'))   usable.push('goal');
+      if(usable.length < 2) return;
+      showFace(box, box.current === 'latest' ? 'goal' : 'latest');
+    });
+  }, cycle * 1000);
+
+  function bump(box){
+    box.el.classList.remove('bump');
+    void box.el.offsetWidth;
+    box.el.classList.add('bump');
+  }
+
+  // ---- data -------------------------------------------------------------
+  function applyStatus(d){
+    if(!d) return;
+    // "off" means no credentials at all. Showing empty chrome over the stream
+    // would be worse than showing nothing, so the boxes stay hidden.
+    var ok = d.status === 'live' || d.status === 'connecting';
+
+    follow.live = ok && d.followers && d.followers.total >= 0;
+    if(d.followers){
+      follow.total  = d.followers.total;
+      follow.goal   = followGoalOverride || d.followers.goal;
+      follow.latest = d.followers.latest || '';
+    }
+
+    // total -2 is the server saying this channel cannot expose subscriptions
+    // at all, which is a fact about the channel rather than an error.
+    subs.live = ok && d.subs && d.subs.total >= 0;
+    if(d.subs){
+      subs.total  = d.subs.total;
+      subs.goal   = subGoalOverride || d.subs.goal;
+      subs.latest = d.subs.latest || '';
+    }
+
+    refreshBox(follow);
+    refreshBox(subs);
+  }
+
+  if(qs.get('demo') === '1'){
+    applyStatus({status:'live',
+      followers:{total:342, goal:400, latest:'NewViewer42'},
+      subs:{total:37, goal:50, latest:'StreamFan', tier:'1000'}});
+  } else {
+    (function poll(){
+      fetch('/twitch',{cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(applyStatus)
+        .catch(function(){})
+        .finally(function(){ setTimeout(poll, 5000); });
+    })();
+
+    // The poll is only every 5s and the totals it reads lag Twitch by up to a
+    // minute, so events drive the visible change and the poll corrects drift.
+    if(window.EventSource){
+      var es = new EventSource('/twitch/events');
+      es.onmessage = function(ev){
+        var d;
+        try { d = JSON.parse(ev.data); } catch(e){ return; }
+        if(d.kind === 'follow'){
+          follow.latest = d.user || follow.latest;
+          if(follow.total >= 0) follow.total++;
+          follow.live = true;
+          refreshBox(follow); bump(follow);
+        } else if(d.kind === 'sub' || d.kind === 'resub'){
+          subs.latest = d.user || subs.latest;
+          if(subs.total >= 0 && d.kind === 'sub') subs.total++;
+          subs.live = subs.live || subs.total >= 0;
+          refreshBox(subs); bump(subs);
+        } else if(d.kind === 'gift'){
+          if(subs.total >= 0) subs.total += (d.count || 1);
+          refreshBox(subs); bump(subs);
+        }
+      };
+      es.onerror = function(){};
+    }
+  }
+})();
+</script>
+</body>
+</html>

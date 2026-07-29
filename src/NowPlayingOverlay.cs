@@ -206,6 +206,34 @@ namespace NowPlaying {
       menu.Items.Add("Preview overlay...", null, (s, e) => OpenUrl("/"));
       menu.Items.Add(new ToolStripSeparator());
 
+      var twitch = new ToolStripMenuItem("Twitch alerts and stats");
+      twitch.DropDownItems.Add("Preview alerts...", null, (s, e) => OpenUrl("/alerts"));
+      twitch.DropDownItems.Add("Preview follower/sub boxes...", null, (s, e) => OpenUrl("/stats"));
+      twitch.DropDownItems.Add(new ToolStripSeparator());
+      twitch.DropDownItems.Add("Copy alerts source URL", null, (s, e) => {
+        try { Clipboard.SetText("http://127.0.0.1:" + _port + "/alerts"); } catch { }
+      });
+      twitch.DropDownItems.Add("Copy follower/sub source URL", null, (s, e) => {
+        try { Clipboard.SetText("http://127.0.0.1:" + _port + "/stats"); } catch { }
+      });
+      twitch.DropDownItems.Add(new ToolStripSeparator());
+      var twitchStatus = new ToolStripMenuItem("") { Enabled = false };
+      twitch.DropDownItems.Add(twitchStatus);
+      // Opening the menu is the moment the user cares whether it is working, so
+      // the connection state is read then rather than cached at build time.
+      twitch.DropDownOpening += (s, e) => {
+        string st = TwitchEvents.Status;
+        twitchStatus.Text =
+            st == "live"          ? "Connected to Twitch"
+          : st == "connecting"    ? "Connecting to Twitch..."
+          : st == "bad-token"     ? "Token expired - regenerate it"
+          : st == "missing-scope" ? "Token is missing a required scope"
+          : st == "off"           ? "Not set up yet - see README"
+                                  : "Twitch connection problem";
+      };
+      menu.Items.Add(twitch);
+      menu.Items.Add(new ToolStripSeparator());
+
       var copy = new ToolStripMenuItem("Copy OBS browser source URL");
       copy.Click += (s, e) => {
         try { Clipboard.SetText("http://127.0.0.1:" + _port + "/"); } catch { }
@@ -326,6 +354,7 @@ namespace NowPlaying {
       poller.Start();          // left MTA on purpose - see Await()
 
       AudioSpectrum.Start();   // live equaliser; self-heals if the device changes
+      TwitchEvents.Start();    // no-op unless twitch-config.json has API creds
 
       var accept = new Thread(() => {
         while (true) {
@@ -744,6 +773,16 @@ namespace NowPlaying {
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(sb.ToString()));
           } else if (route == "/spectrum") {
             StreamSpectrum(ns);          // long-lived; returns on disconnect
+          } else if (route == "/twitch") {
+            Send(ns, 200, "application/json; charset=utf-8",
+                 Encoding.UTF8.GetBytes(TwitchEvents.StatusJson()));
+          } else if (route == "/twitch/events") {
+            StreamTwitch(ns);            // long-lived; returns on disconnect
+          } else if (route == "/twitch/test") {
+            string kind = QueryParam(path, "type") ?? "follow";
+            string who = QueryParam(path, "user") ?? "";
+            Send(ns, 200, "application/json; charset=utf-8",
+                 Encoding.UTF8.GetBytes(TwitchEvents.TestFire(kind, who)));
           } else if (route == "/spectrum.json") {
             Send(ns, 200, "application/json; charset=utf-8",
                  Encoding.UTF8.GetBytes(SpectrumJson()));
@@ -762,6 +801,10 @@ namespace NowPlaying {
             SendResource(ns, "layouts.html");
           } else if (route == "/customize" || route == "/customize/") {
             SendResource(ns, "customize.html");
+          } else if (route == "/alerts" || route == "/alerts/") {
+            SendResource(ns, "alerts.html");
+          } else if (route == "/stats" || route == "/stats/") {
+            SendResource(ns, "stats.html");
           } else if (route == "/") {
             SendResource(ns, "overlay.html");
           } else {
@@ -821,6 +864,65 @@ namespace NowPlaying {
         // client went away; nothing to do
       } finally {
         Interlocked.Decrement(ref _spectrumClients);
+      }
+    }
+
+    // Alerts as server-sent events, same shape as the spectrum stream.
+    //
+    // A new client starts from the current sequence rather than replaying the
+    // ring: opening the alerts page in OBS should not fire every follow since
+    // the app started. Reconnects lose nothing that matters, because an alert
+    // nobody saw within a few seconds of the event has missed its moment.
+    static int _twitchClients;
+    const int MaxTwitchClients = 8;
+
+    static void StreamTwitch(NetworkStream ns) {
+      if (Interlocked.Increment(ref _twitchClients) > MaxTwitchClients) {
+        Interlocked.Decrement(ref _twitchClients);
+        Send(ns, 503, "text/plain", Encoding.UTF8.GetBytes("too many alert clients"));
+        return;
+      }
+      try {
+        var head = Encoding.ASCII.GetBytes(
+          "HTTP/1.1 200 OK\r\n" +
+          "Content-Type: text/event-stream; charset=utf-8\r\n" +
+          "Cache-Control: no-cache, no-store, must-revalidate\r\n" +
+          "Access-Control-Allow-Origin: *\r\n" +
+          "Connection: keep-alive\r\n" +
+          "X-Accel-Buffering: no\r\n\r\n");
+        ns.Write(head, 0, head.Length);
+        ns.Flush();
+
+        long seen = TwitchEvents.CurrentSeq;
+        int sincePing = 0;
+
+        while (true) {
+          long now;
+          var pending = TwitchEvents.Since(seen, out now);
+          seen = now;
+
+          if (pending.Length > 0) {
+            var sb = new StringBuilder();
+            foreach (var p in pending) sb.Append("data: ").Append(p).Append("\n\n");
+            var payload = Encoding.UTF8.GetBytes(sb.ToString());
+            ns.Write(payload, 0, payload.Length);
+            ns.Flush();
+            sincePing = 0;
+          } else if (++sincePing >= 40) {
+            // Without traffic nothing ever writes, so a closed tab would go
+            // unnoticed and the client slot would leak. A comment line is
+            // ignored by EventSource but still throws on a dead socket.
+            var ping = Encoding.ASCII.GetBytes(": ping\n\n");
+            ns.Write(ping, 0, ping.Length);
+            ns.Flush();
+            sincePing = 0;
+          }
+          Thread.Sleep(250);
+        }
+      } catch {
+        // client went away; nothing to do
+      } finally {
+        Interlocked.Decrement(ref _twitchClients);
       }
     }
 

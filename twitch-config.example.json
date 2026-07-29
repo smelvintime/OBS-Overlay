@@ -1,5 +1,7 @@
 {
   "channel": "YOUR_TWITCH_CHANNEL",
+
+  "_comment_chat": "Below is for the !song chat bot (twitch-bot.ps1). Scopes: chat:read, chat:edit.",
   "botUsername": "YOUR_BOT_OR_OWN_USERNAME",
   "oauthToken": "oauth:PASTE_YOUR_TOKEN_HERE",
 
@@ -9,5 +11,13 @@
 
   "responseTemplate": "Now playing: {title} - {artist}",
   "pausedTemplate": "Paused: {title} - {artist}",
-  "notPlayingMessage": "Nothing playing right now."
+  "notPlayingMessage": "Nothing playing right now.",
+
+  "_comment_api": "Below is for the follower/sub alerts and boxes, read by NowPlayingOverlay.exe. This is a SEPARATE token from the chat one above - it needs scopes moderator:read:followers and channel:read:subscriptions. The clientId MUST be the client the token was issued to, or Twitch rejects every request.",
+  "clientId": "PASTE_YOUR_CLIENT_ID_HERE",
+  "apiToken": "PASTE_YOUR_API_TOKEN_HERE",
+
+  "_comment_goals": "Leave at 0 to track the next round number above the current count.",
+  "followerGoal": 0,
+  "subGoal": 0
 }
