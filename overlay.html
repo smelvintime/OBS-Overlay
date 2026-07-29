@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Now Playing</title>
+<style>
+  /* -------- Config via URL query params (all optional) --------
+     ?accent=1db954     bar / glow color (hex, no #)
+     ?theme=glass|solid|minimal
+     ?align=left|right   which side the card sits / animates from
+     ?scale=1.0          overall size multiplier
+     ?radius=18          card corner radius (px)
+     ?hideWhenPaused=0|1 fade the card out while paused (default 0 = stay, dimmed)
+     ?showAlbum=0|1      show album name line (default 0)
+  -------------------------------------------------------------- */
+  :root{
+    --accent:#1db954;
+    --radius:18px;
+    --scale:1;
+    --card-bg:rgba(18,18,20,.82);
+    --card-border:rgba(255,255,255,.08);
+    --text:#ffffff;
+    --subtext:rgba(255,255,255,.62);
+  }
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;}
+  #stage{position:fixed;inset:0;display:flex;align-items:flex-end;padding:24px;box-sizing:border-box;}
+  #stage.align-left{justify-content:flex-start;}
+  #stage.align-right{justify-content:flex-end;}
+
+  .card{
+    display:flex;align-items:center;gap:16px;
+    padding:14px 20px 14px 14px;
+    background:var(--card-bg);
+    border:1px solid var(--card-border);
+    border-radius:var(--radius);
+    backdrop-filter:blur(14px) saturate(140%);
+    -webkit-backdrop-filter:blur(14px) saturate(140%);
+    box-shadow:0 12px 40px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.15);
+    max-width:520px;
+    transform:translateY(140%);
+    opacity:0;
+    transition:transform .55s cubic-bezier(.2,.9,.25,1), opacity .45s ease;
+    transform-origin:bottom left;
+  }
+  #stage.align-right .card{transform-origin:bottom right;}
+  .card.show{transform:translateY(0);opacity:1;}
+  .card.paused{filter:saturate(.55) brightness(.82);}
+
+  .art-wrap{position:relative;flex:0 0 auto;width:64px;height:64px;border-radius:calc(var(--radius) - 6px);
+    overflow:hidden;background:#2a2a2e;box-shadow:0 6px 18px rgba(0,0,0,.5);}
+  .art-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
+  .art-wrap .fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--subtext);font-size:26px;}
+  /* spinning-vinyl glow ring */
+  .art-wrap::after{content:"";position:absolute;inset:-2px;border-radius:inherit;
+    box-shadow:0 0 22px -2px var(--accent);opacity:.0;transition:opacity .4s;}
+  .card.show .art-wrap::after{opacity:.55;}
+
+  .meta{min-width:0;display:flex;flex-direction:column;gap:3px;}
+  .eyebrow{display:flex;align-items:center;gap:8px;color:var(--accent);
+    font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;}
+  .title{color:var(--text);font-size:19px;font-weight:700;line-height:1.15;
+    white-space:nowrap;overflow:hidden;max-width:360px;}
+  .artist{color:var(--subtext);font-size:14px;font-weight:500;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;}
+  .album{color:var(--subtext);font-size:12px;opacity:.8;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:360px;}
+
+  /* marquee for long titles */
+  .title .scroller{display:inline-block;padding-right:40px;}
+  .title.marquee .scroller{animation:scroll 12s linear infinite;}
+  @keyframes scroll{0%,10%{transform:translateX(0);}90%,100%{transform:translateX(calc(-100% + 320px));}}
+
+  /* equalizer */
+  .eq{display:inline-flex;align-items:flex-end;gap:2px;height:12px;}
+  .eq span{width:3px;background:var(--accent);border-radius:2px;height:30%;
+    animation:bounce 1s ease-in-out infinite;}
+  .eq span:nth-child(2){animation-delay:.2s} .eq span:nth-child(3){animation-delay:.4s}
+  .eq span:nth-child(4){animation-delay:.15s} .eq span:nth-child(5){animation-delay:.35s}
+  .card.paused .eq span{animation-play-state:paused;height:30%;}
+  @keyframes bounce{0%,100%{height:25%}50%{height:100%}}
+
+  /* theme: solid (opaque, no blur) */
+  body.theme-solid{--card-bg:rgba(16,16,18,.98);}
+  body.theme-solid .card{backdrop-filter:none;-webkit-backdrop-filter:none;}
+  /* theme: minimal (no card chrome, just art + text) */
+  body.theme-minimal .card{background:transparent;border:none;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;padding:8px;}
+  body.theme-minimal .card .art-wrap{box-shadow:0 6px 20px rgba(0,0,0,.7);}
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div class="card" id="card">
+      <div class="art-wrap">
+        <img id="art" alt="" style="display:none" />
+        <div class="fallback" id="fallback">&#9835;</div>
+      </div>
+      <div class="meta">
+        <div class="eyebrow">
+          <span class="eq"><span></span><span></span><span></span><span></span><span></span></span>
+          <span id="eyebrow-text">Now Playing</span>
+        </div>
+        <div class="title" id="title"><span class="scroller">&mdash;</span></div>
+        <div class="artist" id="artist"></div>
+        <div class="album" id="album" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  var q = new URLSearchParams(location.search);
+  var root = document.documentElement, body = document.body;
+  if(q.get('accent')) root.style.setProperty('--accent', '#'+q.get('accent').replace('#',''));
+  if(q.get('radius')) root.style.setProperty('--radius', parseInt(q.get('radius'),10)+'px');
+  if(q.get('scale'))  root.style.setProperty('--scale', q.get('scale'));
+  var scale = parseFloat(q.get('scale')||'1'); if(scale && scale!==1) document.getElementById('card').style.zoom = scale;
+  body.classList.add('theme-' + (q.get('theme')||'glass'));
+  document.getElementById('stage').classList.add('align-' + (q.get('align')||'left'));
+  var hideWhenPaused = q.get('hideWhenPaused')==='1';
+  var showAlbum = q.get('showAlbum')==='1';
+
+  var card=document.getElementById('card'), img=document.getElementById('art'),
+      fb=document.getElementById('fallback'), titleEl=document.getElementById('title'),
+      scroller=titleEl.querySelector('.scroller'),
+      artistEl=document.getElementById('artist'), albumEl=document.getElementById('album'),
+      eyebrow=document.getElementById('eyebrow-text');
+
+  var lastId=null, lastPlaying=null;
+
+  function setArt(id, hasArt){
+    if(hasArt){
+      img.onload=function(){img.style.display='block'; fb.style.display='none';};
+      img.onerror=function(){img.style.display='none'; fb.style.display='flex';};
+      img.src='/art?id='+encodeURIComponent(id);
+    } else {
+      img.style.display='none'; fb.style.display='flex'; img.removeAttribute('src');
+    }
+  }
+
+  function fitMarquee(){
+    titleEl.classList.remove('marquee');
+    if(scroller.scrollWidth > titleEl.clientWidth + 6) titleEl.classList.add('marquee');
+  }
+
+  function apply(np){
+    var hasTrack = np && np.title && np.title.length>0;
+    if(!hasTrack){ card.classList.remove('show'); lastId=null; return; }
+
+    if(np.id !== lastId){
+      lastId = np.id;
+      scroller.textContent = np.title;
+      artistEl.textContent = np.artist || '';
+      if(showAlbum && np.album){ albumEl.textContent = np.album; albumEl.style.display='block'; }
+      else albumEl.style.display='none';
+      setArt(np.id, np.hasArt);
+      // re-trigger slide-in on track change
+      card.classList.remove('show'); void card.offsetWidth; card.classList.add('show');
+      setTimeout(fitMarquee, 60);
+    }
+
+    if(np.playing){
+      card.classList.remove('paused'); eyebrow.textContent='Now Playing';
+      card.classList.add('show');
+    } else {
+      card.classList.add('paused'); eyebrow.textContent='Paused';
+      if(hideWhenPaused) card.classList.remove('show'); else card.classList.add('show');
+    }
+    lastPlaying = np.playing;
+  }
+
+  function tick(){
+    fetch('/np',{cache:'no-store'})
+      .then(function(r){return r.json();})
+      .then(apply)
+      .catch(function(){ card.classList.remove('show'); })
+      .finally(function(){ setTimeout(tick, 1500); });
+  }
+  tick();
+})();
+</script>
+</body>
+</html>

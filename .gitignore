@@ -1,0 +1,5 @@
+# Contains your Twitch OAuth token - never commit this.
+twitch-config.json
+
+# Local logs
+*.log

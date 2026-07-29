@@ -1,0 +1,13 @@
+{
+  "channel": "YOUR_TWITCH_CHANNEL",
+  "botUsername": "YOUR_BOT_OR_OWN_USERNAME",
+  "oauthToken": "oauth:PASTE_YOUR_TOKEN_HERE",
+
+  "command": "!song",
+  "cooldownSeconds": 10,
+  "npUrl": "http://127.0.0.1:8787/np",
+
+  "responseTemplate": "Now playing: {title} - {artist}",
+  "pausedTemplate": "Paused: {title} - {artist}",
+  "notPlayingMessage": "Nothing playing right now."
+}
