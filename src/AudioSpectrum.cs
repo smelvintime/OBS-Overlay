@@ -461,9 +461,13 @@ namespace NowPlaying {
         // the strongest bands actually reach the top of the meter.
         double shaped = Math.Pow(norm, 0.45) * 1.25;
         if (shaped > 1) shaped = 1;
-        // Fast attack, slow release - the classic VU meter feel.
-        if (shaped > _smoothed[b]) _smoothed[b] += (shaped - _smoothed[b]) * 0.6;
-        else _smoothed[b] += (shaped - _smoothed[b]) * 0.14;
+        // Fast attack, slower release - the classic VU meter feel. Release is
+        // what governs how lively this looks: a slow one leaves the bars
+        // hanging near their peak, so they drift rather than dance. These are
+        // tuned well past a literal meter, because the point here is to read
+        // the beat at a glance on a stream, not to measure anything.
+        if (shaped > _smoothed[b]) _smoothed[b] += (shaped - _smoothed[b]) * 0.8;
+        else _smoothed[b] += (shaped - _smoothed[b]) * 0.3;
         int v = (int)Math.Round(_smoothed[b] * 100);
         outp[b] = v < 0 ? 0 : (v > 100 ? 100 : v);
       }

@@ -128,7 +128,7 @@ http://127.0.0.1:8787/?layout=big&accent=fa2d48&showAlbum=1
 | Option | Values | Default | What it does |
 |---|---|---|---|
 | `layout` | `card`, `big`, `ticker`, `minimal` | `card` | Which overlay style |
-| `accent` | hex, no `#` (e.g. `ff0055`) | `1db954` | Bar/glow/equalizer color |
+| `accent` | hex, no `#` (e.g. `ff0055`), or `auto` | `1db954` | Bar/glow/equalizer color. `auto` takes it from the album art |
 | `theme` | `glass`, `solid` | `glass` | Card chrome (card and big only) |
 | `align` | `left`, `right` | `left` | Which side it sits and animates from |
 | `valign` | `top`, `bottom` | `bottom` | Vertical position |
@@ -152,6 +152,19 @@ Some combinations worth trying:
 - Text only, no art — `?layout=minimal&showArt=0`
 - Only visible while actually playing — `?hideWhenPaused=1`
 - Sits back behind gameplay — `?layout=minimal&opacity=65`
+- Colour follows the album art — `?layout=big&accent=auto`
+
+### Accent from the album art
+
+`accent=auto` samples the cover and recolours the accent bar, equalizer, glow
+and ticker edge to match, changing with every song. It votes on hue rather than
+averaging the cover, because averaging a red half and a blue half gives a muddy
+grey that appears nowhere in the art. Pixels are weighted by how much colour
+they actually contain, so one vivid patch beats a large dim background — the
+colour you would name if asked. The result is nudged into a readable
+saturation and lightness range, so a very dark or very pale cover still gives a
+legible highlight. A greyscale cover, or a track with no art, falls back to the
+default accent.
 
 `theme=minimal` from older setups still works and maps to `layout=minimal`.
 

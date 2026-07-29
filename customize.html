@@ -165,7 +165,8 @@
         ['card','Card'],['big','Big'],['ticker','Ticker'],['minimal','Minimal']] }
     ]},
     { title:'Look', controls:[
-      { key:'accent', label:'Accent', type:'color' },
+      { key:'accent', label:'Accent', type:'color',
+        note:'Auto takes the strongest colour out of the album art and follows it from song to song.' },
       { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']],
         note:'Card and Big only.' },
       { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
@@ -261,7 +262,7 @@
     frame.height = size.h;
     dimsEl.textContent = 'OBS source size  ' + size.obs;
     urlEl.textContent = url();
-    document.documentElement.style.setProperty('--accent', '#' + state.accent);
+    if(state.accent !== 'auto') document.documentElement.style.setProperty('--accent', '#' + state.accent);
     // Ticker settings are pointless on the other layouts; grey them out rather
     // than hiding them, so the page doesn't reflow every time you switch.
     [].forEach.call(document.querySelectorAll('.group[data-only]'), function(g){
@@ -346,29 +347,53 @@
           ctl.appendChild(rng); ctl.appendChild(val);
 
         } else if(C.type === 'color'){
+          // 'auto' is a mode, not a colour, so the last real colour is kept
+          // aside - turning auto off should go back to what you had picked.
+          var lastHex = state[C.key] === 'auto' ? DEFAULTS[C.key] : state[C.key];
+
+          var auto = document.createElement('button');
+          auto.type = 'button'; auto.className = 'chip'; auto.textContent = 'Auto from art';
+
           var pick = document.createElement('input');
-          pick.type = 'color'; pick.value = '#' + state[C.key];
+          pick.type = 'color'; pick.value = '#' + lastHex;
+
           var sws = document.createElement('div');
           sws.className = 'swatches';
           SWATCHES.forEach(function(hex){
             var b = document.createElement('button');
             b.type = 'button'; b.className = 'sw'; b.title = '#' + hex;
             b.style.background = '#' + hex;
-            b.setAttribute('aria-pressed', String(state[C.key] === hex));
             b.addEventListener('click', function(){
-              pick.value = '#' + hex; set(C.key, hex, live); syncSw();
+              lastHex = hex; pick.value = '#' + hex; set(C.key, hex, live); syncSw();
             });
             sws.appendChild(b);
           });
+
           function syncSw(){
+            var on = state[C.key] === 'auto';
+            auto.setAttribute('aria-pressed', String(on));
+            pick.disabled = on;
+            pick.style.opacity = sws.style.opacity = on ? '.4' : '';
             [].forEach.call(sws.children, function(x, i){
-              x.setAttribute('aria-pressed', String(SWATCHES[i] === state[C.key])); });
+              x.disabled = on;
+              x.setAttribute('aria-pressed', String(!on && SWATCHES[i] === state[C.key]));
+            });
           }
-          pick.addEventListener('input', function(){
-            set(C.key, this.value.replace('#','').toLowerCase(), live); syncSw();
+
+          auto.addEventListener('click', function(){
+            set(C.key, state[C.key] === 'auto' ? lastHex : 'auto', live); syncSw();
           });
-          refresh.push(function(){ pick.value = '#' + state[C.key]; syncSw(); });
-          ctl.appendChild(pick); ctl.appendChild(sws);
+          pick.addEventListener('input', function(){
+            lastHex = this.value.replace('#','').toLowerCase();
+            set(C.key, lastHex, live); syncSw();
+          });
+          refresh.push(function(){
+            lastHex = state[C.key] === 'auto' ? DEFAULTS[C.key] : state[C.key];
+            pick.value = '#' + lastHex; syncSw();
+          });
+
+          ctl.appendChild(auto); ctl.appendChild(pick); ctl.appendChild(sws);
+          syncSw();
         }
 
         row.appendChild(ctl);
@@ -399,6 +424,18 @@
     });
     bgs.appendChild(el);
   });
+
+  // With auto on there is no colour in the state to show, so this page borrows
+  // whatever the preview settled on. It makes the controls themselves shift
+  // with the album, which is the clearest way to show what auto is doing.
+  setInterval(function(){
+    if(state.accent !== 'auto') return;
+    try {
+      var c = getComputedStyle(frame.contentDocument.documentElement)
+                .getPropertyValue('--accent').trim();
+      if(/^#[0-9a-f]{6}$/i.test(c)) document.documentElement.style.setProperty('--accent', c);
+    } catch(e){}
+  }, 1000);
 
   document.getElementById('replay').addEventListener('click', function(){
     if(frame.contentWindow) frame.contentWindow.postMessage('nowplaying:preview-transition', location.origin);
