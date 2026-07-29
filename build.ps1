@@ -1,4 +1,4 @@
-<#
+﻿<#
   Builds NowPlayingOverlay.exe
 
   Uses the C# compiler that ships with the .NET Framework on every Windows
@@ -21,6 +21,7 @@ $winmd   = "$env:windir\System32\WinMetadata"
 $fw      = "$env:windir\Microsoft.NET\Framework64\v4.0.30319"
 $sysRt   = "$env:windir\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.0.0__b03f5f7f11d50a3a\System.Runtime.dll"
 $src     = "$PSScriptRoot\src\NowPlayingOverlay.cs"
+$srcAudio = "$PSScriptRoot\src\AudioSpectrum.cs"
 $overlay = "$PSScriptRoot\overlay.html"
 $layouts = "$PSScriptRoot\layouts.html"
 $control = "$PSScriptRoot\control.html"
@@ -33,7 +34,7 @@ if (-not (Test-Path $sysRt))   { $missing += "System.Runtime facade: $sysRt" }
 foreach ($n in 'Windows.Media.winmd','Windows.Foundation.winmd','Windows.Storage.winmd') {
   if (-not (Test-Path (Join-Path $winmd $n))) { $missing += "WinRT metadata: $n" }
 }
-foreach ($f in $src,$overlay,$layouts,$control) {
+foreach ($f in $src,$srcAudio,$overlay,$layouts,$control) {
   if (-not (Test-Path $f)) { $missing += "source file: $f" }
 }
 if ($missing.Count) {
@@ -70,6 +71,7 @@ $cscArgs = @(
   "/resource:$layouts,layouts.html"
   "/resource:$control,control.html"
   $src
+  $srcAudio
 )
 
 $output = & $csc @cscArgs 2>&1
@@ -94,3 +96,4 @@ Write-Host ""
 Write-Host "  Built: $outExe  (${size} KB)" -ForegroundColor Green
 Write-Host "  Run it, then add http://127.0.0.1:8787/ as an OBS Browser Source."
 Write-Host ""
+

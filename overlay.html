@@ -70,6 +70,13 @@
   .wrap.paused .eq span{animation-play-state:paused;height:30%}
   @keyframes bounce{0%,100%{height:25%}50%{height:100%}}
 
+  /* Live mode: heights come from the real spectrum as inline styles, so the
+     canned keyframe animation has to get out of the way. The short transition
+     smooths between 30fps frames without adding visible lag. */
+  .eq.live span{animation:none !important;transition:height .07s linear}
+  .wrap.paused .eq.live span{height:12% !important;transition:height .35s ease}
+  .eq.off{display:none}
+
   .title,.artist,.album{white-space:nowrap;overflow:hidden}
   .artist,.album{text-overflow:ellipsis}
   .title{color:var(--text);font-weight:700;line-height:1.15}
@@ -302,6 +309,71 @@
       wrap.classList.add('paused'); eyebrow.textContent='Paused';
       if(hideWhenPaused) wrap.classList.remove('show'); else wrap.classList.add('show');
     }
+  }
+
+  // ---- live equaliser -------------------------------------------------
+  // The server captures whatever Windows is playing, runs an FFT and streams
+  // frequency bands over SSE. Bars are rebuilt to whatever ?bars= asks for and
+  // each one takes the loudest band in its slice of the spectrum, so the left
+  // bars follow bass and the right ones follow treble.
+  var eqMode = (q.get('eq')||'live').toLowerCase();
+  if(['live','anim','off'].indexOf(eqMode)<0) eqMode='live';
+  var barCount = parseInt(q.get('bars')||'5',10);
+  if(!(barCount>=3)) barCount=5; if(barCount>32) barCount=32;
+
+  var eqs = [].slice.call(document.querySelectorAll('.eq'));
+
+  function buildBars(){
+    eqs.forEach(function(eq){
+      if(eqMode==='off'){ eq.classList.add('off'); return; }
+      if(eq.children.length===barCount) return;
+      eq.innerHTML='';
+      for(var i=0;i<barCount;i++) eq.appendChild(document.createElement('span'));
+    });
+  }
+  buildBars();
+
+  var liveOn=false;
+  function setLive(on){
+    if(on===liveOn) return;
+    liveOn=on;
+    eqs.forEach(function(eq){ eq.classList.toggle('live', on); });
+    if(!on) eqs.forEach(function(eq){
+      [].slice.call(eq.children).forEach(function(s){ s.style.height=''; });
+    });
+  }
+
+  function applyBands(bands){
+    var n = bands.length;
+    for(var e=0;e<eqs.length;e++){
+      var kids = eqs[e].children;
+      for(var i=0;i<kids.length;i++){
+        // Take the peak of this bar's slice; averaging washes out transients.
+        var lo=Math.floor(i*n/kids.length), hi=Math.floor((i+1)*n/kids.length);
+        if(hi<=lo) hi=lo+1;
+        var v=0;
+        for(var b=lo;b<hi && b<n;b++) if(bands[b]>v) v=bands[b];
+        if(v<10) v=10;                       // keep a visible floor
+        kids[i].style.height = v + '%';
+      }
+    }
+  }
+
+  if(eqMode==='live' && window.EventSource){
+    var quietFrames=0;
+    var es = new EventSource('/spectrum');
+    es.onmessage = function(ev){
+      var d;
+      try { d = JSON.parse(ev.data); } catch(e){ return; }
+      if(!d || !d.bands){ return; }
+      // If audio capture is unavailable, fall back to the canned animation
+      // rather than showing a row of dead bars.
+      if(!d.active){ if(++quietFrames>90) setLive(false); return; }
+      quietFrames=0;
+      setLive(true);
+      applyBands(d.bands);
+    };
+    es.onerror = function(){ setLive(false); };   // EventSource retries on its own
   }
 
   function tick(){

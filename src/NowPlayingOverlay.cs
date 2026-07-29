@@ -324,6 +324,8 @@ namespace NowPlaying {
       poller.IsBackground = true;
       poller.Start();          // left MTA on purpose - see Await()
 
+      AudioSpectrum.Start();   // live equaliser; self-heals if the device changes
+
       var accept = new Thread(() => {
         while (true) {
           TcpClient client;
@@ -733,6 +735,11 @@ namespace NowPlaying {
             if (itunesNow != null) sb.Append(",\"track\":").Append(Json(itunesNow));
             sb.Append("}]}");
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(sb.ToString()));
+          } else if (route == "/spectrum") {
+            StreamSpectrum(ns);          // long-lived; returns on disconnect
+          } else if (route == "/spectrum.json") {
+            Send(ns, 200, "application/json; charset=utf-8",
+                 Encoding.UTF8.GetBytes(SpectrumJson()));
           } else if (route == "/setsource") {
             string m = NormalizeMode(QueryParam(path, "mode"));
             string app = QueryParam(path, "app") ?? "";
@@ -754,6 +761,56 @@ namespace NowPlaying {
         }
       } catch {
         // a dropped browser connection must not take the server down
+      }
+    }
+
+    static string SpectrumJson() {
+      var bands = AudioSpectrum.Read();
+      var sb = new StringBuilder();
+      sb.Append("{\"active\":").Append(AudioSpectrum.Active ? "true" : "false");
+      sb.Append(",\"status\":").Append(Q(AudioSpectrum.Status));
+      sb.Append(",\"bands\":[");
+      for (int i = 0; i < bands.Length; i++) {
+        if (i > 0) sb.Append(',');
+        sb.Append(bands[i]);
+      }
+      sb.Append("]}");
+      return sb.ToString();
+    }
+
+    // Server-sent events. A plain socket can do SSE with no framing protocol,
+    // unlike websockets, and the browser reconnects on its own if this drops.
+    // Polling at 30fps over HTTP would mean a new connection every frame.
+    static int _spectrumClients;
+    const int MaxSpectrumClients = 8;
+
+    static void StreamSpectrum(NetworkStream ns) {
+      if (Interlocked.Increment(ref _spectrumClients) > MaxSpectrumClients) {
+        Interlocked.Decrement(ref _spectrumClients);
+        Send(ns, 503, "text/plain", Encoding.UTF8.GetBytes("too many spectrum clients"));
+        return;
+      }
+      try {
+        var head = Encoding.ASCII.GetBytes(
+          "HTTP/1.1 200 OK\r\n" +
+          "Content-Type: text/event-stream; charset=utf-8\r\n" +
+          "Cache-Control: no-cache, no-store, must-revalidate\r\n" +
+          "Access-Control-Allow-Origin: *\r\n" +
+          "Connection: keep-alive\r\n" +
+          "X-Accel-Buffering: no\r\n\r\n");
+        ns.Write(head, 0, head.Length);
+        ns.Flush();
+
+        while (true) {
+          var payload = Encoding.UTF8.GetBytes("data: " + SpectrumJson() + "\n\n");
+          ns.Write(payload, 0, payload.Length);   // throws when the tab closes
+          ns.Flush();
+          Thread.Sleep(33);                       // ~30fps
+        }
+      } catch {
+        // client went away; nothing to do
+      } finally {
+        Interlocked.Decrement(ref _spectrumClients);
       }
     }
 

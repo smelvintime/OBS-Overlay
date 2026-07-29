@@ -76,9 +76,10 @@ The PowerShell version needs no build step and is easier to audit or tweak:
 1. Double-click **`Start-Overlay.bat`**
 2. Same OBS steps as above.
 
-Both serve the identical overlay and support all the same options. The difference is
-that the PowerShell version keeps a console window open and has no tray icon or startup
-option — for running quietly in the background, use the `.exe`.
+Both serve the identical overlay and support all the same source/layout options. The
+`.exe` additionally has the tray icon, start-with-Windows, and the **live equaliser** —
+the PowerShell version keeps a console window open and falls back to the animated bars.
+For running quietly in the background, use the `.exe`.
 
 ## Building the .exe yourself
 
@@ -148,6 +149,8 @@ matching port in the OBS URL.
 |---|---|
 | `GET /np` | JSON: `{playing, title, artist, album, app, source, id, hasArt}` |
 | `GET /art` | Current album art image bytes (`204` if none) |
+| `GET /spectrum` | Server-sent event stream of live frequency bands, ~30fps (.exe only) |
+| `GET /spectrum.json` | One-shot spectrum snapshot, handy for debugging (.exe only) |
 | `GET /sources` | Diagnostic: what each provider sees, which one won, current pin |
 | `GET /setsource?mode=prefer\|only\|auto&app=<name>` | Change which player is followed |
 | `GET /` | The overlay page itself |
@@ -218,6 +221,37 @@ failure, generate a fresh one.
   an invisible character appended to stay visible.
 - If the overlay server isn't running, it replies with a clear message rather than
   going silent.
+
+## Live equaliser
+
+The bars next to "Now Playing" are a real spectrum analyser, not an animation.
+The app captures whatever Windows is playing, runs an FFT over it, and streams the
+frequency bands to the overlay about 30 times a second. **Left bars follow bass, right
+bars follow treble** — kick drums punch the left, hi-hats and cymbals flicker on the right.
+
+It works with any audio because it reads the sound card output, not a specific app.
+Nothing to configure.
+
+More bars looks better on the bigger layouts:
+
+```
+http://127.0.0.1:8787/?layout=big&bars=20
+http://127.0.0.1:8787/?layout=card&bars=12
+```
+
+| Option | Values | Default | What it does |
+|---|---|---|---|
+| `bars` | `3`–`32` | `5` | How many equaliser bars |
+| `eq` | `live`, `anim`, `off` | `live` | `anim` is the old fixed animation, `off` hides it |
+
+If audio capture is unavailable it falls back to the old animation on its own, so the
+overlay never shows a row of dead bars.
+
+**It reflects everything your PC plays**, not just music — Discord, notifications and
+game audio move the bars too. If you route music to a separate output device, the
+analyser follows the *default* device.
+
+Costs about 0.15% CPU.
 
 ## Choosing which player to follow
 
