@@ -38,7 +38,7 @@
     background:#101014;border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
 
   .stagewrap{position:relative;display:flex;align-items:center;justify-content:center;
-    min-height:120px;transition:background .2s}
+    min-height:120px;padding:18px;box-sizing:border-box;transition:background .2s}
   .stagewrap.bg-stream{background:linear-gradient(135deg,#2b3a55 0%,#4a3b63 45%,#7a4b53 100%)}
   .stagewrap.bg-dark{background:#07070a}
   .stagewrap.bg-light{background:#e9e9ee}
@@ -47,7 +47,14 @@
     background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),
                      linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
     background-size:40px 40px}
-  iframe{position:relative;display:block;width:100%;border:0;background:transparent}
+  /* The frame renders at the source's true pixel size and is then scaled down to
+     fit, so the preview is a faithful miniature of the OBS canvas rather than a
+     stretched slice of it. Without this a 1920x1080 alert source was drawn into a
+     1100x300 box, and nothing sat where it would on the actual stream. */
+  .canvas{position:relative;overflow:hidden;flex:0 0 auto;
+    box-shadow:0 0 0 1px rgba(255,255,255,.16), 0 8px 28px rgba(0,0,0,.35)}
+  .canvas iframe{position:absolute;top:0;left:0;border:0;background:transparent;
+    transform-origin:0 0}
 
   /* ---------------- controls ---------------- */
   .groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
@@ -132,12 +139,15 @@
     <div class="previewbar">
       <h2>Preview</h2>
       <span class="dims" id="dims"></span>
+      <span class="chipset" id="zoom"></span>
       <span class="spacer"></span>
       <span class="chipset" id="actions"></span>
       <div class="chipset" id="bgs"></div>
     </div>
     <div class="stagewrap bg-stream" id="stagewrap">
-      <iframe id="frame" scrolling="no" title="Preview"></iframe>
+      <div class="canvas" id="canvas">
+        <iframe id="frame" scrolling="no" title="Preview"></iframe>
+      </div>
     </div>
   </div>
 
@@ -160,11 +170,13 @@
   var SWATCHES = ['1db954','fa2d48','ff0055','7b5cff','00c2ff','ffb300','ffffff','9a9aa8'];
   var BACKGROUNDS = [['stream','Gameplay'],['dark','Dark'],['light','Light'],['grid','Grid']];
 
+  // True OBS source dimensions. The preview derives its own size from these, so
+  // there is one number to change rather than a size and a label that can drift.
   var SIZES = {
-    card:   {h:200, obs:'600 x 200'},
-    big:    {h:320, obs:'900 x 320'},
-    ticker: {h:64,  obs:'1920 x 64'},
-    minimal:{h:120, obs:'600 x 120'}
+    card:   {w:600,  h:200},
+    big:    {w:900,  h:320},
+    ticker: {w:1920, h:64},
+    minimal:{w:600,  h:120}
   };
 
   function alertPreview(kind, extra){
@@ -246,7 +258,7 @@
         giftColor:'ff9d3f', align:'center', valign:'top', scale:1, radius:16,
         opacity:100, hold:6, showMessage:1
       },
-      size:function(){ return {h:300, obs:'1920 x 1080'}; },
+      size:function(){ return {w:1920, h:1080}; },
       actions:[
         ['Test follow', alertPreview('follow', {user:'NewViewer42'})],
         ['Test sub',    alertPreview('sub',    {user:'StreamFan', tier:'1000'})],
@@ -293,7 +305,7 @@
         align:'left', valign:'top', scale:1, radius:14, opacity:100, cycle:8,
         transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1
       },
-      size:function(){ return {h:240, obs:'360 x 240'}; },
+      size:function(){ return {w:360, h:240}; },
       groups:[
         { title:'Look', controls:[
           { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']] },
@@ -414,10 +426,71 @@
     reloadTimer = setTimeout(doReload, 110);
   }
 
+  // Scaling to width alone would give the 1080-tall alert canvas a preview taller
+  // than the screen, so a height budget applies too. Small sources are never
+  // scaled up past 1:1 - blowing a 600x200 card up to fill the panel would
+  // misrepresent it just as badly as squashing the big one did.
+  var canvasEl = document.getElementById('canvas');
+  var zoomMode = 'fit';          // 'fit' shows the whole canvas, 'actual' is 1:1
+  var fitK = 1, cropped = false;
+
+  function fitFrame(size){
+    var avail = Math.max(stagewrap.clientWidth - 36, 120);   // less .stagewrap padding
+    // Budget grows with the window, so a large monitor gets a preview big enough
+    // to read rather than a fixed postage stamp.
+    var budget = Math.max(300, Math.min(560, Math.round(window.innerHeight * 0.55)));
+    fitK = Math.min(avail / size.w, budget / size.h, 1);
+    var k = zoomMode === 'actual' ? 1 : fitK;
+
+    var sw = size.w * k, sh = size.h * k;
+    var cw = Math.min(Math.round(sw), avail), ch = Math.min(Math.round(sh), budget);
+
+    // At 1:1 a full-canvas source is wider than the panel, so the visible window
+    // follows the alignment being edited. Showing the empty middle of a 1920x1080
+    // frame while the alert is pinned to a corner would help nobody.
+    var ha = state.align || 'center', va = state.valign || 'top';
+    var offX = sw <= cw ? 0
+             : ha === 'left' ? 0 : ha === 'right' ? cw - sw : (cw - sw) / 2;
+    var offY = sh <= ch ? 0
+             : va === 'top' ? 0 : va === 'bottom' ? ch - sh : (ch - sh) / 2;
+    cropped = sw > cw || sh > ch;
+
+    frame.width  = size.w;
+    frame.height = size.h;
+    frame.style.transform = k === 1 ? 'none' : 'scale(' + k + ')';
+    frame.style.left = Math.round(offX) + 'px';
+    frame.style.top  = Math.round(offY) + 'px';
+    canvasEl.style.width  = cw + 'px';
+    canvasEl.style.height = ch + 'px';
+    return k;
+  }
+
+  // The toggle is only offered when the source does not already fit - a 600x200
+  // card is always drawn 1:1 and a zoom control there would do nothing.
+  var zoomEl = document.getElementById('zoom');
+  var zoomBtn = document.createElement('button');
+  zoomBtn.type = 'button'; zoomBtn.className = 'chip';
+  zoomBtn.addEventListener('click', function(){
+    zoomMode = zoomMode === 'fit' ? 'actual' : 'fit';
+    paint();
+  });
+  zoomEl.appendChild(zoomBtn);
+
+  var resizeTimer;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){ paint(); }, 80);
+  });
+
   function paint(){
     var size = T.size(state);
-    frame.height = size.h;
-    dimsEl.textContent = 'OBS source size  ' + size.obs;
+    var k = fitFrame(size);
+    dimsEl.textContent = 'OBS source  ' + size.w + ' × ' + size.h + '   ·   '
+      + (k < 1 ? 'preview at ' + Math.round(k * 100) + '%'
+               : cropped ? 'actual size, cropped' : 'actual size');
+    zoomEl.style.display = fitK < 1 ? '' : 'none';
+    zoomBtn.textContent = zoomMode === 'fit' ? 'Zoom to 100%' : 'Fit whole canvas';
+    zoomBtn.setAttribute('aria-pressed', String(zoomMode === 'actual'));
     urlEl.textContent = url();
     var acc = state.accent || state.followColor;
     if(acc && acc !== 'auto') document.documentElement.style.setProperty('--accent', '#' + acc);
