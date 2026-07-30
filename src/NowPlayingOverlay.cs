@@ -1033,6 +1033,8 @@ namespace NowPlaying {
             SendResource(ns, "app.html");
           } else if (route == "/bot-page" || route == "/bot-page/") {
             SendResource(ns, "bot.html");
+          } else if (route == "/help" || route == "/help/") {
+            SendResource(ns, "help.html");
           } else if (route == "/control" || route == "/control/") {
             SendResource(ns, "control.html");
           } else if (route == "/layouts" || route == "/layouts/") {

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How to use</title>
+<style>
+  :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
+         --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F;
+         --input:#0A0F1A; --ghost:#1B2438; --ghost-h:#24304A;
+         --track:#2A3550; --hair:#171F31; --code:#BFE6FA; }
+  :root[data-theme="shadow"]{
+    --bg:#0A0708; --panel:#161012; --line:#33191E; --fg:#F6EEEE; --dim:#B08A90;
+    --accent:#E5383B; --trim:#8A1F26; --on-accent:#1A0507;
+    --input:#0B0709; --ghost:#241417; --ghost-h:#33191E;
+    --track:#3A1F24; --hair:#201114; --code:#F2C3C6; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:26px 32px 4px}
+  h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:14px;max-width:820px;line-height:1.5}
+  body.embed header{display:none}
+  body.embed .wrap{padding-top:22px}
+  .wrap{padding:18px 32px 60px;max-width:920px;display:flex;flex-direction:column;gap:18px}
+  a{color:var(--accent)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .phead{display:flex;align-items:baseline;gap:11px;padding:13px 17px;
+    border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .phead h2{margin:0;font-size:14px;font-weight:700}
+  .phead .sub{color:var(--dim);font-size:12.5px}
+  .body{padding:15px 17px;font-size:13.5px;line-height:1.6;color:var(--fg)}
+  .body p{margin:0 0 10px}.body p:last-child{margin-bottom:0}
+  .body strong{font-weight:700}
+  .muted{color:var(--dim)}
+  code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:var(--code)}
+  ol,ul{margin:0 0 10px;padding-left:20px}li{margin:4px 0}
+
+  .src{display:flex;align-items:center;gap:12px;padding:11px 17px;border-bottom:1px solid var(--hair);
+    flex-wrap:wrap}
+  .src:last-child{border-bottom:0}
+  .src .name{font-weight:700;flex:0 0 132px}
+  .src .u{font-family:Consolas,monospace;font-size:12.5px;color:var(--code);
+    flex:1 1 220px;word-break:break-all}
+  .src .size{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .src .why{flex:1 1 100%;color:var(--dim);font-size:12.5px;margin-top:-2px}
+  button{background:var(--ghost);color:var(--fg);border:0;border-radius:7px;padding:6px 12px;
+    font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+  button:hover{background:var(--ghost-h)}
+  button.done{background:var(--accent);color:var(--on-accent)}
+
+  .tip{border-left:3px solid var(--accent);background:var(--input);padding:10px 14px;
+    border-radius:0 8px 8px 0;margin:10px 0;font-size:13px;line-height:1.55}
+  .warn{border-left-color:var(--trim)}
+</style>
+<script>try{var t=localStorage.getItem('nowplaying.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+</head>
+<body>
+<header>
+  <h1>How to use</h1>
+  <p>Everything you need to get this on screen, and what to check when it misbehaves.</p>
+</header>
+
+<div class="wrap">
+
+  <div class="panel">
+    <div class="phead"><h2>1. Put it on your stream</h2>
+      <span class="sub">In OBS: Sources &rarr; + &rarr; Browser. One per row below.</span></div>
+    <div id="sources"></div>
+    <div class="body">
+      <div class="tip">Leave <strong>&ldquo;Shutdown source when not visible&rdquo;</strong> unchecked.
+        With it on, OBS destroys the page whenever the scene is inactive and rebuilds it later,
+        which is the one setting that can make a working overlay look broken.</div>
+      <p class="muted">The sizes above are starting points. The Customize tab measures what your
+        card actually needs and tells you the exact number to use &mdash; a browser source larger
+        than its content just leaves dead space you have to position around.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><h2>2. The tabs</h2></div>
+    <div class="body">
+      <p><strong>Choose source</strong> &mdash; which player the overlay follows. Leave it on
+        <em>Automatic</em> unless something keeps stealing the overlay; then pin the one you want.</p>
+      <p><strong>Customize</strong> &mdash; every look setting, with a live preview, for all three
+        sources. Change things, then <em>Copy URL</em> and paste that into OBS.</p>
+      <p><strong>Layouts</strong> &mdash; the four song styles side by side when you just want to
+        compare and grab a URL.</p>
+      <p><strong>Chat bot</strong> &mdash; commands the bot answers in your chat.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><h2>3. Twitch alerts and follower boxes</h2>
+      <span class="sub">Optional &mdash; the song overlay works without any of this.</span></div>
+    <div class="body">
+      <p>Put a <code>twitch-config.json</code> next to the app with your <code>channel</code>,
+        <code>clientId</code> and <code>apiToken</code>. Copy
+        <code>twitch-config.example.json</code> as a starting point.</p>
+      <p>The token needs <code>moderator:read:followers</code>, and
+        <code>channel:read:subscriptions</code> as well if you want subscriber alerts. Generate it
+        while logged in as <strong>the channel owner</strong> &mdash; follower events are read as
+        the broadcaster, so a token from any other account will not work.</p>
+      <div class="tip warn">The <code>clientId</code> must be the client the token was issued to.
+        A mismatch is the single most common setup mistake and Twitch rejects everything with an
+        unhelpful error.</div>
+      <p class="muted">Restart the app after editing the file. The Customize tab shows the live
+        connection state and counts events as they arrive, so you can confirm it works without
+        waiting for a real follower.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><h2>4. The chat bot</h2>
+      <span class="sub">Also optional, and off until you switch it on.</span></div>
+    <div class="body">
+      <p>The bot speaks as its own account, so it needs a <strong>second</strong> token in the same
+        file: <code>botUsername</code> and <code>oauthToken</code>, generated while logged in as the
+        bot account, with <code>chat:read</code> and <code>chat:edit</code>.</p>
+      <p>Then open <strong>Chat bot</strong> and flip the switch. Five commands are on by default
+        (<code>!song</code>, <code>!uptime</code>, <code>!followage</code>, <code>!commands</code>,
+        and <code>!so</code> for mods). The rest ship switched off because they still contain
+        placeholder text &mdash; fill them in, then turn them on.</p>
+      <p class="muted">Use <em>Try a command</em> to test anything without posting to chat. If the
+        token is wrong, the tab names the exact missing scope rather than just failing.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><h2>Something looks wrong</h2></div>
+    <div class="body">
+      <p><strong>Nothing on screen at all?</strong> Check <em>Choose source</em> first. A source
+        pinned in &ldquo;only&rdquo; mode hides every other player, and that setting is saved per
+        computer &mdash; so a machine can be pinned even when yours is not.</p>
+      <p><strong>Overlay looks empty in OBS but fine here?</strong> That is usually the shutdown
+        setting above, or a browser source sized much larger than the card.</p>
+      <p><strong>Moved it to another computer?</strong> Check the version matches. It is in the
+        tray menu and at the top of the diagnostics page; an older copy will be missing whole
+        pages.</p>
+      <p>The <a href="/diag" target="_blank">diagnostics page</a> answers most of this in one
+        screen &mdash; what it can see, what it chose, and why iTunes did or did not connect. It
+        ends with a block of text you can copy and send to someone.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  if(new URLSearchParams(location.search).get('embed') === '1')
+    document.body.classList.add('embed');
+
+  // Built from location.origin so a non-default port is always right here,
+  // rather than a hardcoded 8787 that quietly lies on a second install.
+  var SOURCES = [
+    ['Now playing', '/', '600 x 200',
+     'The song card. Sizes vary by layout - Customize tells you the exact number.'],
+    ['Twitch alerts', '/alerts', '1920 x 1080',
+     'Covers the whole canvas and stays invisible between events, so it can sit over everything.'],
+    ['Followers & subs', '/stats', '360 x 240',
+     'The stacked boxes. Position it away from the song card.']
+  ];
+
+  var host = document.getElementById('sources');
+  SOURCES.forEach(function(s){
+    var url = location.origin + s[1];
+    var row = document.createElement('div');
+    row.className = 'src';
+    row.innerHTML = '<span class="name">' + s[0] + '</span>' +
+                    '<span class="u"></span>' +
+                    '<span class="size">' + s[2] + '</span>' +
+                    '<button type="button">Copy</button>' +
+                    '<span class="why">' + s[3] + '</span>';
+    row.querySelector('.u').textContent = url;
+    row.querySelector('button').addEventListener('click', function(){
+      var b = this;
+      function flash(text){
+        b.textContent = text; b.classList.add('done');
+        setTimeout(function(){ b.textContent = 'Copy'; b.classList.remove('done'); }, 1500);
+      }
+      // Copying can be refused outright - an unfocused window is enough to do
+      // it. Falling back silently would leave the button looking dead and the
+      // clipboard empty, so the last resort selects the text and says so
+      // rather than pretending nothing happened.
+      function manual(){
+        try {
+          var r = document.createRange();
+          r.selectNodeContents(row.querySelector('.u'));
+          var sel = window.getSelection();
+          sel.removeAllRanges(); sel.addRange(r);
+        } catch(e){}
+        flash('Press Ctrl+C');
+      }
+      function legacy(){
+        var ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        var worked = false;
+        try { worked = document.execCommand('copy'); } catch(e){}
+        document.body.removeChild(ta);
+        if(worked) flash('Copied'); else manual();
+      }
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(url).then(function(){ flash('Copied'); }, legacy);
+      } else legacy();
+    });
+    host.appendChild(row);
+  });
+})();
+</script>
+</body>
+</html>

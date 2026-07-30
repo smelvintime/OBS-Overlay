@@ -118,6 +118,28 @@ var LAYOUTS = [
     desc:'No card or background at all. Just an accent bar, art and text with a heavy shadow so it stays readable over anything.' }
 ];
 
+// Copying can be refused outright - an unfocused window will do it. This used
+// to be a .then() with no rejection handler, so a refusal left the button
+// looking dead and the clipboard empty. Now the text gets selected and the
+// button says so, which is at least honest about what happened.
+function copyTo(btn, textEl, text){
+  function flash(t){
+    btn.textContent = t; btn.classList.add('copied');
+    setTimeout(function(){ btn.textContent = 'Copy URL'; btn.classList.remove('copied'); }, 1500);
+  }
+  function manual(){
+    try {
+      var r = document.createRange();
+      r.selectNodeContents(textEl);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    } catch(e){}
+    flash('Press Ctrl+C');
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(function(){ flash('Copied'); }, manual);
+  else manual();
+}
+
 // Scales a card's frame to fit whatever width the page has, capping at 1:1 so
 // a small source is never blown up to look bigger than it will be in OBS.
 function fitFrame(box, frame, w, h){
@@ -210,10 +232,7 @@ LAYOUTS.forEach(function(L){
   });
   copyBt.addEventListener('click', function(){
     var b = this;
-    navigator.clipboard.writeText(url()).then(function(){
-      b.textContent = 'Copied'; b.classList.add('copied');
-      setTimeout(function(){ b.textContent='Copy URL'; b.classList.remove('copied'); }, 1400);
-    });
+    copyTo(b, code, url());
   });
 
   grid.appendChild(el);
@@ -274,10 +293,7 @@ TWITCH.forEach(function(S){
 
   el.querySelector('.copy').addEventListener('click', function(){
     var b = this;
-    navigator.clipboard.writeText(location.origin + '/' + S.id).then(function(){
-      b.textContent = 'Copied'; b.classList.add('copied');
-      setTimeout(function(){ b.textContent='Copy URL'; b.classList.remove('copied'); }, 1400);
-    });
+    copyTo(b, el.querySelector('code'), location.origin + '/' + S.id);
   });
 
   tgrid.appendChild(el);
