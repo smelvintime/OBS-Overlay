@@ -432,22 +432,69 @@ always has somewhere to go without you editing a config file. Set a number to pi
 
 ### Styling them
 
-Open `/customize` and use the tabs at the top — the alert page has **Test follow / sub /
-resub / gift** buttons so you can style it without waiting for a real event. Every
-option is a query parameter, so the URLs can also be hand-edited:
+Open `/customize` and use the tabs at the top — both the alert page and the followers &
+subs page have **Test follow / sub / gift** buttons so you can style them without waiting
+for a real event. (On the followers & subs tab those do nothing unless **Break the cycle
+and announce it here** is switched on — there is nothing for them to trigger otherwise.)
+Every option is a query parameter, so the URLs can also be hand-edited:
 
-**Alerts** — `?style=slide|pop|bar` · `hold=6` (seconds on screen) ·
-`followColor=1db954` · `subColor=a970ff` · `giftColor=ff9d3f` ·
-`align=left|center|right` · `valign=top|middle|bottom` · `scale` · `radius` ·
-`opacity` · `demo=1`
+**Alerts** — `?style=slide|slash|pop|bar` · `hold=6` (seconds on screen) ·
+`frame=blade|twin|soft` · `slant=0|1` · `followColor=1db954` · `subColor=a970ff` ·
+`giftColor=ff9d3f` · `align=left|center|right` · `valign=top|middle|bottom` ·
+`scale` · `radius` · `opacity` · `demo=1`
 
 **Followers & subs** — `?cycle=8` (seconds per face) · `transition=slide|fade|none` ·
+`mode=pair|rotate` · `order=subs|followers` · `arrange=stack|row` ·
+`takeover=0|1` · `hold=6` · `frame=blade|twin|soft` · `slant=0|1` · `mark=2` ·
 `width=300` · `gap=12` · `followGoal=500` · `subGoal=50` · `showFollowers=0|1` ·
-`showSubs=0|1` · `frame=blade|twin|soft` · `theme=glass|solid` · plus the same
-position, scale, radius, opacity and colour options · `demo=1`
+`showSubs=0|1` · `theme=glass|solid` · plus the same position, scale, radius,
+opacity and colour options · `demo=1`
 
 `demo=1` fills either page with sample data so you can position it in OBS before any
 real event happens. Leave it off the URL you actually use.
+
+**Slash** is the arrival built for the Zed look: a long slow cut across the canvas
+with the shuriken spinning a turn and a half and coasting to a stop, then the whole
+thing retraced on the way back out. The other three arrivals are short nudges and
+leave the mark still.
+
+**`slant=0`** squares off every diagonal — the tapered blades, their lit edges and the
+goal bar. Scenes are rectangles, and the lean can fight the layout around it.
+
+**`mark`** scales the shuriken on the goal box labels, where `1` is the original size
+and `2` (the default) is twice that.
+
+### Two ways to show followers and subs
+
+`mode=pair` is the original: both boxes on screen together, each flipping between its
+own goal and its own most recent name.
+
+`mode=rotate` uses **one panel in one spot** and works through all four in turn — goal,
+most recent, then the other box, and round again. `order=` picks which box leads and
+`cycle=` sets how long each face holds. A channel that can't expose subscriptions drops
+those two phases rather than cycling to blank ones.
+
+`arrange=row` puts the two boxes side by side instead of stacked. It has nothing to
+arrange in rotate mode, where only one is ever up.
+
+### Announcing events in the goal box
+
+`takeover=1` makes the goal boxes and the alerts one thing. Instead of the box cycling
+on regardless while an alert appears somewhere else, the box the event belongs to breaks
+off its cycle, slashes the name in over its own spot with the shuriken spinning, holds
+for `hold=` seconds and then goes back to the standby faces.
+
+It plays in the box's own frame and colours rather than dropping the alert card in, so
+it reads as the box reacting rather than as a second overlay landing on top of it.
+
+Two things worth knowing:
+
+- **If you also run the Twitch alerts source, every event shows up twice** — once in the
+  alert and once in the goal box. That is inherent to running both; pick one, or place
+  them so the repetition looks deliberate.
+- Events **queue**, one at a time across both boxes, for the same reason the alerts page
+  queues them: a gift bomb that also lands a follow would otherwise animate two panels
+  against each other in the same stack.
 
 ### Behavior details
 

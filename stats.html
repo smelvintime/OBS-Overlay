@@ -31,6 +31,11 @@
                                    between its own two faces
                                    rotate = one panel in one spot working
                                    through every face in turn   (default pair)
+     ?takeover=0|1                 when a follow or sub lands, the box it
+                                   belongs to breaks off the cycle and plays
+                                   the event in its own spot, then goes back
+                                   to the standby faces          (default 0)
+     ?hold=6                       seconds a takeover stays up   (default 6)
      ?showFollowers=0|1            show the follower box        (default 1)
      ?showSubs=0|1                 show the subscriber box      (default 1)
      ?followGoal=500               override the automatic goal
@@ -246,6 +251,44 @@
   body.tr-slide .face.leaving{transform:translateY(-14px);opacity:0}
   body.tr-fade .face,body.tr-fade .face.leaving{transform:none}
 
+  /* ---- takeover ------------------------------------------------------------
+     A new follower or subscriber breaks the box off its cycle and plays the
+     event in the box's own spot, then hands back.
+
+     It plays in the box's own clothes - same label-and-value shape, same frame,
+     same mark - rather than importing the alert card. A foreign card dropped
+     into the goal box would read as a second overlay landing on top of the
+     first, and it would have to be measured into the face height, which would
+     leave every standby box permanently as tall as the tallest alert it might
+     one day show. Built from the same two rows as the "latest" face, it is the
+     same height as what it replaces and costs nothing.
+
+     What makes it read as an event rather than as the next face in the rotation
+     is the motion, which is the alert's slash: a long travel on a curve that
+     eases out, the mark turning a turn and a half and coasting to a stop, and
+     the whole thing retraced on the way out.
+
+     Hung off body.takeover so it outranks the tr-* rules - including
+     body.tr-none .face{transition:none}, which would otherwise strip the slash
+     entirely for anyone who has set the cycle to change instantly. The cycle
+     being instant should not mean an event arrives with no animation. */
+  body.takeover .face[data-face="alert"]{
+    transform:translateX(-140px);
+    transition:transform .9s cubic-bezier(.16,.86,.28,1),opacity .34s ease}
+  body.takeover .face[data-face="alert"].on{transform:none}
+  body.takeover .face[data-face="alert"].leaving{
+    transform:translateX(-140px);opacity:0;
+    transition:transform .72s cubic-bezier(.5,0,.78,.6),opacity .5s ease .18s}
+  /* The mark turns with it. Only the blade and twin frames draw one, so on the
+     plain frame this simply has nothing to act on. */
+  body.takeover .face[data-face="alert"] .label::before{
+    transform:rotate(-540deg);
+    transition:transform .9s cubic-bezier(.16,.86,.28,1)}
+  body.takeover .face[data-face="alert"].on .label::before{transform:rotate(0deg)}
+  body.takeover .face[data-face="alert"].leaving .label::before{
+    transform:rotate(-540deg);
+    transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
+
   .label{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
     color:var(--c);opacity:.95}
   /* The shuriken, masked rather than drawn, so it takes the accent colour of
@@ -360,6 +403,10 @@
         <div class="value"><i class="bladefill" data-bladefill></i><span class="vtext"><span data-count></span><span class="of" data-of></span></span></div>
         <div class="bar"><div class="fill" data-fill></div></div>
       </div>
+      <div class="face" data-face="alert">
+        <div class="label" data-alabel></div>
+        <div class="value" data-aname></div>
+      </div>
     </div>
   </div>
 
@@ -373,6 +420,10 @@
         <div class="label">Subscriber goal</div>
         <div class="value"><i class="bladefill" data-bladefill></i><span class="vtext"><span data-count></span><span class="of" data-of></span></span></div>
         <div class="bar"><div class="fill" data-fill></div></div>
+      </div>
+      <div class="face" data-face="alert">
+        <div class="label" data-alabel></div>
+        <div class="value" data-aname></div>
       </div>
     </div>
   </div>
@@ -448,6 +499,11 @@
   var cycle = parseFloat(qs.get('cycle'));
   if(!isFinite(cycle) || cycle < 2 || cycle > 120) cycle = 8;
 
+  var takeover = qs.get('takeover') === '1';
+  if(takeover) document.body.classList.add('takeover');
+  var hold = parseFloat(qs.get('hold'));
+  if(!isFinite(hold) || hold < 2 || hold > 20) hold = 6;
+
   var wantFollow = qs.get('showFollowers') !== '0';
   var wantSubs   = qs.get('showSubs') !== '0';
 
@@ -462,15 +518,21 @@
   function Box(id, colourVar, want){
     var el = document.getElementById(id);
     el.style.setProperty('--c', colourVar);
-    var faces = el.querySelectorAll('.face');
+    // By name rather than by index: there are three faces now and the takeover
+    // one is only sometimes in play, so positions are the wrong thing to lean on.
+    var latestFace = el.querySelector('.face[data-face="latest"]');
+    var goalFace   = el.querySelector('.face[data-face="goal"]');
+    var alertFace  = el.querySelector('.face[data-face="alert"]');
     return {
       el: el, want: want,
-      latestFace: faces[0], goalFace: faces[1],
-      latestEl: faces[0].querySelector('[data-latest]'),
-      countEl:  faces[1].querySelector('[data-count]'),
-      ofEl:     faces[1].querySelector('[data-of]'),
-      fillEl:   faces[1].querySelector('[data-fill]'),
-      bladeEl:  faces[1].querySelector('[data-bladefill]'),
+      latestFace: latestFace, goalFace: goalFace, alertFace: alertFace,
+      latestEl: latestFace.querySelector('[data-latest]'),
+      countEl:  goalFace.querySelector('[data-count]'),
+      ofEl:     goalFace.querySelector('[data-of]'),
+      fillEl:   goalFace.querySelector('[data-fill]'),
+      bladeEl:  goalFace.querySelector('[data-bladefill]'),
+      aLabelEl: alertFace.querySelector('[data-alabel]'),
+      aNameEl:  alertFace.querySelector('[data-aname]'),
       latest: '', total: -1, goal: 0,
       current: null, live: false
     };
@@ -548,20 +610,42 @@
     }
   }
 
+  // Every face down, by hand. showFace only takes the previous one down if it
+  // is told what it was, and the callers here are about to throw box.current
+  // away - they have to, or a box coming back on the same face it left on
+  // matches showFace's early-out and never lights anything up. Without this the
+  // incoming face is simply added alongside whatever was still marked, and the
+  // panel shows two faces stacked on top of each other.
+  function clearFaces(box){
+    [box.latestFace, box.goalFace, box.alertFace].forEach(function(f){
+      f.classList.remove('on','leaving');
+    });
+  }
+
+  function faceEl(box, which){
+    return which === 'latest' ? box.latestFace
+         : which === 'goal'   ? box.goalFace
+         : which === 'alert'  ? box.alertFace : null;
+  }
+
   // Showing a face is two steps so the outgoing one animates away rather than
   // being cut, and the same rAF-plus-timer net the alerts page uses applies:
   // an OBS source that is not compositing never fires rAF.
   function showFace(box, which){
     if(box.current === which) return;
-    var next = which === 'latest' ? box.latestFace : box.goalFace;
-    var prev = box.current === 'latest' ? box.latestFace
-             : box.current === 'goal'   ? box.goalFace : null;
+    var next = faceEl(box, which);
+    var prev = faceEl(box, box.current);
+    if(!next) return;
     box.current = which;
 
     if(prev){
       prev.classList.remove('on');
       prev.classList.add('leaving');
-      setTimeout(function(){ prev.classList.remove('leaving'); }, 340);
+      // The takeover leaves on the slash's timing, which is more than twice as
+      // long as a cycle change. Stripping .leaving on the shorter clock would
+      // cut the retreat off partway and drop the face the rest of the way.
+      var settle = prev === box.alertFace ? 760 : 340;
+      setTimeout(function(){ prev.classList.remove('leaving'); }, settle);
     }
     function on(){ next.classList.add('on'); }
     next.classList.remove('leaving');
@@ -640,14 +724,7 @@
     box.el.classList.remove('hidden');
     if(swapping){
       box.el.classList.remove('show');
-      // Both faces have to be cleared by hand here. showFace only takes the
-      // previous face down if it is told what it was, and box.current is about
-      // to be thrown away - it has to be, or a box whose turn comes round again
-      // on the same face it left on would match the early-out and never light
-      // anything up. Skip this and the incoming face is simply added alongside
-      // the one still marked from last turn, and the panel shows both at once.
-      box.latestFace.classList.remove('on','leaving');
-      box.goalFace.classList.remove('on','leaving');
+      clearFaces(box);
       void box.el.offsetWidth;      // take the staged position before releasing
       box.current = null;
     }
@@ -655,9 +732,104 @@
     reveal(box);
   }
 
+  // ---- takeover ---------------------------------------------------------
+  // One queue for both boxes, not one each. Two boxes shouting at the same
+  // moment - a gift bomb that also lands a follow - is exactly the case the
+  // alerts page already refuses to allow, and there it only ever had one card
+  // to worry about. Here it would be two panels animating against each other
+  // in the same stack.
+  var toQueue = [], toActive = false, toTimers = [];
+  function clearToTimers(){
+    for(var i = 0; i < toTimers.length; i++) clearTimeout(toTimers[i]);
+    toTimers = [];
+  }
+
+  function takeoverText(a){
+    var n = a.count || 1;
+    if(a.kind === 'follow') return 'New follower';
+    if(a.kind === 'sub')    return 'New subscriber';
+    if(a.kind === 'resub')  return 'Resubscribed';
+    if(a.kind === 'gift')   return 'Gifted ' + n + (n === 1 ? ' sub' : ' subs');
+    return '';                        // unknown kind: nothing worth breaking in for
+  }
+
+  function enqueueTakeover(a){
+    if(!takeover || !a || !a.kind) return;
+    var box = a.kind === 'follow' ? follow : subs;
+    // Nothing to break into. A box that is switched off or has no data is not
+    // on screen, and bringing it up only to announce something would be a
+    // stranger result than staying quiet.
+    if(!box.want || !box.live) return;
+    if(!takeoverText(a)) return;
+    if(toQueue.length >= 10) toQueue.shift();
+    toQueue.push([box, a]);
+    if(!toActive) playTakeover();
+  }
+
+  function playTakeover(){
+    if(!toQueue.length){ toActive = false; resumeStandby(); return; }
+    toActive = true;
+    var box = toQueue[0][0], a = toQueue[0][1];
+    toQueue.shift();
+
+    box.aLabelEl.textContent = takeoverText(a);
+    box.aNameEl.textContent  = a.user || '';
+    fitFaces();
+
+    // In rotate mode the box holding the spot may not be the one the event
+    // belongs to, so it has to be handed the spot first.
+    if(rotate){
+      var other = box === follow ? subs : follow;
+      other.el.classList.remove('show');
+      other.el.classList.add('hidden');
+      if(box.el.classList.contains('hidden')){
+        box.el.classList.remove('hidden', 'show');
+        clearFaces(box);
+        void box.el.offsetWidth;
+        box.current = null;
+      }
+      reveal(box);
+    }
+
+    showFace(box, 'alert');
+    toTimers.push(setTimeout(function(){ playNextOrResume(box); }, hold * 1000));
+  }
+
+  // Back-to-back events share one panel, so the next one has to restage rather
+  // than cut: without dropping the alert face first, showFace sees the same
+  // face already showing, takes its early out, and the second name simply
+  // appears in place of the first with no animation at all.
+  function playNextOrResume(box){
+    clearToTimers();
+    if(toQueue.length){
+      box.alertFace.classList.remove('on');
+      box.alertFace.classList.add('leaving');
+      box.current = null;
+      toTimers.push(setTimeout(function(){
+        box.alertFace.classList.remove('leaving');
+        playTakeover();
+      }, 760));
+      return;
+    }
+    toActive = false;
+    resumeStandby();
+  }
+
+  function resumeStandby(){
+    if(rotate){ rotateTo(phaseIx); return; }
+    [follow, subs].forEach(function(b){
+      if(b.current !== 'alert') return;
+      var u = usableFaces(b);
+      if(u.length) showFace(b, u[0]);
+    });
+  }
+
   // Both boxes flip together; independent timers drift apart and read as two
   // unrelated widgets rather than one stack.
   setInterval(function(){
+    // A takeover owns the panel for as long as it is up. Letting the cycle fire
+    // underneath it would flip the box to a standby face mid-announcement.
+    if(toActive) return;
     if(rotate){ rotateTo(phaseIx + 1); return; }
     [follow, subs].forEach(function(box){
       if(box.el.classList.contains('hidden')) return;
@@ -697,9 +869,15 @@
 
     refreshBox(follow);
     refreshBox(subs);
-    // Same tick as the refreshes above, so no frame is ever painted with both
-    // boxes up. Also re-clamps the cursor: a box going away shortens the list.
-    if(rotate) rotateTo(phaseIx);
+    afterData();
+  }
+
+  // Same tick as the refreshes that precede it, so no frame is ever painted
+  // with both boxes up. Also re-clamps the cursor: a box going away shortens
+  // the phase list. Skipped while a takeover holds the panel - the five-second
+  // poll landing mid-announcement must not pull the box back to a standby face.
+  function afterData(){
+    if(rotate && !toActive) rotateTo(phaseIx);
   }
 
   if(qs.get('demo') === '1'){
@@ -736,10 +914,22 @@
           if(subs.total >= 0) subs.total += (d.count || 1);
           refreshBox(subs); bump(subs);
         }
+        afterData();
+        // After the refresh, so the count behind the announcement is already
+        // the new one by the time anybody sees it.
+        enqueueTakeover(d);
       };
       es.onerror = function(){};
     }
   }
+
+  // Lets the customize page rehearse a takeover without waiting on Twitch, and
+  // takes the same envelope the alerts page does so one test button drives both.
+  window.addEventListener('message', function(ev){
+    if(ev.origin !== location.origin) return;
+    var d = ev.data;
+    if(d && d.type === 'nowplaying:alert-preview') enqueueTakeover(d.alert);
+  });
 
   // Font metrics decide these heights, and the first measurement can happen
   // before the font the box will actually be drawn in has settled.
