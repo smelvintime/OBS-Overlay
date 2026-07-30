@@ -16,7 +16,10 @@
      ?opacity=100                  box opacity 10-100           (default 100)
      ?theme=glass|solid            box chrome                   (default glass)
      ?cycle=8                      seconds per face             (default 8)
-     ?transition=slide|fade        how faces change             (default slide)
+     ?transition=slide|fade|slash|none
+                                   how faces change. slash is the alert's
+                                   arrival - a long cut with the shuriken
+                                   spinning to a stop                (default slide)
      ?width=300                    box width px                 (default 300)
      ?gap=12                       space between boxes px       (default 12)
      ?frame=blade|twin|soft        blade = cut corners, brackets and a shuriken
@@ -251,6 +254,38 @@
   body.tr-slide .face.leaving{transform:translateY(-14px);opacity:0}
   body.tr-fade .face,body.tr-fade .face.leaving{transform:none}
 
+  /* Slash: the alert's arrival, borrowed for the ordinary cycle. Same travel,
+     same pair of curves - quick at the front and easing out on the way in,
+     retracing on the way out - and the mark turns with it.
+
+     It is slower than the other three by design. Slide and fade are meant to
+     get out of the way of a change nobody asked to watch; this one is meant to
+     be watched, which is the reason to pick it. Worth knowing before setting a
+     three second cycle: the arrival alone is nearly a second of it.
+
+     showFace has to be told about this too - it strips .leaving on a timer, and
+     the shorter one would cut the retreat off partway. */
+  body.tr-slash .face{
+    transform:translateX(-140px);
+    transition:transform .9s cubic-bezier(.16,.86,.28,1),opacity .34s ease}
+  body.tr-slash .face.on{transform:none}
+  body.tr-slash .face.leaving{
+    transform:translateX(-140px);opacity:0;
+    transition:transform .72s cubic-bezier(.5,0,.78,.6),opacity .5s ease .18s}
+  /* Pinned right, the cut comes from the right, or it crosses the box to get to
+     a mark on the far side of it. */
+  body.tr-slash.from-right .face{transform:translateX(140px)}
+  body.tr-slash.from-right .face.leaving{transform:translateX(140px)}
+  /* Only the blade and twin frames draw a mark, so the plain frame simply has
+     nothing here to turn. */
+  body.tr-slash .label::before{
+    transform:rotate(-540deg);
+    transition:transform .9s cubic-bezier(.16,.86,.28,1)}
+  body.tr-slash .face.on .label::before{transform:rotate(0deg)}
+  body.tr-slash .face.leaving .label::before{
+    transform:rotate(-540deg);
+    transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
+
   /* ---- takeover ------------------------------------------------------------
      A new follower or subscriber breaks the box off its cycle and plays the
      event in the box's own spot, then hands back.
@@ -447,8 +482,11 @@
   stage.className = 'h-'+align+' v-'+valign;
 
   var tr = (qs.get('transition')||'slide').toLowerCase();
-  if(['slide','fade','none'].indexOf(tr) < 0) tr = 'slide';
+  if(['slide','fade','none','slash'].indexOf(tr) < 0) tr = 'slide';
   document.body.className = 'tr-' + tr;
+  // A box pinned to the right should be cut into from the right - same reason
+  // the alert card mirrors its arrival.
+  if(align === 'right') document.body.classList.add('from-right');
   if((qs.get('theme')||'glass').toLowerCase() === 'solid') document.body.classList.add('solid');
 
   var frame = (qs.get('frame')||'blade').toLowerCase();
@@ -641,10 +679,11 @@
     if(prev){
       prev.classList.remove('on');
       prev.classList.add('leaving');
-      // The takeover leaves on the slash's timing, which is more than twice as
-      // long as a cycle change. Stripping .leaving on the shorter clock would
-      // cut the retreat off partway and drop the face the rest of the way.
-      var settle = prev === box.alertFace ? 760 : 340;
+      // Both the takeover and the slash cycle leave on the slash's timing,
+      // which is more than twice as long as an ordinary cycle change. Stripping
+      // .leaving on the shorter clock would cut the retreat off partway and
+      // drop the face the rest of the way in one frame.
+      var settle = (prev === box.alertFace || tr === 'slash') ? 760 : 340;
       setTimeout(function(){ prev.classList.remove('leaving'); }, settle);
     }
     function on(){ next.classList.add('on'); }

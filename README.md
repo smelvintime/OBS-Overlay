@@ -443,7 +443,7 @@ Every option is a query parameter, so the URLs can also be hand-edited:
 `giftColor=ff9d3f` · `align=left|center|right` · `valign=top|middle|bottom` ·
 `scale` · `radius` · `opacity` · `demo=1`
 
-**Followers & subs** — `?cycle=8` (seconds per face) · `transition=slide|fade|none` ·
+**Followers & subs** — `?cycle=8` (seconds per face) · `transition=slide|slash|fade|none` ·
 `mode=pair|rotate` · `order=subs|followers` · `arrange=stack|row` ·
 `takeover=0|1` · `hold=6` · `frame=blade|twin|soft` · `slant=0|1` · `mark=2` ·
 `width=300` · `gap=12` · `followGoal=500` · `subGoal=50` · `showFollowers=0|1` ·
@@ -457,6 +457,11 @@ real event happens. Leave it off the URL you actually use.
 with the shuriken spinning a turn and a half and coasting to a stop, then the whole
 thing retraced on the way back out. The other three arrivals are short nudges and
 leave the mark still.
+
+It is also available as `transition=slash` on the followers & subs boxes, so the
+ordinary cycle between goal and most-recent uses the same cut. It runs close to a
+second each way, so give it a longer `cycle=` than you would slide or fade — at
+`cycle=3` the box spends most of its time animating.
 
 **`slant=0`** squares off every diagonal — the tapered blades, their lit edges and the
 goal bar. Scenes are rectangles, and the lean can fight the layout around it.

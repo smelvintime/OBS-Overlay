@@ -422,8 +422,11 @@
                + 'Side by side has nothing to arrange when only one is up.' },
           { key:'cycle', label:'Each face', type:'range', min:3, max:20, step:1, unit:'s' },
           { key:'transition', label:'Changes', type:'seg', options:[
-            ['slide','Slide'],['fade','Fade'],['none','Instant']],
-            note:'A box with only one thing to show holds it instead of cycling to a blank face.' }
+            ['slide','Slide'],['slash','Slash'],['fade','Fade'],['none','Instant']],
+            note:'Slash is the alert arrival used for the ordinary cycle &mdash; a long cut with '
+               + 'the shuriken spinning to a stop. It runs close to a second, so give it a '
+               + 'longer face time than you would the others. '
+               + 'A box with only one thing to show holds it instead of cycling to a blank face.' }
         ]},
         { title:'When someone follows or subscribes', controls:[
           { key:'takeover', label:'', type:'toggle', text:'Break the cycle and announce it here',
