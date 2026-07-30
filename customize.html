@@ -310,9 +310,9 @@
           + 'Use the test buttons to see each kind without waiting for a real one.',
       live:[],
       defaults:{
-        style:'slide', frame:'blade', accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff',
-        giftColor:'ff9d3f', align:'center', valign:'top', scale:1, radius:16,
-        opacity:100, hold:6
+        style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
+        subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
+        radius:16, opacity:100, hold:6
       },
       size:function(){ return {w:1920, h:1080}; },
       actions:[
@@ -324,13 +324,17 @@
       groups:[
         { title:'Look', controls:[
           { key:'style', label:'Arrives', type:'seg', options:[
-            ['slide','Slide'],['pop','Pop'],['bar','Banner']],
-            note:'Use the test buttons above to watch it arrive.' },
+            ['slide','Slide'],['slash','Slash'],['pop','Pop'],['bar','Banner']],
+            note:'Slash is a long slow cut across the canvas with the shuriken spinning '
+               + 'to a stop, and the whole thing reversed on the way back out. '
+               + 'Use the test buttons above to watch it arrive.' },
           { key:'frame', label:'Frame', type:'seg',
             options:[['blade','Blade'],['twin','Twin blades'],['soft','Plain']],
             note:'Blade cuts two corners and brackets the accent. Twin blades drops the '
                + 'card entirely and rides the name and the event on two crossed blades. '
                + 'Plain is the original bar down one edge.' },
+          { key:'slant', label:'', type:'toggle', text:'Lean the blades',
+            note:'Off squares the card up for a rectangular scene. Twin blades only.' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
@@ -366,7 +370,8 @@
       live:[],
       defaults:{
         accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff', theme:'glass',
-        frame:'blade', align:'left', valign:'top', scale:1, radius:14, opacity:100, cycle:8,
+        frame:'blade', slant:1, mark:2, align:'left', valign:'top', scale:1, radius:14,
+        opacity:100, cycle:8, mode:'pair', order:'subs', arrange:'stack',
         transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1
       },
       size:function(){ return {w:360, h:240}; },
@@ -378,6 +383,11 @@
                + 'shuriken. Twin blades drops the box entirely and rides the label and the '
                + 'count on two leaning blades, matching the alert. Plain is the original bar '
                + 'down one edge.' },
+          { key:'slant', label:'', type:'toggle', text:'Lean the blades',
+            note:'Off squares everything up. Scenes are rectangles, so a diagonal can '
+               + 'fight the layout around it. Blade and Twin blades only.' },
+          { key:'mark', label:'Shuriken', type:'range', min:1, max:3, step:0.25, unit:'x',
+            note:'How big the mark on the label is. Blade and Twin blades only.' },
           { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']] },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
@@ -388,11 +398,20 @@
             ['left','Left'],['center','Centre'],['right','Right']] },
           { key:'valign', label:'Vertical', type:'seg', options:[
             ['top','Top'],['middle','Middle'],['bottom','Bottom']] },
+          { key:'arrange', label:'Boxes', type:'seg', options:[['stack','Stacked'],['row','Side by side']] },
+          { key:'order', label:'First', type:'seg', options:[['subs','Subs'],['followers','Followers']],
+            note:'Which comes first - above in a stack, left in a row, and the phase the '
+               + 'rotation starts on.' },
           { key:'width', label:'Width', type:'range', min:180, max:520, step:10, unit:'px' },
           { key:'gap', label:'Spacing', type:'range', min:0, max:40, step:2, unit:'px' }
         ]},
         { title:'Cycle', controls:[
-          { key:'cycle', label:'Each face', type:'range', min:3, max:30, step:1, unit:'s' },
+          { key:'mode', label:'Shows', type:'seg', options:[['pair','Both boxes'],['rotate','One at a time']],
+            note:'Both boxes puts followers and subs on screen together, each flipping between '
+               + 'its own goal and its own latest. One at a time uses a single panel in one spot '
+               + 'and works through all four in turn - goal, latest, then the other box. '
+               + 'Side by side has nothing to arrange when only one is up.' },
+          { key:'cycle', label:'Each face', type:'range', min:3, max:20, step:1, unit:'s' },
           { key:'transition', label:'Changes', type:'seg', options:[
             ['slide','Slide'],['fade','Fade'],['none','Instant']],
             note:'A box with only one thing to show holds it instead of cycling to a blank face.' }

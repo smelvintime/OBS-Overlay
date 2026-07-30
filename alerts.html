@@ -6,7 +6,12 @@
 <title>Twitch alerts</title>
 <style>
   /* ---------------- Options via URL query params (all optional) ----------------
-     ?style=slide|pop|bar          how the alert arrives        (default slide)
+     ?style=slide|pop|bar|slash    how the alert arrives        (default slide)
+                                   slash = a long slow cut across the canvas
+                                   with the shuriken spinning to a stop, and
+                                   the whole thing reversed on the way out
+     ?slant=0|1                    lean the blades, or square them off for a
+                                   rectangular scene            (default 1)
      ?accent=9bd4f5                base accent, hex no #
      ?followColor=9bd4f5           per-kind colours, hex no #
      ?subColor=a970ff
@@ -131,6 +136,12 @@
   body.frame-blade .icon{border-radius:6px;transform:rotate(45deg);
     width:42px;height:42px;margin-left:3px}
   body.frame-blade .icon > *{transform:rotate(-45deg);display:flex}
+  /* The wrapper the blade frame counter-rotates. It also has to be a flex
+     container: .icon is the flex box, so .shuriken used to be its direct child
+     and got blockified into a flex item, which is the only reason its width and
+     height applied at all. With the wrapper in between, an inline span would
+     collapse and the mark would vanish. */
+  .spinner{display:flex}
   /* Masked rather than a font glyph, so it is a real shuriken at any size and
      takes the per-kind colour for free. */
   .shuriken{width:22px;height:22px;background-color:var(--c);
@@ -155,19 +166,33 @@
 
   body.frame-twin .head,
   body.frame-twin .sub{
-    position:relative;padding:9px 52px 9px 32px;margin:0;
-    background:var(--card-bg);
-    /* Square at the hilt end, tapering to a point at the far end. The text sits
-       in the full-height section and the taper runs on past it, which is why the
-       right padding is so much deeper than the left - the words have to clear
-       the part of the blade that is narrowing. */
-    clip-path:polygon(18px 0, calc(100% - 36px) 0, 100% 50%,
-                      calc(100% - 36px) 100%, 0 100%)}
+    position:relative;padding:9px 32px;margin:0;
+    background:var(--card-bg)}
   /* A blade is long. Without a floor the slab shrinks to fit a short name and
      reads as a pennant instead, so both get a minimum reach and the lower one
-     stays shorter than the upper - a matched pair, not two of the same. */
+     stays shorter than the upper - a matched pair, not two of the same.
+     Both start on the same left edge now. The lower slab used to be offset 34px
+     to read as a crossed pair; against a rectangular scene that read as a
+     mistake instead, and the differing lengths already do that job. Kept in
+     step with the same change in stats.html - a channel running both sources
+     should not look like it assembled them from two different overlays. */
   body.frame-twin .head{font-size:20px;min-width:300px}
-  body.frame-twin .sub{margin-left:34px;font-size:13.5px;min-width:240px}
+  body.frame-twin .sub{font-size:13.5px;min-width:240px}
+
+  /* ---- the lean ------------------------------------------------------------
+     The slab's clip, the lit edge's clip and the deep right padding all carry
+     the same diagonal, and all three hang off body.slant-on so ?slant=0 squares
+     the card off in one switch rather than three that can drift apart. Scenes
+     are rectangles; the lean has to be optional.
+
+     The deep right padding belongs to the lean too. It is only there to keep
+     the words clear of the part of the blade that is narrowing, so with no
+     taper it would be an unexplained gap. */
+  body.slant-on.frame-twin .head,
+  body.slant-on.frame-twin .sub{
+    padding-right:52px;
+    clip-path:polygon(18px 0, calc(100% - 36px) 0, 100% 50%,
+                      calc(100% - 36px) 100%, 0 100%)}
   /* Wash of colour bleeding back from the edge, then the edge itself.
 
      The edge is clipped to a parallelogram with the SAME 18px lean as the slab,
@@ -181,24 +206,29 @@
     background:linear-gradient(100deg,var(--c),transparent 72%);opacity:.34}
   body.frame-twin .head::after,
   body.frame-twin .sub::after{
-    content:"";position:absolute;left:0;top:0;bottom:0;width:26px;
-    background:var(--c);filter:drop-shadow(0 0 7px var(--c));
+    content:"";position:absolute;left:0;top:0;bottom:0;width:5px;
+    background:var(--c);filter:drop-shadow(0 0 7px var(--c))}
+  /* 5px is the real thickness of the lit edge; slanted, it needs a 26px box to
+     lean the parallelogram across. */
+  body.slant-on.frame-twin .head::after,
+  body.slant-on.frame-twin .sub::after{
+    width:26px;
     clip-path:polygon(18px 0, 23px 0, 5px 100%, 0 100%)}
   /* No plate: a bare shuriken with its own glow sits better beside blades. */
   body.frame-twin .icon{background:none;border:0;width:54px;height:54px;font-size:34px;
     filter:drop-shadow(0 0 12px var(--c))}
   body.frame-twin .icon .shuriken{width:46px;height:46px}
 
-  /* Pinned right, the blades lean the other way and the offset flips with them,
-     otherwise the pair points off the side of the canvas it is sitting on. */
+  /* Pinned right, the blades lean the other way, otherwise the pair points off
+     the side of the canvas it is sitting on. Only the lean mirrors - the two
+     slabs still share an edge, which is now the right-hand one. */
   body.frame-twin.from-right .alert{flex-direction:row-reverse}
   body.frame-twin.from-right .body{align-items:flex-end}
-  body.frame-twin.from-right .head,
-  body.frame-twin.from-right .sub{
-    padding:9px 32px 9px 52px;
+  body.slant-on.frame-twin.from-right .head,
+  body.slant-on.frame-twin.from-right .sub{
+    padding:9px 52px 9px 32px;
     clip-path:polygon(0 50%, 36px 0, 100% 0,
                       calc(100% - 18px) 100%, 36px 100%)}
-  body.frame-twin.from-right .sub{margin-left:0;margin-right:34px}
   body.frame-twin.from-right .head::before,
   body.frame-twin.from-right .sub::before{left:auto;right:0;
     background:linear-gradient(270deg,var(--c),transparent)}
@@ -218,7 +248,6 @@
      the bare .alert instead would out-rank the resting rule and pin the card
      permanently off its mark, since a compound selector beats a plain one. */
   .alert{transition:transform .42s cubic-bezier(.22,1.28,.35,1),opacity .3s ease}
-  body.st-none .alert{transition:none}
 
   body.style-slide .alert.pre{transform:translateX(-28px)}
   body.style-slide .alert.in {transform:none}
@@ -237,11 +266,66 @@
   body.style-bar.v-bottom-body .alert.pre{transform:translateY(22px)}
   body.style-bar.v-bottom-body .alert.out{transform:translateY(14px)}
 
+  /* ---- slash ---------------------------------------------------------------
+     A long, slow cut across the canvas rather than the short nudge the other
+     looks use: it starts well off its mark, travels 140px on a curve that is
+     quick at the front and spends most of its time easing out, and the mark
+     turns with it and coasts to a stop.
+
+     The exit retraces the entry instead of leaving the other way. Every other
+     look here treats out as a small drift in the same direction as in, which
+     works when the movement is a nudge; when the arrival is the point, going
+     back out the way it came reads as the stroke being withdrawn, and drifting
+     onward reads as a second alert starting. That means overriding the shared
+     .alert.out rule, which is deliberately quick and unbouncy for the nudge
+     looks - the compound selector out-ranks it. */
+  body.style-slash .alert{
+    transition:transform .9s cubic-bezier(.16,.86,.28,1),opacity .34s ease}
+  body.style-slash .alert.pre{transform:translateX(-140px)}
+  body.style-slash .alert.in {transform:none}
+  body.style-slash .alert.out{transform:translateX(-140px);
+    transition:transform .72s cubic-bezier(.5,0,.78,.6),opacity .5s ease .18s}
+  body.style-slash.from-right .alert.pre{transform:translateX(140px)}
+  body.style-slash.from-right .alert.out{transform:translateX(140px)}
+
+  /* The spin lives on .shuriken and the blade frame's counter-rotation lives on
+     the wrapper around it. They cannot share an element: transform is a single
+     property, so whichever rule won would silently drop the other - either the
+     mark stops spinning or it hangs at 45 degrees inside the plate.
+     540 degrees is one and a half turns, which lands the tri-blade on a
+     different point from the one it started on. A whole number of turns and the
+     same blade comes back to the top, which at speed reads as no spin at all. */
+  .icon .shuriken{transition:transform .9s cubic-bezier(.16,.86,.28,1)}
+  body.style-slash .alert.pre .shuriken{transform:rotate(-540deg)}
+  body.style-slash .alert.in  .shuriken{transform:rotate(0deg)}
+  body.style-slash .alert.out .shuriken{transform:rotate(-540deg);
+    transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
+
   .alert.in{opacity:var(--overlay-opacity)}
   /* Leaving is quicker than arriving and does not bounce: an overshoot on the
-     way out reads as a second event starting. */
+     way out reads as a second event starting. Slash overrides this - see there
+     for why that look wants its exit to retrace its entry instead. */
   .alert.out{opacity:0;transition-duration:.26s;
     transition-timing-function:cubic-bezier(.4,0,1,1)}
+
+  /* ---- staging -------------------------------------------------------------
+     LAST on purpose, and this is load-bearing. playNext() drops the card on its
+     start mark with transitions off, forces the browser to take that position,
+     then releases them so the arrival animates from there. That only works if
+     the suppression actually wins.
+
+     It used to sit up beside the base .alert rule, where it had exactly the
+     same specificity as every "body.style-X .alert" below it and therefore lost
+     to all of them on source order. Nothing looked wrong while the looks only
+     redeclared transition-duration piecemeal - but a look that sets the whole
+     transition shorthand gets its full timing back, and then staging animates:
+     the card slides backwards to its start mark in full view before sliding in,
+     and the mark unwinds a turn and a half with it.
+
+     Down here it comes after every look, so it beats all of them on order at
+     equal specificity, which is what it always meant to do. Keep it last. */
+  body.st-none .alert,
+  body.st-none .alert .shuriken{transition:none}
 </style>
 <script>
 /* Shared theme, read from the app rather than this browser - see overlay.html for
@@ -290,12 +374,15 @@
   hex('subColor','--sub');  hex('giftColor','--gift');
 
   var style = (qs.get('style')||'slide').toLowerCase();
-  if(['slide','pop','bar'].indexOf(style) < 0) style = 'slide';
+  if(['slide','pop','bar','slash'].indexOf(style) < 0) style = 'slide';
   document.body.className = 'style-' + style;
 
   var frame = (qs.get('frame')||'blade').toLowerCase();
   if(['blade','soft','twin'].indexOf(frame) < 0) frame = 'blade';
   document.body.classList.add('frame-' + frame);
+
+  // Matches stats.html: one switch for every diagonal on the card.
+  document.body.classList.add(qs.get('slant') === '0' ? 'slant-off' : 'slant-on');
 
   var align  = (qs.get('align')||'center').toLowerCase();
   var valign = (qs.get('valign')||'top').toLowerCase();
@@ -368,12 +455,18 @@
     // one that actually means something here, and the per-kind colour already
     // carries the distinction on its own.
     //
-    // Still wrapped in a span: the blade frame counter-rotates whatever is
-    // inside the plate, and it needs a real element to turn.
+    // Two nested spans, not one. The blade frame turns the outer one back so
+    // the mark stays upright inside a plate that is itself rotated 45 degrees,
+    // and the slash style spins the inner one. Both are transforms, and one
+    // element can only carry one - sharing would silently drop whichever rule
+    // lost, leaving the mark either stuck at 45 degrees or never spinning.
     iconEl.textContent = '';
+    var spinner = document.createElement('span');
+    spinner.className = 'spinner';
     var glyph = document.createElement('span');
     glyph.className = 'shuriken';
-    iconEl.appendChild(glyph);
+    spinner.appendChild(glyph);
+    iconEl.appendChild(spinner);
     headEl.textContent = head;
     subEl.textContent = sub;
     return true;

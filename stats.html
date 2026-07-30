@@ -21,7 +21,16 @@
      ?gap=12                       space between boxes px       (default 12)
      ?frame=blade|twin|soft        blade = cut corners, brackets and a shuriken
                                    twin  = the pair of leaning blades
-                                   mark; soft = the plain bar   (default blade)
+                                   soft  = the plain bar        (default blade)
+     ?slant=0|1                    lean the blades and their edges, or square
+                                   them off for a rectangular scene (default 1)
+     ?mark=2                       shuriken size, 1-3 (x9px)      (default 2)
+     ?order=subs|followers         which box sits first          (default subs)
+     ?arrange=stack|row            stacked, or side by side     (default stack)
+     ?mode=pair|rotate             pair   = both boxes up, each flipping
+                                   between its own two faces
+                                   rotate = one panel in one spot working
+                                   through every face in turn   (default pair)
      ?showFollowers=0|1            show the follower box        (default 1)
      ?showSubs=0|1                 show the subscriber box      (default 1)
      ?followGoal=500               override the automatic goal
@@ -44,6 +53,10 @@
     --card-border:rgba(255,255,255,.08);
     --text:#fff;
     --subtext:rgba(255,255,255,.6);
+    /* 2x the 9px it used to be. The mark is the one part of these boxes a
+       viewer can read from across a room, so it earns the space. ?mark= scales
+       it; see the .label::before rule for why the row copes with any size. */
+    --mark:18px;
     /* Three blades, matching alerts.html - see the long note there for why the
        root points must sit on the hub circle and why the two edges have to meet
        at a cusp rather than an arc. Keep the two in step: they are the same mark
@@ -72,7 +85,19 @@
   #stage.v-middle{align-items:center}
   #stage.v-bottom{align-items:flex-end}
 
+  /* Side by side is the same flex container turned, so --gap keeps meaning "the
+     space between the boxes" in both directions without a second knob.
+     flex-start rather than stretch: a row of boxes whose faces are different
+     heights should sit on a shared top edge, not have the shorter one grow to
+     match the taller and float its content in the middle. */
   #stack{display:flex;flex-direction:column;gap:var(--gap)}
+  body.arrange-row #stack{flex-direction:row;align-items:flex-start}
+  /* Ordered in CSS rather than by moving the DOM, so the ids the script binds
+     to on the way up stay where they are. Subs lead by default. */
+  body.order-subs #boxSub{order:1}
+  body.order-subs #boxFollow{order:2}
+  body.order-followers #boxFollow{order:1}
+  body.order-followers #boxSub{order:2}
 
   .box{
     --c:var(--accent);
@@ -131,55 +156,86 @@
     background:none;border:0;box-shadow:none;padding:0;
     backdrop-filter:none;-webkit-backdrop-filter:none}
   body.frame-twin .face{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  /* Never shrink. .face is absolute inset:0, so its height is the container's,
+     and a flex column whose children default to flex-shrink:1 will squash them
+     to fit whatever that happens to be. That is bad on its own - a blade
+     crushed to a third of its height - but it also feeds back into fitFaces,
+     which would measure the squashed children, set the container to that, and
+     lock the collapse in permanently. The old hard-coded 90px height hid this
+     by always being roomy enough that no shrink ever happened. */
+  body.frame-twin .face > *{flex:0 0 auto}
 
   body.frame-twin .label,
   body.frame-twin .value{
-    position:relative;margin:0;padding:7px 40px 7px 24px;
+    position:relative;margin:0;padding:7px 24px;
     background:var(--card-bg);
-    box-shadow:inset 46px 0 32px -30px var(--c);
-    /* Square at the hilt, tapering to a point at the far end. The right padding
-       is far deeper than the left because the words have to clear the part of
-       the blade that is narrowing. */
-    clip-path:polygon(13px 0, calc(100% - 26px) 0, 100% 50%,
-                      calc(100% - 26px) 100%, 0 100%)}
+    box-shadow:inset 46px 0 32px -30px var(--c)}
   /* A blade is long. Without a floor the slab shrinks to fit a short word and
      reads as a pennant instead, so both get a minimum reach and the lower one
-     stays shorter than the upper - a matched pair, not two of the same. */
+     stays shorter than the upper - a matched pair, not two of the same.
+     Both start at the same left edge: the old 24px offset on the lower slab
+     read as a mistake against a rectangular scene rather than as a crossed
+     pair, which is what the differing lengths are already doing. */
   body.frame-twin .label{min-width:200px}
-  body.frame-twin .value{margin-top:0;margin-left:24px;min-width:168px}
+  body.frame-twin .value{margin-top:0;min-width:168px}
+  /* 4px is the real thickness of the lit edge. Slanted, it needs a 22px box to
+     lean the parallelogram across - see the slant block below. */
+  body.frame-twin .label::after,
+  body.frame-twin .value::after{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:4px;
+    background:var(--c);filter:drop-shadow(0 0 6px var(--c))}
+
+  /* ---- the lean ------------------------------------------------------------
+     Three separate things carry the diagonal - the slab's own clip, the lit
+     edge's clip and the goal bar's skew - and they have to move together or the
+     frame ends up at three different angles. All three hang off body.slant-on,
+     so ?slant=0 squares the whole thing off in one switch instead of three that
+     can drift apart. Scenes are rectangles; the lean has to be optional.
+
+     The deep right padding belongs to the lean too. It is only there to keep
+     the words clear of the part of the blade that is narrowing, so with no
+     taper it would be an unexplained gap. */
+  body.slant-on.frame-twin .label,
+  body.slant-on.frame-twin .value{
+    padding-right:40px;
+    clip-path:polygon(13px 0, calc(100% - 26px) 0, 100% 50%,
+                      calc(100% - 26px) 100%, 0 100%)}
   /* Clipped to a parallelogram with the SAME 13px lean as the slab. Left as a
      vertical bar at x=0 it gets trimmed away by the parent clip and leaves
      nothing but a sliver in the bottom corner. */
-  body.frame-twin .label::after,
-  body.frame-twin .value::after{
-    content:"";position:absolute;left:0;top:0;bottom:0;width:22px;
-    background:var(--c);filter:drop-shadow(0 0 6px var(--c));
+  body.slant-on.frame-twin .label::after,
+  body.slant-on.frame-twin .value::after{
+    width:22px;
     clip-path:polygon(13px 0, 17px 0, 4px 100%, 0 100%)}
-  /* Same masked shuriken as the blade frame - see that rule for why. */
-  body.frame-twin .label::before{
-    content:"";display:inline-block;width:9px;height:9px;margin-right:6px;
-    vertical-align:-1px;background-color:var(--c);
-    -webkit-mask:var(--shuriken) center/contain no-repeat;
-            mask:var(--shuriken) center/contain no-repeat}
-  /* The goal bar sits under the pair and leans with them, and takes its width
-     from the lower blade so the three read as one group rather than a bar that
-     happened to land nearby. */
-  body.frame-twin .bar{margin-top:0;margin-left:24px;width:168px;
-    transform:skewX(-18deg);border-radius:2px}
-  body.frame-twin .fill{border-radius:0}
+  /* The leading edge of the fill leans with everything else. Square, it cuts
+     straight down across a shape whose every other edge is diagonal, and the
+     progress front reads as a seam in the blade rather than part of it. Same
+     13px as the slab and the lit edge, so all three stay parallel.
+     The hilt end needs nothing: the parent's clip already cuts it to the same
+     diagonal. Clip and mask are independent and both apply - the clip is the
+     shape of the fill, the mask is the fade along its front. */
+  body.slant-on.frame-twin .face[data-face="goal"] .bladefill{
+    clip-path:polygon(0 0, 100% 0, calc(100% - 13px) 100%, 0 100%)}
+  /* The blade frame's band leans too, and for the same reason it has to be able
+     to stop leaning. Grouped here with the twin rules rather than beside the
+     band itself so every angle in the file is switched from one place. */
+  body.slant-on.frame-blade .bar{transform:skewX(-22deg)}
 
   /* A fixed face height is what stops the stack twitching every time a box
      flips between a name and a progress bar, since the two are different
      shapes. Both faces are laid out in the same box and cross-faded.
-     The twin frame needs more room: two stacked slabs with their own padding
-     are much taller than two lines of text in a panel. */
+
+     The height used to be a hard-coded number per frame, and every one of them
+     was wrong by the time anything moved: the plain frame was overflowing its
+     own face by 8px before this change and nobody noticed, because .face is
+     absolute so the content spills into the box padding instead of clipping
+     visibly. Adding a taller mark and a 24px band would have made it worse.
+
+     So the number below is only the starting point. fitFaces() measures both
+     faces after layout and sets the real height, which means the frames, the
+     mark size and the machine's font metrics can all move without anyone
+     having to remember to retune three constants. */
   .faces{position:relative;height:46px}
-  /* 90 rather than the 84 the goal face actually measures. The taller face is
-     label + value + bar and lands on 84 exactly, with nothing to spare - and a
-     face that fits to the pixel here clips its goal bar on the first machine
-     whose font metrics round the other way. The slack is invisible; the clip
-     would not be. */
-  body.frame-twin .faces{height:90px}
   .face{position:absolute;inset:0;opacity:0;pointer-events:none;
     transition:transform .34s cubic-bezier(.22,1.28,.35,1),opacity .28s ease}
   .face.on{opacity:1}
@@ -192,11 +248,21 @@
 
   .label{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
     color:var(--c);opacity:.95}
-  /* A four-blade shuriken, masked rather than drawn, so it takes the accent
-     colour of whichever box it is in without a second copy per colour. */
-  body.frame-blade .label::before{
-    content:"";display:inline-block;width:9px;height:9px;margin-right:6px;
-    vertical-align:-1px;background-color:var(--c);
+  /* The shuriken, masked rather than drawn, so it takes the accent colour of
+     whichever box it is in without a second copy per colour. Both frames that
+     carry a mark share one rule; the plain frame deliberately has none.
+
+     A flex item, not an inline glyph. At 2x it stands taller than the 10.5px
+     caps beside it, and as an inline box that meant fighting vertical-align and
+     line-height to keep it centred against text it now dwarfs. As a flex item
+     the row simply grows to whichever is taller and centres both, which also
+     means changing --mark cannot knock the label off its baseline. */
+  body.frame-blade .label,
+  body.frame-twin .label{display:flex;align-items:center;gap:7px}
+  body.frame-blade .label::before,
+  body.frame-twin .label::before{
+    content:"";flex:0 0 auto;width:var(--mark);height:var(--mark);
+    background-color:var(--c);
     -webkit-mask:var(--shuriken) center/contain no-repeat;
             mask:var(--shuriken) center/contain no-repeat}
   .value{margin-top:3px;font-size:20px;font-weight:700;letter-spacing:-.01em;
@@ -204,18 +270,53 @@
   .value .of{font-size:13px;font-weight:600;color:var(--subtext);margin-left:2px}
   .empty{color:var(--subtext);font-weight:600;font-size:15px}
 
+  /* The plain frame keeps the original tube. Blade and twin both replace it -
+     see below - so this is the fallback look rather than the shared one. */
   .bar{margin-top:7px;height:6px;border-radius:6px;overflow:hidden;
     background:rgba(255,255,255,.11)}
   .fill{height:100%;width:0;border-radius:6px;background:var(--c);
     box-shadow:0 0 10px var(--c);
     transition:width .6s cubic-bezier(.22,.9,.3,1)}
 
-  /* Skewed into a parallelogram so the goal bar reads as a cut rather than a
-     tube. The 2px inset keeps the leading corner off the box padding, since
-     skewing pushes the top edge out past the element's own width. */
-  body.frame-blade .bar{transform:skewX(-22deg);border-radius:2px;
-    margin-left:2px;margin-right:2px}
-  body.frame-blade .fill{border-radius:0}
+  /* ---- progress as filling colour -----------------------------------------
+     Both new frames show progress by filling a shape with the accent instead of
+     drawing a separate tube, and both soften the leading edge the same way.
+
+     The soften is a mask, not a gradient background. A background that fades to
+     transparent loses the leading edge completely, and then there is no way to
+     see where the progress has actually got to - which is the one thing the
+     element exists to say. A hard edge reads as a download bar. The mask is
+     measured against the fill's own width, so the fade always sits at the
+     front of however much is filled. */
+  .faces{--fill-soften:linear-gradient(90deg,#000 0%,#000 62%,rgba(0,0,0,.5) 100%)}
+
+  /* Blade: the bottom section of the goal face becomes the read-out. A band
+     rather than a tube, filling with the accent. Deliberately confined to that
+     section - washing the whole box would swamp the count it is supporting.
+     The 2px inset keeps the leading corner off the box padding, since skewing
+     pushes the top edge out past the element's own width. */
+  body.frame-blade .bar{height:24px;margin-top:8px;border-radius:2px;
+    margin-left:2px;margin-right:2px;background:rgba(255,255,255,.07)}
+  body.frame-blade .fill{border-radius:0;box-shadow:none;
+    -webkit-mask:var(--fill-soften);mask:var(--fill-soften)}
+  /* Twin: the lower blade IS the bar. The parent's clip-path already cuts this
+     child to the blade silhouette, taper included, so the fill takes the shape
+     for free and there is no second path to keep in step with the first. */
+  .bladefill{display:none}
+  body.frame-twin .face[data-face="goal"] .bladefill{
+    display:block;position:absolute;left:0;top:0;bottom:0;width:0;
+    background:var(--c);opacity:.9;
+    -webkit-mask:var(--fill-soften);mask:var(--fill-soften);
+    transition:width .6s cubic-bezier(.22,.9,.3,1)}
+  /* Absolutely positioned children paint over ordinary content, so the number
+     has to be lifted or the fill buries it. Same trap as the alert icon plate. */
+  body.frame-twin .vtext{position:relative;z-index:2}
+  /* The inset wash comes off this one blade. Left on, a permanent glow at the
+     hilt reads as a bar that is already part full before anything has filled.
+     The label keeps its wash. */
+  body.frame-twin .face[data-face="goal"] .value{box-shadow:none}
+  /* No separate tube in this frame at all - that was the point. */
+  body.frame-twin .bar{display:none}
 
   /* The count nudges when a real event lands, so a change is noticeable even
      if the box happens to be showing the other face at the time. */
@@ -256,7 +357,7 @@
       </div>
       <div class="face" data-face="goal">
         <div class="label">Follower goal</div>
-        <div class="value"><span data-count></span><span class="of" data-of></span></div>
+        <div class="value"><i class="bladefill" data-bladefill></i><span class="vtext"><span data-count></span><span class="of" data-of></span></span></div>
         <div class="bar"><div class="fill" data-fill></div></div>
       </div>
     </div>
@@ -270,7 +371,7 @@
       </div>
       <div class="face" data-face="goal">
         <div class="label">Subscriber goal</div>
-        <div class="value"><span data-count></span><span class="of" data-of></span></div>
+        <div class="value"><i class="bladefill" data-bladefill></i><span class="vtext"><span data-count></span><span class="of" data-of></span></span></div>
         <div class="bar"><div class="fill" data-fill></div></div>
       </div>
     </div>
@@ -303,14 +404,39 @@
   if(['blade','twin','soft'].indexOf(frame) < 0) frame = 'blade';
   document.body.classList.add('frame-' + frame);
 
+  // Scenes are rectangular. The lean is the house style but it has to be
+  // switchable, so every leaning part reads one class rather than each rule
+  // carrying its own copy of the angle.
+  document.body.classList.add(qs.get('slant') === '0' ? 'slant-off' : 'slant-on');
+
+  var order = (qs.get('order')||'subs').toLowerCase();
+  if(['subs','followers'].indexOf(order) < 0) order = 'subs';
+  document.body.classList.add('order-' + order);
+
+  var arrange = (qs.get('arrange')||'stack').toLowerCase();
+  if(['stack','row'].indexOf(arrange) < 0) arrange = 'stack';
+  document.body.classList.add('arrange-' + arrange);
+
+  var mode = (qs.get('mode')||'pair').toLowerCase();
+  if(['pair','rotate'].indexOf(mode) < 0) mode = 'pair';
+  var rotate = mode === 'rotate';
+  document.body.classList.add('mode-' + mode);
+
   function px(name, cssVar, lo, hi){
     var v = parseInt(qs.get(name),10);
     if(isFinite(v) && v >= lo && v <= hi) root.style.setProperty(cssVar, v+'px');
   }
   px('radius','--radius',0,80); px('width','--box-w',140,900); px('gap','--gap',0,120);
 
+  // Expressed as a multiple of the original 9px rather than in pixels, so "2"
+  // means "twice the size it used to be" without anyone having to know what it
+  // used to be.
+  var mk = parseFloat(qs.get('mark'));
+  if(isFinite(mk) && mk >= 1 && mk <= 3) root.style.setProperty('--mark', (mk*9).toFixed(1)+'px');
+
   var sc = parseFloat(qs.get('scale'));
-  if(isFinite(sc) && sc > 0 && sc <= 4 && sc !== 1) document.getElementById('stack').style.zoom = sc;
+  var zoom = (isFinite(sc) && sc > 0 && sc <= 4) ? sc : 1;
+  if(zoom !== 1) document.getElementById('stack').style.zoom = zoom;
 
   var op = parseFloat(qs.get('opacity'));
   if(isFinite(op)){
@@ -344,6 +470,7 @@
       countEl:  faces[1].querySelector('[data-count]'),
       ofEl:     faces[1].querySelector('[data-of]'),
       fillEl:   faces[1].querySelector('[data-fill]'),
+      bladeEl:  faces[1].querySelector('[data-bladefill]'),
       latest: '', total: -1, goal: 0,
       current: null, live: false
     };
@@ -351,9 +478,56 @@
   var follow = Box('boxFollow','var(--follow)', wantFollow);
   var subs   = Box('boxSub','var(--sub)', wantSubs);
 
+  // Both faces are stacked absolutely in one box and cross-faded, so the box
+  // needs a height and neither face can supply it. Measured rather than
+  // hard-coded: see the .faces rule for what the hard-coded numbers cost.
+  //
+  // Two things make this measurable at all, and both were mistakes the first
+  // time round. Only the children can be measured, because .face is
+  // position:absolute inset:0 and so reports the container's height for itself
+  // and for scrollHeight - it can never show overflow. And each child is
+  // measured against its OWN face's top rather than the container's, which
+  // cancels the 14px translate tr-slide parks the inactive face at; measuring
+  // from the container instead reads that offset as 14px of overflow that is
+  // not there.
+  function fitFaces(){
+    var groups = document.querySelectorAll('.faces');
+    // One height for every box, not one per box. Two boxes of different heights
+    // make an untidy stack, and in rotate mode - where they take turns in the
+    // same spot - a difference would make the panel jump every time the turn
+    // passes from one to the other.
+    var tallest = 0, i, j, k;
+    for(i = 0; i < groups.length; i++){
+      var faces = groups[i].querySelectorAll('.face');
+      for(j = 0; j < faces.length; j++){
+        var face = faces[j], top = face.getBoundingClientRect().top, low = 0;
+        var kids = face.children;
+        for(k = 0; k < kids.length; k++){
+          var r = kids[k].getBoundingClientRect();
+          if(r.height > 0 && r.bottom - top > low) low = r.bottom - top;
+        }
+        if(low > tallest) tallest = low;
+      }
+    }
+    for(i = 0; i < groups.length; i++){
+      var group = groups[i];
+      // getBoundingClientRect is in painted pixels, and ?scale= zooms #stack -
+      // which is an ancestor of everything measured here AND of the height
+      // about to be set. Writing a zoomed measurement back would apply the
+      // zoom a second time, so it comes back out first.
+      if(tallest > 0) group.style.height = Math.ceil(tallest / zoom) + 'px';
+    }
+  }
+
   function faceUsable(box, which){
     if(which === 'latest') return box.latest.length > 0;
     return box.total >= 0;
+  }
+  function usableFaces(box){
+    var out = [];
+    if(faceUsable(box,'goal'))   out.push('goal');
+    if(faceUsable(box,'latest')) out.push('latest');
+    return out;
   }
 
   function paint(box){
@@ -362,7 +536,15 @@
       box.countEl.textContent = box.total.toLocaleString();
       box.ofEl.textContent = ' / ' + box.goal.toLocaleString();
       var pct = box.goal > 0 ? Math.min(100, (box.total / box.goal) * 100) : 0;
+      // Floored so there is always some accent showing. Now that progress is
+      // the colour filling a shape rather than a tube with a visible empty
+      // track behind it, a true zero leaves bare chrome - which reads as the
+      // frame having failed to draw rather than as a goal nobody has met yet.
+      // Three percent of a blade is a sliver at the hilt: unmistakably "just
+      // started", and honest enough at this size.
+      var shown = Math.max(pct, 3);
       box.fillEl.style.width = pct.toFixed(2) + '%';
+      box.bladeEl.style.width = shown.toFixed(2) + '%';
     }
   }
 
@@ -387,10 +569,15 @@
     setTimeout(on, 60);
   }
 
+  // Same rAF-plus-timer net as everywhere else on this page.
+  function reveal(box){
+    function on(){ box.el.classList.add('show'); }
+    requestAnimationFrame(on);
+    setTimeout(on, 60);
+  }
+
   function refreshBox(box){
-    var usable = [];
-    if(faceUsable(box,'latest')) usable.push('latest');
-    if(faceUsable(box,'goal'))   usable.push('goal');
+    var usable = usableFaces(box);
 
     if(!box.want || !box.live || usable.length === 0){
       box.el.classList.remove('show');
@@ -399,22 +586,82 @@
     }
     box.el.classList.remove('hidden');
     paint(box);
+    // After paint, not before: a longer name or a five-digit count changes what
+    // has to fit.
+    fitFaces();
+    // In rotate mode the two boxes take turns in one spot, so which box is up
+    // and which face it is showing are one decision, not two. rotateTo owns it -
+    // and applyStatus calls it straight after this, in the same tick, so the
+    // .hidden lifted above is never painted on a box whose turn it is not.
+    if(rotate) return;
     // Nothing to alternate with: hold whichever face has content.
     if(usable.length === 1) showFace(box, usable[0]);
     else if(box.current === null) showFace(box, 'latest');
-    requestAnimationFrame(function(){ box.el.classList.add('show'); });
-    setTimeout(function(){ box.el.classList.add('show'); }, 60);
+    reveal(box);
+  }
+
+  // ---- rotate mode ------------------------------------------------------
+  // One panel in one spot working through every face in turn: each box's goal,
+  // then who was most recent, then the other box. Built fresh each time rather
+  // than cached, because what is usable changes underneath it - a channel that
+  // cannot expose subscriptions drops those two phases entirely instead of
+  // cycling to blanks, which is the rule the paired mode already follows.
+  var phaseIx = 0;
+  function phaseList(){
+    var out = [];
+    (order === 'followers' ? [follow, subs] : [subs, follow]).forEach(function(box){
+      if(!box.want || !box.live) return;
+      usableFaces(box).forEach(function(which){ out.push([box, which]); });
+    });
+    return out;
+  }
+
+  function rotateTo(ix){
+    var list = phaseList();
+    if(!list.length){
+      [follow, subs].forEach(function(b){
+        b.el.classList.remove('show'); b.el.classList.add('hidden');
+      });
+      return;
+    }
+    phaseIx = ((ix % list.length) + list.length) % list.length;
+    var box = list[phaseIx][0], which = list[phaseIx][1];
+    var other = box === follow ? subs : follow;
+
+    other.el.classList.remove('show');
+    other.el.classList.add('hidden');
+
+    // A change of box is a different animation from a change of face. Within
+    // one box the faces cross-fade and the panel stays put; when the turn
+    // passes to the other box the whole panel is restaged so it slides in as a
+    // new thing, which is also the only option - a face transition inside a box
+    // that was display:none has nothing to transition from.
+    var swapping = box.el.classList.contains('hidden');
+    box.el.classList.remove('hidden');
+    if(swapping){
+      box.el.classList.remove('show');
+      // Both faces have to be cleared by hand here. showFace only takes the
+      // previous face down if it is told what it was, and box.current is about
+      // to be thrown away - it has to be, or a box whose turn comes round again
+      // on the same face it left on would match the early-out and never light
+      // anything up. Skip this and the incoming face is simply added alongside
+      // the one still marked from last turn, and the panel shows both at once.
+      box.latestFace.classList.remove('on','leaving');
+      box.goalFace.classList.remove('on','leaving');
+      void box.el.offsetWidth;      // take the staged position before releasing
+      box.current = null;
+    }
+    showFace(box, which);
+    reveal(box);
   }
 
   // Both boxes flip together; independent timers drift apart and read as two
   // unrelated widgets rather than one stack.
   setInterval(function(){
+    if(rotate){ rotateTo(phaseIx + 1); return; }
     [follow, subs].forEach(function(box){
       if(box.el.classList.contains('hidden')) return;
-      var usable = [];
-      if(faceUsable(box,'latest')) usable.push('latest');
-      if(faceUsable(box,'goal'))   usable.push('goal');
-      if(usable.length < 2) return;
+      if(usableFaces(box).length < 2) return;
       showFace(box, box.current === 'latest' ? 'goal' : 'latest');
     });
   }, cycle * 1000);
@@ -450,6 +697,9 @@
 
     refreshBox(follow);
     refreshBox(subs);
+    // Same tick as the refreshes above, so no frame is ever painted with both
+    // boxes up. Also re-clamps the cursor: a box going away shortens the list.
+    if(rotate) rotateTo(phaseIx);
   }
 
   if(qs.get('demo') === '1'){
@@ -490,6 +740,11 @@
       es.onerror = function(){};
     }
   }
+
+  // Font metrics decide these heights, and the first measurement can happen
+  // before the font the box will actually be drawn in has settled.
+  window.addEventListener('load', fitFaces);
+  if(document.fonts && document.fonts.ready) document.fonts.ready.then(fitFaces);
 
   // The recommended OBS source size is a guess; the true footprint depends on
   // which boxes are visible, the current cycle face and the scale/width knobs.
