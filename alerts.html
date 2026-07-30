@@ -23,6 +23,8 @@
      ?hold=6                       seconds on screen            (default 6)
      ?showMessage=0|1              show the resub message       (default 1)
      ?demo=1                       cycle fake alerts, no server needed
+     ?preview=1                    hold one sample alert on screen permanently;
+                                   used by the customizer, never on stream
 
      The page is deliberately empty and fully transparent when nothing is
      happening - it is meant to sit over the whole canvas as its own OBS source.
@@ -328,9 +330,27 @@
   // Two follows a second apart must not overwrite each other, so alerts are
   // played one at a time with a full hold each and a gap between.
   var queue = [], showing = false;
+  var exitTimer = null, offTimer = null, gapTimer = null;
+
+  // The customizer needs the card on screen the whole time it is being dressed.
+  // Without this the alerts preview is a blank canvas - correct for OBS, where
+  // the source must be invisible between events, and useless for choosing a
+  // frame or a colour, because there is nothing to look at until you click a
+  // test and nothing again six seconds later.
+  var previewMode = qs.get('preview') === '1';
 
   function enqueue(a){
     if(!a || !a.kind) return;
+    if(previewMode){
+      // Replace whatever is held rather than queueing behind an alert that is
+      // never going to leave on its own.
+      clearTimeout(exitTimer); clearTimeout(offTimer); clearTimeout(gapTimer);
+      queue.length = 0;
+      queue.push(a);
+      showing = false;
+      playNext();
+      return;
+    }
     // A gift bomb plus a raid can flood this; past a point the backlog is
     // stale anyway and holding it just delays live events further.
     if(queue.length >= 20) queue.shift();
@@ -359,18 +379,26 @@
     // would leave the alert staged off-screen forever. The timer is the net.
     setTimeout(enter, 60);
 
-    setTimeout(function(){
+    // Held indefinitely while dressing it in the customizer; on stream the card
+    // has to leave on its own or it would sit over the game forever.
+    if(previewMode) return;
+
+    exitTimer = setTimeout(function(){
       card.classList.remove('in');
       card.classList.add('out');
-      setTimeout(function(){
+      offTimer = setTimeout(function(){
         card.classList.remove('out');
-        setTimeout(playNext, 380);    // breathing room between alerts
+        gapTimer = setTimeout(playNext, 380);   // breathing room between alerts
       }, 300);
     }, holdMs);
   }
 
   // ---- source -----------------------------------------------------------
-  if(qs.get('demo') === '1'){
+  if(previewMode){
+    // A follow is the one every channel gets, so it is the honest default to
+    // dress against. Any test button swaps it for that kind instead.
+    enqueue({kind:'follow', user:'NewViewer42'});
+  } else if(qs.get('demo') === '1'){
     var samples = [
       {kind:'follow', user:'NewViewer42'},
       {kind:'sub',    user:'StreamFan',  tier:'1000'},

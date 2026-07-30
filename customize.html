@@ -117,7 +117,7 @@
   .track{width:36px;height:20px;border-radius:999px;background:var(--track);flex:0 0 auto;
     position:relative;transition:background .16s}
   .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
-    border-radius:50%;background:#f2f2f5;transition:transform .16s}
+    border-radius:50%;background:var(--fg);transition:transform .16s}
   .toggle input:checked + .track{background:var(--accent)}
   .toggle input:checked + .track::after{transform:translateX(16px)}
   .toggle input:focus-visible + .track{outline:2px solid var(--fg);outline-offset:2px}
@@ -133,7 +133,8 @@
   .banner.on{display:block}
   .banner.warn{background:#2a1f10;border-color:#5a4420;color:#f2d6a2}
   .banner.bad{background:#2a1414;border-color:#5c2626;color:#f3bcbc}
-  .banner.ok{background:#0B2233;border-color:#1D4C66;color:#A9DCF0}
+  .banner.ok{background:color-mix(in srgb,var(--accent) 12%,transparent);
+    border-color:color-mix(in srgb,var(--accent) 38%,transparent);color:var(--fg)}
   .banner code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}
 
   /* ---------------- sticky output ---------------- */
@@ -453,6 +454,11 @@
   function frameUrl(){
     var p = params(true);
     if(current === 'stats' && statsDemo) p += (p ? '&' : '') + 'demo=1';
+    // Alerts are invisible between events by design, which makes for a blank
+    // preview. preview=1 holds one on screen so there is something to dress.
+    // Neither flag is ever part of the copied URL - both belong to this page,
+    // not to the source you paste into OBS.
+    if(current === 'alerts') p += (p ? '&' : '') + 'preview=1';
     return location.origin + T.path + (p ? '?' + p : '');
   }
 
