@@ -64,6 +64,17 @@
     border-top:1px solid var(--line);background:var(--input)}
   .sizehint.on{display:block}
   .sizehint b{color:var(--fg);font-variant-numeric:tabular-nums}
+  /* A preview that never loads looks identical to a preview of something that
+     draws nothing, which is how a starved connection passed for a design fault.
+     Past a deadline, say so and offer the retry instead of sitting there blank. */
+  .stalled{position:absolute;inset:0;display:none;flex-direction:column;gap:11px;
+    align-items:center;justify-content:center;text-align:center;padding:22px;
+    background:rgba(4,8,16,.87);font-size:13px;line-height:1.55;z-index:5}
+  .stalled.on{display:flex}
+  .stalled b{font-size:14.5px}
+  .stalled span{color:var(--dim);max-width:390px}
+  .stalled button{background:var(--accent);border:0;color:var(--on-accent);border-radius:9px;
+    padding:8px 17px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
   .stagewrap.bg-stream{background:linear-gradient(135deg,#2b3a55 0%,#4a3b63 45%,#7a4b53 100%)}
   .stagewrap.bg-dark{background:#07070a}
   .stagewrap.bg-light{background:#e9e9ee}
@@ -179,6 +190,11 @@
     <div class="stagewrap bg-stream" id="stagewrap">
       <div class="canvas" id="canvas">
         <iframe id="frame" scrolling="no" title="Preview"></iframe>
+      </div>
+      <div class="stalled" id="stalled">
+        <b>The preview didn't load</b>
+        <span id="stalledwhy"></span>
+        <button type="button" id="stalledretry">Try again</button>
       </div>
     </div>
     <div class="sizehint" id="sizehint"></div>
@@ -500,15 +516,68 @@
     }
   });
 
-  var lastFrameUrl = '', reloadTimer = null;
+  var lastFrameUrl = '', reloadTimer = null, stallTimer = null;
+  var stalledEl  = document.getElementById('stalled'),
+      stalledWhy = document.getElementById('stalledwhy');
+
+  function showStall(why){
+    clearTimeout(stallTimer); stallTimer = null;
+    stalledWhy.textContent = why;
+    stalledEl.classList.add('on');
+  }
+  function clearStall(){
+    clearTimeout(stallTimer); stallTimer = null;
+    stalledEl.classList.remove('on');
+  }
+
+  // Eight seconds is far longer than a local load ever takes and short enough to
+  // notice. This is the hang case - the request got a connection and is still
+  // waiting - which is what a browser running out of its six-per-origin budget
+  // looks like from in here.
+  function armStall(){
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(function(){
+      showStall('Nothing came back for eight seconds. Close any other dashboard '
+        + 'or overlay windows pointed at this app and try again.');
+    }, 8000);
+  }
+
+  // A refused connection still fires load: the browser's own error page counts as
+  // one. That page is cross-origin, so contentDocument comes back null, and that
+  // is the single signal separating "our page is up" from "the server is gone".
+  // Checking it matters more than it sounds - without it the load handler
+  // cancelled the watchdog on precisely the failure the watchdog exists to
+  // report, and the preview went back to being silently blank.
+  function frameAlive(){
+    try { return !!frame.contentDocument; } catch(e){ return false; }
+  }
+
+  function onFrameLoad(){
+    if(!frameAlive()){
+      showStall('The overlay app is not answering on ' + location.host + '. It was '
+        + 'probably closed or restarted since this page was opened - check for its '
+        + 'tray icon, then try again.');
+      return;
+    }
+    clearStall();
+    pushLive();
+  }
+
   function doReload(){
     var u = frameUrl();
     if(u === lastFrameUrl){ pushLive(); return; }
     lastFrameUrl = u;
     contentSize = null; renderSizehint();   // stale until the fresh page reports in
-    frame.onload = pushLive;      // the fresh document starts from the URL again
+    frame.onload = onFrameLoad;   // the fresh document starts from the URL again
+    armStall();
     frame.src = u;
   }
+
+  document.getElementById('stalledretry').addEventListener('click', function(){
+    clearStall();
+    lastFrameUrl = '';        // else doReload takes the "nothing changed" path
+    doReload();
+  });
   // Targets with no live parameters reload on every change, and a range slider
   // fires on every pixel of travel, so coalesce the burst into one load.
   function reloadFrame(){

@@ -78,7 +78,7 @@
     var id = t[0];
     var f = document.createElement('iframe');
     f.title = t[1];
-    f.src = t[2] + '?embed=1';
+    f._url = t[2] + '?embed=1';   // assigned on first show - see ensureLoaded
     // A frame that finishes loading after a switch would otherwise come up on
     // the old palette. Each page also reads the same key from its own head, so
     // this is a belt-and-braces for the frame that was mid-load at the time.
@@ -93,12 +93,31 @@
     frames[id]._btn = b;
   });
 
+  // A hidden iframe is not a free iframe. display:none stops it painting, but it
+  // still loads, still runs its scripts, and still holds its network connections
+  // - and a browser allows only six per origin over HTTP/1.1. The layouts tab
+  // alone holds six long-lived event streams, so building every tab up front
+  // meant the tab you actually asked for could never get a connection: its
+  // preview frames, its /np polls and its album art all queued behind streams
+  // feeding panels nobody was looking at. That is what "the preview shows
+  // nothing" and "layouts is always loading" were - not a rendering fault.
+  //
+  // Loading on first show keeps an unvisited tab's cost at zero. Once loaded a
+  // tab stays loaded, so switching away and back does not throw away a half
+  // finished edit in the customizer.
+  function ensureLoaded(f){
+    if(f._loaded) return;
+    f._loaded = true;
+    f.src = f._url;
+  }
+
   function select(id, pushHash){
     if(!frames[id]) id = TABS[0][0];
     TABS.forEach(function(t){
       var on = t[0] === id;
       frames[t[0]].classList.toggle('on', on);
       frames[t[0]]._btn.setAttribute('aria-pressed', String(on));
+      if(on) ensureLoaded(frames[t[0]]);
     });
     if(pushHash) location.hash = id;
   }

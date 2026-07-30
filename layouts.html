@@ -217,8 +217,18 @@ LAYOUTS.forEach(function(L){
     // preview=1 keeps a sample on screen when nothing is playing. Without it
     // every card on this page is an empty rectangle whenever the music is
     // stopped, which looks exactly like the page being broken.
+    //
+    // eq=anim is what this page can afford. Live bars need a permanently open
+    // /spectrum stream each, and four of those plus the two Twitch cards below
+    // is exactly the six connections a browser allows per origin - so the last
+    // cards on the page, and every album cover, waited on a slot that was never
+    // coming back. The bars are the one thing here that does not help you
+    // compare layouts, and the looping animation is the same fallback the
+    // overlay already uses when audio capture goes quiet. The song, artist and
+    // cover are still live: those come from /np, which is untouched. The URL
+    // copied for OBS (see url()) never carries this - only the preview does.
     frame.src = location.origin + '/?layout=' + L.id
-              + '&transition=' + state.transition + '&preview=1';
+              + '&transition=' + state.transition + '&preview=1&eq=anim';
   }
 
   range.addEventListener('input', function(){
