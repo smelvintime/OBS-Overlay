@@ -6,8 +6,17 @@
 <title>Chat bot</title>
 <style>
   :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
-         --accent:#35C8FF; --trim:#C9A961; --on-accent:#04121F;
+         --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F;
          --warn:#e8b339; --bad:#ff5470; }
+  /* Shadow: base Zed rather than Shockblade - near-black with a crimson edge.
+     Same variable names, so every rule below is written once and both palettes
+     drive it. Switched from the dashboard header and remembered per browser. */
+  :root[data-theme="shadow"]{
+    --bg:#0A0708; --panel:#161012; --panel2:#120D0F; --line:#33191E;
+    --fg:#F6EEEE; --dim:#B08A90; --accent:#E5383B; --trim:#8A1F26;
+    --on-accent:#1A0507;
+    --input:#0B0709; --ghost:#241417; --ghost-h:#33191E;
+    --track:#3A1F24; --hair:#201114; --code:#F2C3C6; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
@@ -21,7 +30,7 @@
 
   .banner{display:none;border-radius:12px;padding:13px 16px;font-size:13px;line-height:1.55;border:1px solid}
   .banner.on{display:block}
-  .banner.ok{background:rgba(53,200,255,.09);border-color:rgba(53,200,255,.32)}
+  .banner.ok{background:rgba(155,212,245,.09);border-color:rgba(155,212,245,.32)}
   .banner.warn{background:rgba(232,179,57,.09);border-color:rgba(232,179,57,.32)}
   .banner.bad{background:rgba(255,84,112,.09);border-color:rgba(255,84,112,.34)}
 
@@ -42,7 +51,7 @@
 
   .toggle{display:inline-flex;align-items:center;cursor:pointer;flex:0 0 auto}
   .toggle input{position:absolute;opacity:0;pointer-events:none}
-  .track{width:42px;height:24px;border-radius:999px;background:#2A3550;position:relative;transition:background .16s}
+  .track{width:42px;height:24px;border-radius:999px;background:var(--track);position:relative;transition:background .16s}
   .track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;
     border-radius:50%;background:#f2f2f5;transition:transform .16s}
   .toggle input:checked + .track{background:var(--accent)}
@@ -52,22 +61,22 @@
   table{width:100%;border-collapse:collapse}
   th{text-align:left;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
     color:var(--dim);padding:10px 16px;border-bottom:1px solid var(--line)}
-  td{padding:9px 16px;border-bottom:1px solid #171F31;font-size:13.5px;vertical-align:middle}
+  td{padding:9px 16px;border-bottom:1px solid var(--hair);font-size:13.5px;vertical-align:middle}
   tr:last-child td{border-bottom:0}
   tr.off td{opacity:.55}
   .cmd{font-family:Consolas,"Cascadia Mono",monospace;font-weight:700;white-space:nowrap}
   .tag{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
-    padding:2px 6px;border-radius:5px;background:#1B2438;color:var(--dim);margin-left:7px}
-  .tag.live{background:rgba(53,200,255,.16);color:var(--accent)}
+    padding:2px 6px;border-radius:5px;background:var(--ghost);color:var(--dim);margin-left:7px}
+  .tag.live{background:rgba(155,212,245,.16);color:var(--accent)}
   .tag.mod{background:rgba(232,179,57,.16);color:var(--warn)}
-  input[type=text]{width:100%;background:#0A0F1A;border:1px solid var(--line);border-radius:7px;
+  input[type=text]{width:100%;background:var(--input);border:1px solid var(--line);border-radius:7px;
     color:var(--fg);padding:7px 10px;font-size:13px;font-family:inherit}
   input[type=text]:disabled{opacity:.5}
-  input[type=number]{width:64px;background:#0A0F1A;border:1px solid var(--line);border-radius:7px;
+  input[type=number]{width:64px;background:var(--input);border:1px solid var(--line);border-radius:7px;
     color:var(--fg);padding:7px 8px;font-size:13px;font-family:inherit}
-  button{background:#1B2438;color:var(--fg);border:0;border-radius:7px;padding:7px 13px;
+  button{background:var(--ghost);color:var(--fg);border:0;border-radius:7px;padding:7px 13px;
     font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
-  button:hover{background:#24304A}
+  button:hover{background:var(--ghost-h)}
   button.primary{background:var(--accent);color:var(--on-accent)}
   button.danger{color:var(--bad)}
   .addrow{display:flex;gap:9px;padding:14px 16px;flex-wrap:wrap;align-items:center}
@@ -77,15 +86,16 @@
   .try input[type=text]{flex:1 1 220px;width:auto;font-family:Consolas,"Cascadia Mono",monospace}
   .tryout{padding:0 16px 14px;font-size:13px;line-height:1.5;color:var(--dim)}
   .tryout b{color:var(--fg)}
-  .tryout .said{color:#BFE6FA;font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px}
+  .tryout .said{color:var(--code);font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px}
 
   .feed{padding:4px 16px 14px;font-size:12.5px;line-height:1.6;color:var(--dim)}
-  .feed div{padding:3px 0;border-bottom:1px solid #141B2A}
+  .feed div{padding:3px 0;border-bottom:1px solid var(--hair)}
   .feed div:last-child{border-bottom:0}
   .feed .who{color:var(--fg);font-weight:600}
-  .feed .txt{color:#BFE6FA}
+  .feed .txt{color:var(--code)}
   .empty{color:var(--dim);font-size:13px;padding:14px 16px}
 </style>
+<script>try{var t=localStorage.getItem('nowplaying.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
 <body>
 <header>

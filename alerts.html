@@ -7,12 +7,14 @@
 <style>
   /* ---------------- Options via URL query params (all optional) ----------------
      ?style=slide|pop|bar          how the alert arrives        (default slide)
-     ?accent=35c8ff                base accent, hex no #
-     ?followColor=35c8ff           per-kind colours, hex no #
+     ?accent=9bd4f5                base accent, hex no #
+     ?followColor=9bd4f5           per-kind colours, hex no #
      ?subColor=a970ff
      ?giftColor=ff9d3f
-     ?frame=blade|soft             blade = cut corners, brackets and a shuriken
-                                   plate; soft = the plain bar  (default blade)
+     ?frame=blade|twin|soft        blade = cut corners, brackets and a shuriken
+                                   plate; twin = the name and the event on two
+                                   crossed blades, no card behind them;
+                                   soft = the plain bar        (default blade)
      ?align=left|center|right      horizontal position          (default center)
      ?valign=top|middle|bottom     vertical position            (default top)
      ?scale=1.0                    size multiplier
@@ -26,8 +28,8 @@
      happening - it is meant to sit over the whole canvas as its own OBS source.
   ---------------------------------------------------------------------------- */
   :root{
-    --accent:#35c8ff;
-    --follow:#35c8ff;
+    --accent:#9bd4f5;
+    --follow:#9bd4f5;
     --sub:#a970ff;
     --gift:#ff9d3f;
     --overlay-opacity:1;
@@ -36,8 +38,9 @@
     --card-border:rgba(255,255,255,.09);
     --text:#fff;
     --subtext:rgba(255,255,255,.66);
-    /* Four blades around a hollow centre; evenodd punches the hole. */
-    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' fill-rule='evenodd' d='M12 1.2 14.7 9.3 22.8 12 14.7 14.7 12 22.8 9.3 14.7 1.2 12 9.3 9.3Z M14.2 12A2.2 2.2 0 1 1 9.8 12 2.2 2.2 0 1 1 14.2 12Z'/%3E%3C/svg%3E");
+    /* Four swept blades around a hollow hub - one blade rotated four times,
+       with the centre punched by an SVG mask. */
+    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='1.85' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)'%3E%3Ccircle cx='12' cy='12' r='3.5'/%3E%3Cpath d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(90 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(180 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(270 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3C/g%3E%3C/svg%3E");
   }
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
@@ -95,6 +98,77 @@
   .shuriken{width:22px;height:22px;background-color:var(--c);
     -webkit-mask:var(--shuriken) center/contain no-repeat;
             mask:var(--shuriken) center/contain no-repeat}
+  /* ---- twin blades ---------------------------------------------------------
+     Zed fights with two, so the card is built as two: the name rides the upper
+     blade, what happened rides the lower one, offset along the cut so they read
+     as a crossed pair rather than two stacked bars.
+
+     The card chrome comes off completely here. The blades are the card - a panel
+     behind them would put the box straight back and lose the whole point.
+
+     clip-path rather than skew: skewing the slab drags the text over with it and
+     everything ends up italic. Clipping leans the shape and leaves the words
+     upright. The lit edge is a child, so the parent's clip cuts it to the same
+     diagonal, which is exactly the silhouette of a blade's edge. */
+  body.frame-twin .alert{
+    background:none;border:0;box-shadow:none;padding:0;gap:16px;
+    backdrop-filter:none;-webkit-backdrop-filter:none}
+  body.frame-twin .body{display:flex;flex-direction:column;gap:7px;align-items:flex-start}
+
+  body.frame-twin .head,
+  body.frame-twin .sub{
+    position:relative;padding:9px 52px 9px 32px;margin:0;
+    background:var(--card-bg);
+    /* Square at the hilt end, tapering to a point at the far end. The text sits
+       in the full-height section and the taper runs on past it, which is why the
+       right padding is so much deeper than the left - the words have to clear
+       the part of the blade that is narrowing. */
+    clip-path:polygon(18px 0, calc(100% - 36px) 0, 100% 50%,
+                      calc(100% - 36px) 100%, 0 100%)}
+  /* A blade is long. Without a floor the slab shrinks to fit a short name and
+     reads as a pennant instead, so both get a minimum reach and the lower one
+     stays shorter than the upper - a matched pair, not two of the same. */
+  body.frame-twin .head{font-size:20px;min-width:300px}
+  body.frame-twin .sub{margin-left:34px;font-size:13.5px;min-width:240px}
+  /* Wash of colour bleeding back from the edge, then the edge itself.
+
+     The edge is clipped to a parallelogram with the SAME 18px lean as the slab,
+     not left at a vertical bar - the slab's leading edge is a diagonal, so a
+     vertical bar sitting at x=0 gets trimmed away by the parent clip and leaves
+     nothing but a sliver at the bottom corner. Both offsets are in px for that
+     reason: they stay parallel whatever height the line ends up. */
+  body.frame-twin .head::before,
+  body.frame-twin .sub::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:78px;
+    background:linear-gradient(100deg,var(--c),transparent 72%);opacity:.34}
+  body.frame-twin .head::after,
+  body.frame-twin .sub::after{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:26px;
+    background:var(--c);filter:drop-shadow(0 0 7px var(--c));
+    clip-path:polygon(18px 0, 23px 0, 5px 100%, 0 100%)}
+  body.frame-twin .msg{margin-left:34px;padding:2px 4px}
+  /* No plate: a bare shuriken with its own glow sits better beside blades. */
+  body.frame-twin .icon{background:none;border:0;width:54px;height:54px;font-size:34px;
+    filter:drop-shadow(0 0 12px var(--c))}
+  body.frame-twin .icon .shuriken{width:46px;height:46px}
+
+  /* Pinned right, the blades lean the other way and the offset flips with them,
+     otherwise the pair points off the side of the canvas it is sitting on. */
+  body.frame-twin.from-right .alert{flex-direction:row-reverse}
+  body.frame-twin.from-right .body{align-items:flex-end}
+  body.frame-twin.from-right .head,
+  body.frame-twin.from-right .sub{
+    padding:9px 32px 9px 52px;
+    clip-path:polygon(0 50%, 36px 0, 100% 0,
+                      calc(100% - 18px) 100%, 36px 100%)}
+  body.frame-twin.from-right .sub{margin-left:0;margin-right:34px}
+  body.frame-twin.from-right .msg{margin-left:0;margin-right:34px;text-align:right}
+  body.frame-twin.from-right .head::before,
+  body.frame-twin.from-right .sub::before{left:auto;right:0;
+    background:linear-gradient(270deg,var(--c),transparent)}
+  body.frame-twin.from-right .head::after,
+  body.frame-twin.from-right .sub::after{left:auto;right:0}
+
   .body{min-width:0}
   .head{font-size:19px;font-weight:700;letter-spacing:-.01em;line-height:1.25;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -165,7 +239,7 @@
   document.body.className = 'style-' + style;
 
   var frame = (qs.get('frame')||'blade').toLowerCase();
-  if(['blade','soft'].indexOf(frame) < 0) frame = 'blade';
+  if(['blade','soft','twin'].indexOf(frame) < 0) frame = 'blade';
   document.body.classList.add('frame-' + frame);
 
   var align  = (qs.get('align')||'center').toLowerCase();

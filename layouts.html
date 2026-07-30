@@ -6,7 +6,18 @@
 <title>Overlay layouts</title>
 <style>
   :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
-         --accent:#35C8FF; --trim:#C9A961; --on-accent:#04121F; }
+         --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F;
+         --input:#0A0F1A; --ghost:#1B2438; --ghost-h:#24304A;
+         --track:#2A3550; --hair:#171F31; --code:#BFE6FA; }
+  /* Shadow: base Zed rather than Shockblade - near-black with a crimson edge.
+     Same variable names, so every rule below is written once and both palettes
+     drive it. Switched from the dashboard header and remembered per browser. */
+  :root[data-theme="shadow"]{
+    --bg:#0A0708; --panel:#161012; --panel2:#120D0F; --line:#33191E;
+    --fg:#F6EEEE; --dim:#B08A90; --accent:#E5383B; --trim:#8A1F26;
+    --on-accent:#1A0507;
+    --input:#0B0709; --ghost:#241417; --ghost-h:#33191E;
+    --track:#3A1F24; --hair:#201114; --code:#F2C3C6; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
@@ -19,7 +30,7 @@
   .head{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
   .desc{color:var(--dim);font-size:13px;flex:1 1 260px}
   .dims{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;
-    background:#0A0F1A;border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
+    background:var(--input);border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
   /* fake stream background so legibility is judged fairly, esp. for minimal */
   .stagewrap{position:relative;background:
       linear-gradient(135deg,#2b3a55 0%,#4a3b63 45%,#7a4b53 100%);}
@@ -34,23 +45,23 @@
     font-weight:600;letter-spacing:.02em;white-space:nowrap}
   .tune input[type=range]{width:190px;accent-color:var(--accent);cursor:pointer}
   .val{color:var(--fg);font-variant-numeric:tabular-nums;min-width:38px;font-weight:700}
-  .tune select{background:#0A0F1A;color:var(--fg);border:1px solid var(--line);
+  .tune select{background:var(--input);color:var(--fg);border:1px solid var(--line);
     border-radius:6px;padding:5px 8px;font-size:12.5px;font-family:inherit;cursor:pointer}
-  .replay{background:#1B2438;color:var(--fg);font-weight:600;padding:6px 12px}
+  .replay{background:var(--ghost);color:var(--fg);font-weight:600;padding:6px 12px}
   .url{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--line);
-    background:#0A0F1A;flex-wrap:wrap}
-  code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#BFE6FA;
+    background:var(--input);flex-wrap:wrap}
+  code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:var(--code);
     word-break:break-all;flex:1 1 320px}
   button{background:var(--accent);color:var(--on-accent);border:0;border-radius:7px;
     padding:7px 14px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
   button:hover{filter:brightness(1.08)}
-  button.copied{background:#2A3550;color:var(--fg)}
+  button.copied{background:var(--track);color:var(--fg)}
   a{color:var(--accent)}
-  a.action{background:#1B2438;color:var(--fg);border-radius:7px;padding:7px 14px;
+  a.action{background:var(--ghost);color:var(--fg);border-radius:7px;padding:7px 14px;
     font-size:12.5px;font-weight:700;text-decoration:none;white-space:nowrap}
-  a.action:hover{background:#24304A}
+  a.action:hover{background:var(--ghost-h)}
   footer{color:var(--dim);font-size:13px;padding:0 32px 50px;line-height:1.6}
-  footer code{color:#BFE6FA;font-size:12.5px}
+  footer code{color:var(--code);font-size:12.5px}
   .sectionhead{padding:26px 32px 0;margin:0}
   .sectionhead h2{margin:0 0 6px;font-size:20px;letter-spacing:-.01em}
   .sectionhead p{margin:0;color:var(--dim);font-size:14px;max-width:760px;line-height:1.5}
@@ -60,6 +71,7 @@
   body.embed footer{display:none}
   body.embed .grid:first-of-type{padding-top:20px}
 </style>
+<script>try{var t=localStorage.getItem('nowplaying.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
 <body>
 <header>

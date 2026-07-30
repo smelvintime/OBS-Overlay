@@ -6,7 +6,16 @@
 <title>Now Playing - source control</title>
 <style>
   :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
-         --accent:#35C8FF; --trim:#C9A961; --on-accent:#04121F; --warn:#e8b339; }
+         --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F; --warn:#e8b339; }
+  /* Shadow: base Zed rather than Shockblade - near-black with a crimson edge.
+     Same variable names, so every rule below is written once and both palettes
+     drive it. Switched from the dashboard header and remembered per browser. */
+  :root[data-theme="shadow"]{
+    --bg:#0A0708; --panel:#161012; --panel2:#120D0F; --line:#33191E;
+    --fg:#F6EEEE; --dim:#B08A90; --accent:#E5383B; --trim:#8A1F26;
+    --on-accent:#1A0507;
+    --input:#0B0709; --ghost:#241417; --ghost-h:#33191E;
+    --track:#3A1F24; --hair:#201114; --code:#F2C3C6; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
@@ -28,17 +37,17 @@
   .row{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:9px;
     border:1px solid transparent;cursor:pointer}
   .row:hover{background:#151C2C}
-  .row.sel{border-color:var(--accent);background:rgba(53,200,255,.08)}
+  .row.sel{border-color:var(--accent);background:rgba(155,212,245,.08)}
   .row input{accent-color:var(--accent);width:16px;height:16px;flex:0 0 auto;cursor:pointer}
   .row .name{font-weight:600;font-size:14.5px}
   .row .what{color:var(--dim);font-size:13px;margin-left:auto;text-align:right;
     max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .row .badge{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-    padding:2px 7px;border-radius:5px;background:#1B2438;color:var(--dim)}
-  .row .badge.playing{background:rgba(53,200,255,.16);color:var(--accent)}
+    padding:2px 7px;border-radius:5px;background:var(--ghost);color:var(--dim)}
+  .row .badge.playing{background:rgba(155,212,245,.16);color:var(--accent)}
 
   .custom{display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap}
-  input[type=text]{flex:1 1 220px;background:#0A0F1A;border:1px solid var(--line);
+  input[type=text]{flex:1 1 220px;background:var(--input);border:1px solid var(--line);
     border-radius:8px;color:var(--fg);padding:9px 11px;font-size:14px;font-family:inherit}
   input[type=text]::placeholder{color:#5c5c68}
 
@@ -51,7 +60,7 @@
   button{background:var(--accent);color:var(--on-accent);border:0;border-radius:8px;
     padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
   button:hover{filter:brightness(1.08)}
-  button.ghost{background:#1B2438;color:var(--fg)}
+  button.ghost{background:var(--ghost);color:var(--fg)}
   .actions{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}
   .saved{color:var(--accent);font-size:13.5px;font-weight:600;opacity:0;transition:opacity .25s}
   .saved.show{opacity:1}
@@ -61,6 +70,7 @@
   body.embed header{display:none}
   body.embed .wrap{padding-top:20px}
 </style>
+<script>try{var t=localStorage.getItem('nowplaying.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
 <body>
 <header>

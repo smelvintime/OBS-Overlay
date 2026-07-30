@@ -184,12 +184,12 @@ namespace NowPlaying {
           using (var g = Graphics.FromImage(bmp)) {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Color.Transparent);
-            // Matches --accent in the pages (#35C8FF), so the tray icon and the
+            // Matches --accent in the pages (#9BD4F5), so the tray icon and the
             // dashboard are recognisably the same product.
-            using (var b = new SolidBrush(Color.FromArgb(0x35, 0xC8, 0xFF)))
+            using (var b = new SolidBrush(Color.FromArgb(0x9B, 0xD4, 0xF5)))
               g.FillEllipse(b, 1, 1, 30, 30);
             // Dark glyph on the bright accent, the same pairing the buttons use.
-            // White on #35C8FF is barely legible at 32px in a taskbar.
+            // White on #9BD4F5 is barely legible at 32px in a taskbar.
             using (var f = new Font("Segoe UI Symbol", 17, FontStyle.Bold))
             using (var w = new SolidBrush(Color.FromArgb(0x04, 0x12, 0x1F))) {
               var sf = new StringFormat { Alignment = StringAlignment.Center,

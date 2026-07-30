@@ -9,8 +9,19 @@
      only as trim. The greys are deliberately blue-tinted rather than neutral -
      a neutral #16161a panel next to a cyan accent reads as dirty. */
   :root{ --bg:#080B14; --panel:#10141F; --panel2:#0D111A; --line:#1E2740;
-         --fg:#EAF2FF; --dim:#8A9BC0; --accent:#35C8FF; --trim:#C9A961;
-         --on-accent:#04121F; }
+         --fg:#EAF2FF; --dim:#8A9BC0; --accent:#9BD4F5; --trim:#C9A961;
+         --on-accent:#04121F;
+         --input:#0A0F1A; --ghost:#1B2438; --ghost-h:#24304A;
+         --track:#2A3550; --hair:#171F31; --code:#BFE6FA; }
+  /* Shadow: base Zed rather than Shockblade - near-black with a crimson edge.
+     Same variable names, so every rule below is written once and both palettes
+     drive it. Switched from the dashboard header and remembered per browser. */
+  :root[data-theme="shadow"]{
+    --bg:#0A0708; --panel:#161012; --panel2:#120D0F; --line:#33191E;
+    --fg:#F6EEEE; --dim:#B08A90; --accent:#E5383B; --trim:#8A1F26;
+    --on-accent:#1A0507;
+    --input:#0B0709; --ghost:#241417; --ghost-h:#33191E;
+    --track:#3A1F24; --hair:#201114; --code:#F2C3C6; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
@@ -41,22 +52,22 @@
   .previewbar h2{margin:0;font-size:14px;font-weight:700}
   .spacer{flex:1 1 auto}
   .chipset{display:flex;gap:6px;flex-wrap:wrap}
-  .chip{background:#0A0F1A;border:1px solid var(--line);color:var(--dim);border-radius:999px;
+  .chip{background:var(--input);border:1px solid var(--line);color:var(--dim);border-radius:999px;
     padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer}
   .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
   .dims{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;
-    background:#0A0F1A;border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
+    background:var(--input);border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
 
   .stagewrap{position:relative;display:flex;align-items:center;justify-content:center;
     min-height:120px;padding:18px;box-sizing:border-box;transition:background .2s}
   .sizehint{display:none;padding:11px 16px;font-size:12.5px;line-height:1.5;color:var(--dim);
-    border-top:1px solid var(--line);background:#0A0F1A}
+    border-top:1px solid var(--line);background:var(--input)}
   .sizehint.on{display:block}
   .sizehint b{color:var(--fg);font-variant-numeric:tabular-nums}
   .stagewrap.bg-stream{background:linear-gradient(135deg,#2b3a55 0%,#4a3b63 45%,#7a4b53 100%)}
   .stagewrap.bg-dark{background:#07070a}
   .stagewrap.bg-light{background:#e9e9ee}
-  .stagewrap.bg-grid{background:#141B2A}
+  .stagewrap.bg-grid{background:var(--hair)}
   .stagewrap.bg-stream::before,.stagewrap.bg-grid::before{content:"";position:absolute;inset:0;opacity:.16;
     background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),
                      linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
@@ -83,7 +94,7 @@
   .row > .lbl{flex:0 0 78px;color:var(--dim);font-size:12.5px;font-weight:600}
   .row .ctl{flex:1 1 160px;display:flex;align-items:center;gap:10px;min-width:0}
 
-  .seg{display:flex;background:#0A0F1A;border:1px solid var(--line);border-radius:8px;
+  .seg{display:flex;background:var(--input);border:1px solid var(--line);border-radius:8px;
     padding:2px;gap:2px;flex-wrap:wrap}
   .seg button{background:transparent;border:0;border-radius:6px;color:var(--dim);
     padding:6px 11px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
@@ -103,7 +114,7 @@
   .toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;
     padding:7px 0;user-select:none}
   .toggle input{position:absolute;opacity:0;pointer-events:none}
-  .track{width:36px;height:20px;border-radius:999px;background:#2A3550;flex:0 0 auto;
+  .track{width:36px;height:20px;border-radius:999px;background:var(--track);flex:0 0 auto;
     position:relative;transition:background .16s}
   .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
     border-radius:50%;background:#f2f2f5;transition:transform .16s}
@@ -111,9 +122,9 @@
   .toggle input:checked + .track::after{transform:translateX(16px)}
   .toggle input:focus-visible + .track{outline:2px solid var(--fg);outline-offset:2px}
 
-  button.action{background:#1B2438;color:var(--fg);border:0;border-radius:7px;
+  button.action{background:var(--ghost);color:var(--fg);border:0;border-radius:7px;
     padding:7px 13px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
-  button.action:hover{background:#24304A}
+  button.action:hover{background:var(--ghost-h)}
 
   /* Connection state for the Twitch sources, so a missing token is visible
      here rather than only as two boxes that never appear on stream. */
@@ -127,16 +138,17 @@
 
   /* ---------------- sticky output ---------------- */
   .out{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;
-    padding:14px 18px;background:#0A0F1A;border:1px solid var(--line);border-radius:12px;
+    padding:14px 18px;background:var(--input);border:1px solid var(--line);border-radius:12px;
     box-shadow:0 -10px 30px rgba(0,0,0,.5);flex-wrap:wrap}
-  .out code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#BFE6FA;
+  .out code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:var(--code);
     word-break:break-all;flex:1 1 320px}
   button.primary{background:var(--accent);color:var(--on-accent);border:0;border-radius:7px;
     padding:9px 16px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap}
   button.primary:hover{filter:brightness(1.08)}
-  button.primary.copied{background:#2A3550;color:var(--fg)}
+  button.primary.copied{background:var(--track);color:var(--fg)}
   footer{color:var(--dim);font-size:13px;padding:0 32px 46px;line-height:1.6}
 </style>
+<script>try{var t=localStorage.getItem('nowplaying.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
 <body>
 <header>
@@ -184,7 +196,7 @@
 (function(){
   // Shockblade first: the electric blue, its paler lightning tint, the white of
   // the garb and the gold of the trim. The rest stay for anyone who wants them.
-  var SWATCHES = ['35c8ff','8fe3ff','ffffff','c9a961','7b5cff','00e5c0','fa2d48','ffb300'];
+  var SWATCHES = ['9bd4f5','8fe3ff','ffffff','c9a961','7b5cff','00e5c0','fa2d48','ffb300'];
   var BACKGROUNDS = [['stream','Gameplay'],['dark','Dark'],['light','Light'],['grid','Grid']];
 
   // True OBS source dimensions. The preview derives its own size from these, so
@@ -223,7 +235,7 @@
       // is read once at startup, so changing it reloads the preview frame.
       live:['accent','radius','scale','opacity'],
       defaults:{
-        layout:'card', accent:'35c8ff', theme:'glass', align:'left', valign:'bottom',
+        layout:'card', accent:'9bd4f5', theme:'glass', align:'left', valign:'bottom',
         scale:1, radius:18, opacity:100, transition:'slide', eq:'live', bars:5,
         speed:60, showAlbum:0, showArt:1, hideWhenPaused:0
       },
@@ -276,7 +288,7 @@
           + 'Use the test buttons to see each kind without waiting for a real one.',
       live:[],
       defaults:{
-        style:'slide', frame:'blade', accent:'35c8ff', followColor:'35c8ff', subColor:'a970ff',
+        style:'slide', frame:'blade', accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff',
         giftColor:'ff9d3f', align:'center', valign:'top', scale:1, radius:16,
         opacity:100, hold:6, showMessage:1
       },
@@ -293,9 +305,11 @@
           { key:'style', label:'Arrives', type:'seg', options:[
             ['slide','Slide'],['pop','Pop'],['bar','Banner']],
             note:'Use the test buttons above to watch it arrive.' },
-          { key:'frame', label:'Frame', type:'seg', options:[['blade','Blade'],['soft','Plain']],
-            note:'Blade cuts two corners, brackets the accent and turns the icon plate '
-               + 'on its point. Plain is the original bar down one edge.' },
+          { key:'frame', label:'Frame', type:'seg',
+            options:[['blade','Blade'],['twin','Twin blades'],['soft','Plain']],
+            note:'Blade cuts two corners and brackets the accent. Twin blades drops the '
+               + 'card entirely and rides the name and the event on two crossed blades. '
+               + 'Plain is the original bar down one edge.' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
@@ -307,6 +321,10 @@
             ['top','Top'],['middle','Middle'],['bottom','Bottom']] }
         ]},
         { title:'Colours', controls:[
+          { key:'_preset', label:'Theme', type:'preset', options:[
+            ['Shockblade', {accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff', giftColor:'ff9d3f'}],
+            ['Shadow',     {accent:'e5383b', followColor:'e5383b', subColor:'ff7a45', giftColor:'ffc857'}]],
+            note:'Sets all three at once. Shadow is the black-and-red Zed palette.' },
           { key:'followColor', label:'Follow', type:'color' },
           { key:'subColor', label:'Sub', type:'color' },
           { key:'giftColor', label:'Gift', type:'color',
@@ -327,7 +345,7 @@
           + '<strong>Browser Source</strong> so it can be positioned away from the now-playing card.',
       live:[],
       defaults:{
-        accent:'35c8ff', followColor:'35c8ff', subColor:'a970ff', theme:'glass',
+        accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff', theme:'glass',
         frame:'blade', align:'left', valign:'top', scale:1, radius:14, opacity:100, cycle:8,
         transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1
       },
@@ -357,6 +375,10 @@
             note:'A box with only one thing to show holds it instead of cycling to a blank face.' }
         ]},
         { title:'Colours', controls:[
+          { key:'_preset', label:'Theme', type:'preset', options:[
+            ['Shockblade', {accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff'}],
+            ['Shadow',     {accent:'e5383b', followColor:'e5383b', subColor:'ff7a45'}]],
+            note:'Shadow is the black-and-red Zed palette.' },
           { key:'followColor', label:'Followers', type:'color' },
           { key:'subColor', label:'Subs', type:'color' }
         ]},
@@ -547,8 +569,12 @@
     zoomBtn.setAttribute('aria-pressed', String(zoomMode === 'actual'));
     renderSizehint();
     urlEl.textContent = url();
-    var acc = state.accent || state.followColor;
-    if(acc && acc !== 'auto') document.documentElement.style.setProperty('--accent', '#' + acc);
+    // This page used to repaint its own chrome in whatever accent you were
+    // editing, by writing --accent inline on <html>. That is an inline style, so
+    // it beat the theme's stylesheet rule and left the Customize tab stubbornly
+    // blue after switching to Shadow. The chrome belongs to the theme; the source
+    // colour is already visible in the swatches and in the live preview, so it
+    // does not need to repaint the furniture as well.
     // Settings that only apply to one layout are greyed out rather than hidden,
     // so the page doesn't reflow every time you switch.
     [].forEach.call(document.querySelectorAll('.group[data-only]'), function(g){
@@ -598,7 +624,26 @@
           var ctl = document.createElement('div');
           ctl.className = 'ctl';
 
-          if(C.type === 'seg'){
+          if(C.type === 'preset'){
+            // Sets several colour keys at once. Picking a theme one channel at
+            // a time is how you end up with a red follow colour and a blue
+            // subscriber colour and no memory of which was deliberate.
+            var pwrap = document.createElement('div');
+            pwrap.className = 'seg';
+            C.options.forEach(function(o){
+              var b = document.createElement('button');
+              b.type = 'button'; b.textContent = o[0];
+              b.addEventListener('click', function(){
+                for(var k in o[1]) if(k in T.defaults) state[k] = o[1][k];
+                buildControls();      // every colour control is now stale
+                paint();
+                reloadFrame();
+              });
+              pwrap.appendChild(b);
+            });
+            ctl.appendChild(pwrap);
+
+          } else if(C.type === 'seg'){
             var seg = document.createElement('div');
             seg.className = 'seg';
             C.options.forEach(function(o){
