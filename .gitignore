@@ -3,3 +3,7 @@ twitch-config.json
 
 # Local logs
 *.log
+
+# Throwaway builds run from the repo root during testing, so they can find
+# twitch-config.json without disturbing dist/ or a running instance.
+scratch-*.exe
