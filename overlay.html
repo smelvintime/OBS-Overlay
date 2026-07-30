@@ -121,9 +121,22 @@
   /* Frames arrive about every 33ms, so this only has to bridge one gap. Any
      longer and the CSS easing becomes the slowest part of the chain and takes
      the snap back out of what the analyser just put in. */
+  /* Scaled, not resized. Sizing these by height meant a quiet bar was 1.2px tall
+     sitting at y=10.8 in a 12px row, and the browser rounds an element's origin
+     and its height to device pixels separately - so the painted bottom edge
+     could land a pixel below where the row actually ends and the whole bar
+     appeared to sag. It showed up on the bass bars first because those are the
+     ones that reach the small values; a bar pinned near full height is a whole
+     number of pixels and never rounds.
+     A transform cannot do that. The layout box stays a full 12px with its bottom
+     edge fixed, transform-origin sits exactly on that edge, and the scale is
+     applied at paint time, so the bottom is pinned by construction at any value.
+     It is also a good deal cheaper: height changes relayout 30 times a second
+     per bar, a transform does not. */
   .eq.live span{animation:none !important;
-    transition:height .045s linear,background-color .45s ease}
-  .wrap.paused .eq.live span{height:12% !important;transition:height .35s ease}
+    height:100%;transform-origin:bottom;
+    transition:transform .045s linear,background-color .45s ease}
+  .wrap.paused .eq.live span{transform:scaleY(.12) !important;transition:transform .35s ease}
   .eq.off{display:none}
 
   .title,.artist,.album{white-space:nowrap;overflow:hidden}
@@ -695,8 +708,14 @@
     if(on===liveOn) return;
     liveOn=on;
     eqs.forEach(function(eq){ eq.classList.toggle('live', on); });
+    // The transform has to go too, not just the height. Dropping out of live
+    // mode hands the bars back to the canned keyframes, which animate height -
+    // a leftover scaleY would quietly squash that animation to a fraction of its
+    // size and look like the equaliser had died rather than changed mode.
     if(!on) eqs.forEach(function(eq){
-      [].slice.call(eq.children).forEach(function(s){ s.style.height=''; });
+      [].slice.call(eq.children).forEach(function(s){
+        s.style.height=''; s.style.transform='';
+      });
     });
   }
 
@@ -711,7 +730,10 @@
         var v=0;
         for(var b=lo;b<hi && b<n;b++) if(bands[b]>v) v=bands[b];
         if(v<10) v=10;                       // keep a visible floor
-        kids[i].style.height = v + '%';
+        // scaleY against a bottom origin - see the .eq.live span rule for why
+        // this is not a height. Two decimals is well under a device pixel at
+        // this size and keeps the string short at 30fps.
+        kids[i].style.transform = 'scaleY(' + (v/100).toFixed(2) + ')';
       }
     }
   }
