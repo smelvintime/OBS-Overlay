@@ -464,6 +464,9 @@
     // Neither flag is ever part of the copied URL - both belong to this page,
     // not to the source you paste into OBS.
     if(current === 'alerts') p += (p ? '&' : '') + 'preview=1';
+    // Same reason for the song overlay: with nothing playing it draws nothing,
+    // and an empty stage reads as a broken preview rather than a quiet one.
+    if(current === 'overlay') p += (p ? '&' : '') + 'preview=1';
     return location.origin + T.path + (p ? '?' + p : '');
   }
 

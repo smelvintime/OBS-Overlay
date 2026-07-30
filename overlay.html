@@ -19,6 +19,10 @@
      ?showAlbum=0|1                    show album line
      ?showArt=0|1                      show album art             (default 1)
      ?hideWhenPaused=0|1               hide while paused vs dim
+     ?preview=1                        show a sample track when nothing is
+                                       playing, so a preview is never a blank
+                                       box; used by the customizer and the
+                                       layouts page, never on an OBS source
   ---------------------------------------------------------------------------- */
   :root{
     --accent:#9bd4f5;
@@ -390,6 +394,17 @@
   var hideWhenPaused = q.get('hideWhenPaused')==='1';
   var showAlbum = q.get('showAlbum')==='1';
   var showArt = q.get('showArt')!=='0';
+
+  // On stream the overlay must be invisible when nothing is playing. In a
+  // preview that same emptiness is indistinguishable from the page being
+  // broken - you cannot tell "no music right now" from "this is not working",
+  // and the honest reading of an empty checkered box is the latter. preview=1
+  // substitutes a sample track only while there is genuinely nothing to show,
+  // so real playback still wins whenever it exists. Never set on an OBS source.
+  var previewMode = q.get('preview')==='1';
+  var SAMPLE = { playing:true, title:'Sample Track', artist:'Artist Name',
+                 album:'Sample Album', app:'preview', source:'preview',
+                 id:'preview-sample', hasArt:false };
   var speed = Math.max(10, parseFloat(q.get('speed')||'60'));   // px/sec for ticker
 
   var wrap=document.getElementById('wrap'), img=document.getElementById('art'),
@@ -593,6 +608,9 @@
 
   var lastNp = null, prepToken = 0;
   function apply(np){
+    // Stand in for silence only in a preview; on stream an empty response has
+    // to keep the overlay empty.
+    if(previewMode && (!np || !np.title)) np = SAMPLE;
     if(!np || !np.title){ wrap.classList.remove('show'); lastId=null; return; }
     lastNp = np;
 
@@ -681,7 +699,11 @@
     fetch('/np',{cache:'no-store'})
       .then(function(r){return r.json();})
       .then(apply)
-      .catch(function(){ wrap.classList.remove('show'); })
+      .catch(function(){
+        // A preview should show the design even with the server unreachable;
+        // the real source must go quiet rather than lie about what is playing.
+        if(previewMode) apply(SAMPLE); else wrap.classList.remove('show');
+      })
       .finally(function(){ setTimeout(tick,1500); });
   }
   tick();

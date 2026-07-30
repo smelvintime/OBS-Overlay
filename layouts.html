@@ -38,7 +38,16 @@
     background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),
                      linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
     background-size:40px 40px}
-  iframe{position:relative;display:block;width:100%;border:0;background:transparent}
+  /* The frame renders at the source's real pixel size and is then scaled down
+     to fit, rather than stretched to the panel width. A 600x200 card spread
+     across 1100px is not what OBS will show, and a 1920-wide ticker squeezed
+     into the same box is wrong by a factor of two - judging position or size
+     against either is guesswork. Same fault, and same fix, as the customizer. */
+  .stagewrap{display:flex;align-items:center;justify-content:center;padding:16px}
+  .fit{position:relative;overflow:hidden;flex:0 0 auto;
+    box-shadow:0 0 0 1px rgba(255,255,255,.14)}
+  .fit iframe{position:absolute;top:0;left:0;border:0;background:transparent;
+    transform-origin:0 0}
   .tune{display:flex;align-items:center;gap:14px;padding:11px 18px;
     border-top:1px solid var(--line);background:var(--input);flex-wrap:wrap}
   .tune label{display:flex;align-items:center;gap:9px;color:var(--dim);font-size:12.5px;
@@ -96,16 +105,35 @@
 </footer>
 
 <script>
+// w/h are the real OBS source dimensions; the preview is rendered at exactly
+// this size so what you see is what the browser source will show.
 var LAYOUTS = [
-  { id:'card', name:'Card', h:200, obs:'600 x 200',
+  { id:'card', name:'Card', w:600, h:200,
     desc:'The original. Album art, title, artist in a frosted card.' },
-  { id:'big', name:'Big', h:320, obs:'900 x 320',
+  { id:'big', name:'Big', w:900, h:320,
     desc:'Large art and type, with the cover art blurred behind it. Good for music-focused or starting-soon scenes.' },
-  { id:'ticker', name:'Ticker', h:64, obs:'1920 x 64',
+  { id:'ticker', name:'Ticker', w:1920, h:64,
     desc:'Full-width bar with continuously scrolling text, like a radio ticker. Sits along the top or bottom edge.' },
-  { id:'minimal', name:'Minimal', h:120, obs:'600 x 120',
+  { id:'minimal', name:'Minimal', w:600, h:120,
     desc:'No card or background at all. Just an accent bar, art and text with a heavy shadow so it stays readable over anything.' }
 ];
+
+// Scales a card's frame to fit whatever width the page has, capping at 1:1 so
+// a small source is never blown up to look bigger than it will be in OBS.
+function fitFrame(box, frame, w, h){
+  var avail = Math.max(box.parentNode.clientWidth - 32, 160);
+  var k = Math.min(avail / w, 1);
+  frame.width = w; frame.height = h;
+  frame.style.transform = k === 1 ? 'none' : 'scale(' + k + ')';
+  box.style.width = Math.round(w * k) + 'px';
+  box.style.height = Math.round(h * k) + 'px';
+}
+
+var fitters = [];
+window.addEventListener('resize', function(){
+  clearTimeout(window.__fitT);
+  window.__fitT = setTimeout(function(){ fitters.forEach(function(f){ f(); }); }, 90);
+});
 
 var TRANSITIONS = [
   ['slide','Slide in from the side'],
@@ -123,8 +151,8 @@ LAYOUTS.forEach(function(L){
   el.innerHTML =
     '<div class="head"><h2>' + L.name + '</h2>' +
       '<span class="desc">' + L.desc + '</span>' +
-      '<span class="dims">OBS ' + L.obs + '</span></div>' +
-    '<div class="stagewrap"><iframe height="' + L.h + '" scrolling="no"></iframe></div>' +
+      '<span class="dims">OBS ' + L.w + ' x ' + L.h + '</span></div>' +
+    '<div class="stagewrap"><div class="fit"><iframe scrolling="no"></iframe></div></div>' +
     '<div class="tune">' +
       '<label>Opacity <input type="range" min="10" max="100" step="5" value="100" />' +
         '<span class="val">100%</span></label>' +
@@ -139,6 +167,7 @@ LAYOUTS.forEach(function(L){
       '<button type="button" class="copy">Copy URL</button></div>';
 
   var frame  = el.querySelector('iframe'),
+      box    = el.querySelector('.fit'),
       range  = el.querySelector('input[type=range]'),
       val    = el.querySelector('.val'),
       select = el.querySelector('select'),
@@ -163,7 +192,11 @@ LAYOUTS.forEach(function(L){
   }
 
   function reload(){
-    frame.src = location.origin + '/?layout=' + L.id + '&transition=' + state.transition;
+    // preview=1 keeps a sample on screen when nothing is playing. Without it
+    // every card on this page is an empty rectangle whenever the music is
+    // stopped, which looks exactly like the page being broken.
+    frame.src = location.origin + '/?layout=' + L.id
+              + '&transition=' + state.transition + '&preview=1';
   }
 
   range.addEventListener('input', function(){
@@ -184,6 +217,10 @@ LAYOUTS.forEach(function(L){
   });
 
   grid.appendChild(el);
+  // Sized after it is in the DOM, since the fit depends on the panel's width.
+  var doFit = function(){ fitFrame(box, frame, L.w, L.h); };
+  fitters.push(doFit);
+  doFit();
   paint();
   reload();
 });
@@ -193,7 +230,7 @@ LAYOUTS.forEach(function(L){
 // in the customizer, and duplicating that here would mean two places to keep
 // in step. What the cards are for is seeing them move.
 var TWITCH = [
-  { id:'alerts', name:'Alerts', h:230, obs:'1920 x 1080', src:'/alerts',
+  { id:'alerts', name:'Alerts', w:1920, h:1080, src:'/alerts?preview=1',
     desc:'Fires when someone follows, subscribes, resubscribes or gifts. Invisible the rest of the time, so it can cover the whole canvas.',
     tests:[
       ['Follow', {kind:'follow', user:'NewViewer42'}],
@@ -202,7 +239,7 @@ var TWITCH = [
                   message:'Eleven months and still here every week.'}],
       ['Gift',   {kind:'gift', user:'BigSpender', tier:'1000', count:5}]
     ]},
-  { id:'stats', name:'Followers & subs', h:230, obs:'360 x 240', src:'/stats?demo=1',
+  { id:'stats', name:'Followers & subs', w:360, h:240, src:'/stats?demo=1',
     desc:'Two boxes stacked on top of each other. Each alternates between who was most recent and how close the count is to the next goal.',
     tests:[] }
 ];
@@ -214,8 +251,8 @@ TWITCH.forEach(function(S){
   el.innerHTML =
     '<div class="head"><h2>' + S.name + '</h2>' +
       '<span class="desc">' + S.desc + '</span>' +
-      '<span class="dims">OBS ' + S.obs + '</span></div>' +
-    '<div class="stagewrap"><iframe height="' + S.h + '" scrolling="no"></iframe></div>' +
+      '<span class="dims">OBS ' + S.w + ' x ' + S.h + '</span></div>' +
+    '<div class="stagewrap"><div class="fit"><iframe scrolling="no"></iframe></div></div>' +
     (S.tests.length ? '<div class="tune"><span style="color:var(--dim);font-size:12.5px">Try one</span>' +
       S.tests.map(function(t, i){
         return '<button type="button" class="test" data-i="' + i + '">' + t[0] + '</button>'; }).join('') +
@@ -224,7 +261,7 @@ TWITCH.forEach(function(S){
       '<a class="action" href="/customize?source=' + S.id + '">Customize this one</a>' +
       '<button type="button" class="copy">Copy URL</button></div>';
 
-  var frame = el.querySelector('iframe');
+  var frame = el.querySelector('iframe'), box = el.querySelector('.fit');
   frame.src = location.origin + S.src;
 
   [].forEach.call(el.querySelectorAll('.test'), function(b){
@@ -244,6 +281,9 @@ TWITCH.forEach(function(S){
   });
 
   tgrid.appendChild(el);
+  var doFit = function(){ fitFrame(box, frame, S.w, S.h); };
+  fitters.push(doFit);
+  doFit();
 });
 
 if(new URLSearchParams(location.search).get('embed') === '1')
