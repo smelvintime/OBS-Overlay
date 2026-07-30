@@ -108,10 +108,7 @@ namespace NowPlaying {
     // provider name, so "spotify" and "itunes" both do the obvious thing.
     static bool MatchesPin(Snapshot s, string pin) {
       if (string.IsNullOrEmpty(pin)) return false;
-      string p = pin.ToLowerInvariant();
-      if (!string.IsNullOrEmpty(s.App) && s.App.ToLowerInvariant().Contains(p)) return true;
-      if (!string.IsNullOrEmpty(s.Source) && s.Source.ToLowerInvariant().Contains(p)) return true;
-      return false;
+      return PinHit(s.App, pin) || PinHit(s.Source, pin);
     }
 
     // .NET Framework's AsTask() lives in System.Runtime.WindowsRuntime, which
@@ -207,7 +204,9 @@ namespace NowPlaying {
     static void BuildTray() {
       var menu = new ContextMenuStrip();
 
-      var header = new ToolStripMenuItem("Now Playing Overlay") { Enabled = false };
+      // The version belongs where someone can read it without a terminal - the
+      // first question about a machine you cannot reach is which build it runs.
+      var header = new ToolStripMenuItem("Now Playing Overlay  v" + BuildInfo.Version) { Enabled = false };
       menu.Items.Add(header);
       menu.Items.Add("Open dashboard...", null, (s, e) => OpenUrl("/app"));
       menu.Items.Add(new ToolStripSeparator());
@@ -267,6 +266,7 @@ namespace NowPlaying {
       };
       menu.Items.Add(startup);
       menu.Items.Add(new ToolStripSeparator());
+      menu.Items.Add("Diagnostics...", null, (s, e) => OpenUrl("/diag"));
       menu.Items.Add("Open log folder", null, (s, e) => {
         try {
           string dir = Path.Combine(
@@ -482,7 +482,8 @@ namespace NowPlaying {
     static void Banner() {
       if (!_hasConsole) return;      // running in the tray, nothing to print to
       Say("");
-      SayColor("  Now Playing overlay is running.", ConsoleColor.Green);
+      SayColor("  Now Playing overlay is running.  v" + BuildInfo.Version
+               + "  (built " + BuildInfo.BuiltUtc + ")", ConsoleColor.Green);
       Say("");
       SayColor("    Add this as an OBS Browser Source:", ConsoleColor.Cyan);
       SayColor("        http://127.0.0.1:" + _port + "/", ConsoleColor.Cyan);
@@ -570,6 +571,39 @@ namespace NowPlaying {
     static readonly string[] MusicHints =
       { "spotify", "apple", "itunes", "music", "tidal", "deezer" };
 
+    // Apple has shipped its Windows player under several names - classic iTunes,
+    // and now the separate Apple Music app from the Store, whose app id looks
+    // nothing like "itunes". A pin written when one was installed has to keep
+    // working when the other is, or the overlay silently shows nothing and the
+    // setting that caused it is three clicks away in a different page.
+    static readonly string[][] PinAliases = {
+      new[] { "itunes", "apple", "applemusic", "apple music", "applemusicwin" }
+    };
+
+    static bool PinHit(string candidate, string pin) {
+      if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(pin)) return false;
+      string c = candidate.ToLowerInvariant();
+      string p = pin.Trim().ToLowerInvariant();
+      if (p.Length == 0) return false;
+      if (c.IndexOf(p, StringComparison.Ordinal) >= 0) return true;
+
+      foreach (var group in PinAliases) {
+        bool pinInGroup = false;
+        foreach (var g in group) {
+          // Only let a group member stand in for the pin when the pin is long
+          // enough to be meaningful; a two-letter pin would match everything.
+          if (p == g || p.IndexOf(g, StringComparison.Ordinal) >= 0
+              || (p.Length >= 4 && g.IndexOf(p, StringComparison.Ordinal) >= 0)) {
+            pinInGroup = true; break;
+          }
+        }
+        if (!pinInGroup) continue;
+        foreach (var g in group)
+          if (c.IndexOf(g, StringComparison.Ordinal) >= 0) return true;
+      }
+      return false;
+    }
+
     static bool IsMusicApp(string aumid) {
       if (string.IsNullOrEmpty(aumid)) return false;
       var l = aumid.ToLowerInvariant();
@@ -613,7 +647,7 @@ namespace NowPlaying {
       GlobalSystemMediaTransportControlsSession best = null; int bestScore = -1;
       foreach (var s in sessions) {
         string aumid = s.SourceAppUserModelId ?? "";
-        bool matches = pinned && aumid.ToLowerInvariant().Contains(p);
+        bool matches = pinned && PinHit(aumid, p);
         if (pinned && mode == "only" && !matches) continue;   // locked out entirely
 
         int score = 0;
@@ -630,6 +664,43 @@ namespace NowPlaying {
       // Under "only" a missing match must yield nothing, never a stray fallback.
       if (pinned && mode == "only") return null;
       return mgr.GetCurrentSession();
+    }
+
+    // Every session Windows currently knows about, not just the one that won.
+    // "My player isn't detected" and "my player is detected but something else
+    // outranked it" need completely different fixes, and only the full list can
+    // tell them apart - especially when a pin in "only" mode is quietly
+    // excluding the very app the user is asking about.
+    internal class SessionInfo {
+      public string Aumid = "", Title = "", Artist = "", Status = "";
+      public bool Musicish, ExcludedByPin;
+    }
+
+    internal static List<SessionInfo> AllSessions() {
+      var list = new List<SessionInfo>();
+      try {
+        var mgr = Manager();
+        if (mgr == null) return list;
+        var sessions = mgr.GetSessions();
+        if (sessions == null) return list;
+
+        string mode = _mode, pin = (_pinApp ?? "").ToLowerInvariant();
+        bool pinned = mode != "auto" && pin.Length > 0;
+
+        foreach (var s in sessions) {
+          var si = new SessionInfo();
+          try { si.Aumid = s.SourceAppUserModelId ?? ""; } catch { }
+          try {
+            var p = Await(s.TryGetMediaPropertiesAsync());
+            if (p != null) { si.Title = p.Title ?? ""; si.Artist = p.Artist ?? ""; }
+          } catch { }
+          try { si.Status = s.GetPlaybackInfo().PlaybackStatus.ToString(); } catch { }
+          si.Musicish = IsMusicApp(si.Aumid);
+          si.ExcludedByPin = pinned && mode == "only" && !PinHit(si.Aumid, pin);
+          list.Add(si);
+        }
+      } catch { }
+      return list;
     }
 
     static Snapshot SmtcRead() {
@@ -736,11 +807,27 @@ namespace NowPlaying {
         _itunesDetail = "connected";
         return (dynamic)_itunes;
       } catch (Exception ex) {
+        // The HRESULT is the part that actually identifies the failure; the
+        // message alone is often the same generic sentence for several very
+        // different causes, which is useless on a machine you cannot inspect.
+        var com = ex as System.Runtime.InteropServices.COMException;
+        string hr = "", meaning = "";
+        if (com != null) {
+          uint code = unchecked((uint)com.ErrorCode);
+          hr = " (HRESULT 0x" + code.ToString("X8") + ")";
+          if (code == 0x80080005) meaning = " - the iTunes COM server failed to start. This is the "
+            + "usual signature of an elevation mismatch between iTunes and this app.";
+          else if (code == 0x80040154) meaning = " - class not registered. This iTunes install did "
+            + "not register COM automation; the Microsoft Store packaging of iTunes does this.";
+          else if (code == 0x800401F3) meaning = " - invalid ProgID, so iTunes is not registered at all.";
+          else if (code == 0x80070005) meaning = " - access denied, which is normally an elevation "
+            + "mismatch: run iTunes and this app the same way, both normal or both as administrator.";
+        }
         // A mismatch here usually means the overlay was started as administrator
         // while iTunes runs normally (or the reverse) - COM refuses across
         // integrity levels.
-        _itunesDetail = ex.GetType().Name + ": " + ex.Message
-                      + (IsElevated() ? " [overlay is running elevated - try running it normally]" : "");
+        _itunesDetail = ex.GetType().Name + hr + ": " + ex.Message + meaning
+                      + (IsElevated() ? " [this app IS running elevated - try running it normally]" : "");
         return null;
       }
     }
@@ -873,6 +960,16 @@ namespace NowPlaying {
             if (itunesNow != null) sb.Append(",\"track\":").Append(Json(itunesNow));
             sb.Append("}]}");
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(sb.ToString()));
+          } else if (route == "/diag" || route == "/diag/") {
+            string detail; bool running;
+            lock (_mediaLock) {
+              running = ITunesRunning();
+              ITunesRead();                // populates _itunesDetail as a side effect
+              detail = _itunesDetail;
+            }
+            Send(ns, 200, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(
+              Diagnostics.Html(_port, _mode, _pinApp, IsElevated(), detail, running,
+                               snap, TwitchEvents.FindConfigPath())));
           } else if (route == "/spectrum") {
             StreamSpectrum(ns);          // long-lived; returns on disconnect
           } else if (route == "/twitch") {

@@ -49,6 +49,7 @@ namespace NowPlaying {
 
     public static bool Configured { get { return _clientId.Length > 0 && _token.Length > 0; } }
     public static string Status { get { return _status; } }
+    public static string Detail { get { return _detail; } }
 
     // ----------------------------------------------------------------- state
     static volatile int _followerTotal = -1;   // -1 = not known yet, distinct from 0

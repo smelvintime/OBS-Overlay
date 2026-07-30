@@ -84,11 +84,21 @@
   body.frame-soft .alert::before{content:"";position:absolute;left:0;top:14%;bottom:14%;
     width:3px;border-radius:3px;background:var(--c);box-shadow:0 0 14px var(--c)}
 
-  .icon{flex:0 0 auto;width:46px;height:46px;border-radius:50%;
+  /* The tinted plate and its ring are drawn as two stacked pseudo-elements at
+     reduced opacity rather than with color-mix(). color-mix needs Chrome 111,
+     and where it is missing the whole declaration is dropped - which took the
+     plate's background AND its border with it and left a bare glyph floating.
+     Opacity is supported everywhere and produces the same result. */
+  .icon{position:relative;flex:0 0 auto;width:46px;height:46px;border-radius:50%;
     display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1;
-    background:color-mix(in srgb,var(--c) 22%,transparent);
-    border:1px solid color-mix(in srgb,var(--c) 55%,transparent);
-    color:var(--c)}
+    background:none;border:0;color:var(--c)}
+  .icon::before,.icon::after{content:"";position:absolute;inset:0;
+    border-radius:inherit;pointer-events:none}
+  .icon::before{background:var(--c);opacity:.22}
+  .icon::after{border:1px solid var(--c);opacity:.55}
+  /* Absolutely positioned pseudo-elements paint above ordinary child content,
+     so the glyph has to be lifted or the plate covers it. */
+  .icon > *{position:relative;z-index:1}
   /* The plate turns 45 degrees into a kite; the glyph inside turns back so it
      stays upright. A rotated square next to cut corners is the whole motif in
      one shape. */
