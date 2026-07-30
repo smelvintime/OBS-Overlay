@@ -78,6 +78,10 @@
     var f = document.createElement('iframe');
     f.title = t[1];
     f.src = t[2] + '?embed=1';
+    // A frame that finishes loading after a switch would otherwise come up on
+    // the old palette. Each page also reads the same key from its own head, so
+    // this is a belt-and-braces for the frame that was mid-load at the time.
+    f.addEventListener('load', function(){ paintFrame(f, currentTheme()); });
     contentEl.appendChild(f);
     frames[id] = f;
 
@@ -108,20 +112,36 @@
   var THEMES = [['shockblade','Shockblade - ice blue'], ['shadow','Shadow - black and red']];
   var themesEl = document.getElementById('themes');
 
-  function applyTheme(name, reload){
-    if(name === 'shockblade') document.documentElement.removeAttribute('data-theme');
-    else document.documentElement.setAttribute('data-theme', name);
+  function paintTheme(root, name){
+    if(name === 'shockblade') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', name);
+  }
+
+  // Reloading the frames was the wrong tool twice over. Assigning src to its own
+  // current value is a no-op, and location.reload() on a same-origin frame turns
+  // out not to fire a load at all in some embedders - in both cases the shell
+  // recoloured while every panel inside it stayed on the old palette, which is
+  // what "the theme changes nothing" looks like from the outside.
+  //
+  // The frames are same-origin, so the attribute can just be set on each of them
+  // directly. No reload, no flash, and edits in progress in the customizer are
+  // not thrown away to change a colour.
+  function applyTheme(name, propagate){
+    paintTheme(document.documentElement, name);
     try { localStorage.setItem('nowplaying.theme', name); } catch(e){}
     [].forEach.call(themesEl.children, function(b){
       b.setAttribute('aria-pressed', String(b.getAttribute('data-t') === name)); });
-    // Assigning src back to itself is NOT a reload - browsers treat setting the
-    // same value as a no-op, which left the frames on the old palette while the
-    // shell had already switched. Reload the document properly instead.
-    if(reload) TABS.forEach(function(t){
-      var f = frames[t[0]];
-      try { f.contentWindow.location.reload(); }
-      catch(e){ f.src = t[2] + '?embed=1&_=' + Date.now(); }
-    });
+    if(propagate) TABS.forEach(function(t){ paintFrame(frames[t[0]], name); });
+  }
+
+  function paintFrame(f, name){
+    try { if(f && f.contentDocument) paintTheme(f.contentDocument.documentElement, name); }
+    catch(e){}
+  }
+
+  function currentTheme(){
+    try { return localStorage.getItem('nowplaying.theme') || 'shockblade'; }
+    catch(e){ return 'shockblade'; }
   }
 
   THEMES.forEach(function(t){
@@ -132,9 +152,7 @@
     themesEl.appendChild(b);
   });
 
-  var savedTheme = 'shockblade';
-  try { savedTheme = localStorage.getItem('nowplaying.theme') || 'shockblade'; } catch(e){}
-  applyTheme(savedTheme, false);
+  applyTheme(currentTheme(), false);
 
   select(location.hash.slice(1) || TABS[0][0], false);
 })();
