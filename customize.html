@@ -312,14 +312,13 @@
       defaults:{
         style:'slide', frame:'blade', accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff',
         giftColor:'ff9d3f', align:'center', valign:'top', scale:1, radius:16,
-        opacity:100, hold:6, showMessage:1
+        opacity:100, hold:6
       },
       size:function(){ return {w:1920, h:1080}; },
       actions:[
         ['Test follow', alertPreview('follow', {user:'NewViewer42'})],
         ['Test sub',    alertPreview('sub',    {user:'StreamFan', tier:'1000'})],
-        ['Test resub',  alertPreview('resub',  {user:'LongTimer', tier:'2000', months:11,
-                          message:'Eleven months and still here every week.'})],
+        ['Test resub',  alertPreview('resub',  {user:'LongTimer', tier:'2000', months:11})],
         ['Test gift',   alertPreview('gift',   {user:'BigSpender', tier:'1000', count:5})]
       ],
       groups:[
@@ -352,9 +351,8 @@
           { key:'giftColor', label:'Gift', type:'color',
             note:'Each kind of event gets its own colour so they are told apart at a glance.' }
         ]},
-        { title:'Timing and content', controls:[
-          { key:'hold', label:'On screen', type:'range', min:2, max:20, step:1, unit:'s' },
-          { key:'showMessage', label:'', type:'toggle', text:'Show the message a resubscriber wrote' }
+        { title:'Timing', controls:[
+          { key:'hold', label:'On screen', type:'range', min:2, max:20, step:1, unit:'s' }
         ]}
       ]
     },
@@ -374,9 +372,12 @@
       size:function(){ return {w:360, h:240}; },
       groups:[
         { title:'Look', controls:[
-          { key:'frame', label:'Frame', type:'seg', options:[['blade','Blade'],['soft','Plain']],
+          { key:'frame', label:'Frame', type:'seg',
+            options:[['blade','Blade'],['twin','Twin blades'],['soft','Plain']],
             note:'Blade cuts two corners, brackets the accent and marks the label with a '
-               + 'shuriken. Plain is the original bar down one edge.' },
+               + 'shuriken. Twin blades drops the box entirely and rides the label and the '
+               + 'count on two leaning blades, matching the alert. Plain is the original bar '
+               + 'down one edge.' },
           { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']] },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },

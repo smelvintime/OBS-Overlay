@@ -439,12 +439,12 @@ option is a query parameter, so the URLs can also be hand-edited:
 **Alerts** — `?style=slide|pop|bar` · `hold=6` (seconds on screen) ·
 `followColor=1db954` · `subColor=a970ff` · `giftColor=ff9d3f` ·
 `align=left|center|right` · `valign=top|middle|bottom` · `scale` · `radius` ·
-`opacity` · `showMessage=0|1` · `demo=1`
+`opacity` · `demo=1`
 
 **Followers & subs** — `?cycle=8` (seconds per face) · `transition=slide|fade|none` ·
 `width=300` · `gap=12` · `followGoal=500` · `subGoal=50` · `showFollowers=0|1` ·
-`showSubs=0|1` · `theme=glass|solid` · plus the same position, scale, radius,
-opacity and colour options · `demo=1`
+`showSubs=0|1` · `frame=blade|twin|soft` · `theme=glass|solid` · plus the same
+position, scale, radius, opacity and colour options · `demo=1`
 
 `demo=1` fills either page with sample data so you can position it in OBS before any
 real event happens. Leave it off the URL you actually use.
