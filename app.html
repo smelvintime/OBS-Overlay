@@ -146,9 +146,20 @@
   // The frames are same-origin, so the attribute can just be set on each of them
   // directly. No reload, no flash, and edits in progress in the customizer are
   // not thrown away to change a colour.
-  function applyTheme(name, propagate){
+  // localStorage is kept only as the instant answer that avoids a flash of the
+  // wrong palette before the fetch lands. The app is the real store: it is the
+  // only one an OBS browser source can read, and the only one that does not
+  // disagree between localhost and 127.0.0.1, which are separate origins with
+  // separate storage.
+  function applyTheme(name, propagate, save){
     paintTheme(document.documentElement, name);
     try { localStorage.setItem('nowplaying.theme', name); } catch(e){}
+    if(save !== false){
+      try {
+        fetch('/prefs/set?key=theme&value=' + encodeURIComponent(name), {cache:'no-store'})
+          .catch(function(){});     // a theme that did not persist is not worth a dialog
+      } catch(e){}
+    }
     [].forEach.call(themesEl.children, function(b){
       b.setAttribute('aria-pressed', String(b.getAttribute('data-t') === name)); });
     if(propagate) TABS.forEach(function(t){ paintFrame(frames[t[0]], name); });
@@ -172,7 +183,16 @@
     themesEl.appendChild(b);
   });
 
-  applyTheme(currentTheme(), false);
+  applyTheme(currentTheme(), false, false);   // instant, from local storage
+
+  // Then take the app's answer, which is the one every other page and every OBS
+  // source is also reading. save:false so simply opening the dashboard on a
+  // second machine cannot overwrite the shared choice with this browser's stale
+  // local copy.
+  fetch('/prefs',{cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(p){ if(p && p.theme && p.theme !== currentTheme()) applyTheme(p.theme, true, false); })
+    .catch(function(){});
 
   select(location.hash.slice(1) || TABS[0][0], false);
 })();

@@ -158,6 +158,40 @@ namespace NowPlaying {
           + "you have not set those up on - the song overlay is unaffected.");
       }
 
+      // ---- live connections --------------------------------------------------
+      // Worth its own section because connection pressure is the one fault here
+      // that looks like a design bug from every other angle: pages that never
+      // finish, previews that stay blank, album art that silently does not
+      // arrive. None of it reports an error anywhere, so without a number to
+      // look at there is nothing to find.
+      int spec = Program.SpectrumClients, tw = Program.TwitchClients;
+      int workerFree, ioFree, workerMax, ioMax, workerMin, ioMin;
+      System.Threading.ThreadPool.GetAvailableThreads(out workerFree, out ioFree);
+      System.Threading.ThreadPool.GetMaxThreads(out workerMax, out ioMax);
+      System.Threading.ThreadPool.GetMinThreads(out workerMin, out ioMin);
+
+      sb.Append("<h2>Live connections</h2><table>");
+      Row(sb, "Equaliser streams", spec + " of " + Program.MaxSpectrumClients);
+      Row(sb, "Alert streams", tw + " of " + Program.MaxTwitchClients);
+      // Against the ceiling this reads as 2 of 32767, which tells you nothing.
+      // The floor is the number that matters: below it a request gets a thread at
+      // once, above it the pool adds threads only about twice a second.
+      Row(sb, "Worker threads in use", (workerMax - workerFree)
+        + "  (instant up to " + workerMin + ")");
+      sb.Append("</table>");
+
+      Note(sb, "warn", "Each of these holds one connection open for as long as it lasts, and a "
+        + "browser allows only <strong>six per address</strong>. Anything past that waits - which "
+        + "is why a starved page shows a blank preview or a missing album cover rather than an "
+        + "error. If these numbers look high, close spare dashboard and overlay windows: each one "
+        + "you leave open is counted here. OBS browser sources count too.");
+
+      if (spec >= Program.MaxSpectrumClients || tw >= Program.MaxTwitchClients) {
+        Note(sb, "bad", "<strong>A stream limit is full.</strong> New pages will be refused their "
+          + "live data until something disconnects. Close any dashboard or overlay windows you are "
+          + "not using and reload this page - the count should drop within a few seconds.");
+      }
+
       // ---- browser -----------------------------------------------------------
       sb.Append("<h2>This browser</h2>");
       sb.Append("<table id=\"bt\"><tr><th>Checking...</th><td>");
@@ -217,6 +251,13 @@ namespace NowPlaying {
       sb.Append("  config       : ").Append(configPath ?? "none").Append("\r\n");
       sb.Append("  twitch       : ").Append(TwitchEvents.Status).Append(" ").Append(TwitchEvents.Detail).Append("\r\n");
       sb.Append("  chat bot     : ").Append(TwitchChat.Status).Append(" ").Append(TwitchChat.Detail).Append("\r\n");
+      int wFree, iFree, wMax, iMax, wMin, iMin;
+      System.Threading.ThreadPool.GetAvailableThreads(out wFree, out iFree);
+      System.Threading.ThreadPool.GetMaxThreads(out wMax, out iMax);
+      System.Threading.ThreadPool.GetMinThreads(out wMin, out iMin);
+      sb.Append("  streams      : eq ").Append(Program.SpectrumClients).Append("/").Append(Program.MaxSpectrumClients)
+        .Append(", alerts ").Append(Program.TwitchClients).Append("/").Append(Program.MaxTwitchClients)
+        .Append(", workers ").Append(wMax - wFree).Append(" (floor ").Append(wMin).Append(")\r\n");
       sb.Append("SESSIONS (").Append(sessions.Count).Append(")\r\n");
       foreach (var s in sessions) {
         sb.Append("  - ").Append(s.Aumid).Append(" [").Append(s.Status).Append("]")

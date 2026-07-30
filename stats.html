@@ -47,6 +47,17 @@
        reads as a shuriken and not a plain star. */
     --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='1.85' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)'%3E%3Ccircle cx='12' cy='12' r='3.5'/%3E%3Cpath d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(90 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(180 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(270 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3C/g%3E%3C/svg%3E");
   }
+  /* Shadow - base Zed rather than Shockblade. Same variable names, so every rule
+     below is written once and both palettes drive it. */
+  :root[data-theme="shadow"]{
+    --accent:#e5383b;
+    --follow:#e5383b;
+    --sub:#b0446b;
+    --card-bg:rgba(14,7,9,.88);
+    --card-border:rgba(229,56,59,.22);
+    --text:#f6eeee;
+    --subtext:rgba(246,238,238,.6);
+  }
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
@@ -146,6 +157,28 @@
   @keyframes bump{0%{transform:none}35%{transform:translateY(-3px)}100%{transform:none}}
   .box.bump{animation:bump .5s ease}
 </style>
+<script>
+/* Shared theme, read from the app rather than this browser - see overlay.html for
+   why an OBS source cannot use localStorage for this. ?theme= pins one source. */
+(function(){
+  var root = document.documentElement;
+  function paint(name){
+    if(!name || name === 'shockblade') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', name);
+  }
+  var forced = null;
+  try { forced = new URLSearchParams(location.search).get('theme'); } catch(e){}
+  if(forced){ paint(forced); return; }
+  var last;
+  (function poll(){
+    fetch('/prefs',{cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(p){ if(p && p.theme !== last){ last = p.theme; paint(p.theme); } })
+      .catch(function(){})
+      .finally(function(){ setTimeout(poll, 5000); });
+  })();
+})();
+</script>
 </head>
 <body>
 <div id="stage"><div id="stack">

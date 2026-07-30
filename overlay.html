@@ -33,6 +33,16 @@
     --text:#fff;
     --subtext:rgba(255,255,255,.62);
   }
+  /* Shadow - base Zed rather than Shockblade. Same variable names, so every rule
+     below is written once and both palettes drive it. An explicit ?accent= still
+     overrides this, because the customizer sets that per source. */
+  :root[data-theme="shadow"]{
+    --accent:#e5383b;
+    --card-bg:rgba(14,7,9,.86);
+    --card-border:rgba(229,56,59,.20);
+    --text:#f6eeee;
+    --subtext:rgba(246,238,238,.62);
+  }
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
@@ -211,6 +221,34 @@
     backdrop-filter:none;-webkit-backdrop-filter:none}
   body.theme-solid .backdrop{display:none}
 </style>
+<script>
+/* The theme is kept by the app, not by this browser. An OBS browser source is its
+   own profile that never opens the dashboard, so a theme held in localStorage
+   left the thing actually on stream stuck on the default palette permanently -
+   which is exactly what "changing the theme does nothing" looked like from the
+   outside. Asking again on a timer rather than once means switching theme in the
+   dashboard reaches a source already live in OBS without touching OBS. These are
+   short requests that close immediately, not a held stream.
+   An explicit ?theme= wins, so one source can be pinned to a look on purpose. */
+(function(){
+  var root = document.documentElement;
+  function paint(name){
+    if(!name || name === 'shockblade') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', name);
+  }
+  var forced = null;
+  try { forced = new URLSearchParams(location.search).get('theme'); } catch(e){}
+  if(forced){ paint(forced); return; }
+  var last;
+  (function poll(){
+    fetch('/prefs',{cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(p){ if(p && p.theme !== last){ last = p.theme; paint(p.theme); } })
+      .catch(function(){})     // a theme we could not read must never stop the overlay
+      .finally(function(){ setTimeout(poll, 5000); });
+  })();
+})();
+</script>
 </head>
 <body>
   <div id="stage">

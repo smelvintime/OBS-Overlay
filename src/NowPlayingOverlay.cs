@@ -99,6 +99,74 @@ namespace NowPlaying {
       } catch { }
     }
 
+    // ---- shared preferences ---------------------------------------------------
+    // The theme used to live in the browser's localStorage and nowhere else,
+    // which quietly meant three different things could disagree. localStorage is
+    // per-origin, so a theme set on localhost:8787 is invisible on
+    // 127.0.0.1:8787; an OBS browser source is a separate profile that never
+    // opens the dashboard, so it never saw a theme at all; and clearing site data
+    // silently reset everything. Keeping it here instead gives one answer that
+    // every page and every OBS source reads, and it survives a restart.
+    static readonly object _prefsLock = new object();
+    static Dictionary<string, string> _prefs;
+
+    static string PrefsPath() {
+      string dir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NowPlayingOverlay");
+      Directory.CreateDirectory(dir);
+      return Path.Combine(dir, "prefs.txt");
+    }
+
+    static Dictionary<string, string> Prefs() {
+      lock (_prefsLock) {
+        if (_prefs != null) return _prefs;
+        _prefs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try {
+          string p = PrefsPath();
+          if (File.Exists(p)) {
+            foreach (var line in File.ReadAllLines(p)) {
+              int eq = line.IndexOf('=');
+              if (eq > 0) _prefs[line.Substring(0, eq)] = line.Substring(eq + 1);
+            }
+          }
+        } catch { }
+        return _prefs;
+      }
+    }
+
+    internal static void SetPref(string key, string value) {
+      if (string.IsNullOrEmpty(key)) return;
+      // One pref per line, so a stray newline in a value would corrupt every
+      // pref after it on the next read.
+      value = (value ?? "").Replace("\r", "").Replace("\n", "");
+      lock (_prefsLock) {
+        var d = Prefs();
+        d[key] = value;
+        try {
+          var sb = new StringBuilder();
+          foreach (var kv in d) sb.Append(kv.Key).Append('=').Append(kv.Value).Append("\r\n");
+          File.WriteAllText(PrefsPath(), sb.ToString());
+        } catch (Exception ex) {
+          AppLog.Write("could not save prefs: " + ex.Message);
+        }
+      }
+    }
+
+    static string PrefsJson() {
+      lock (_prefsLock) {
+        var d = Prefs();
+        var sb = new StringBuilder("{");
+        bool first = true;
+        foreach (var kv in d) {
+          if (!first) sb.Append(',');
+          first = false;
+          sb.Append(Q(kv.Key)).Append(':').Append(Q(kv.Value));
+        }
+        return sb.Append('}').ToString();
+      }
+    }
+
     static string NormalizeMode(string m) {
       m = (m ?? "").Trim().ToLowerInvariant();
       return (m == "prefer" || m == "only") ? m : "auto";
@@ -454,6 +522,30 @@ namespace NowPlaying {
         return 1;
       }
       AppLog.Write("listening on port " + _port);
+
+      // Every streaming handler below holds a ThreadPool worker for as long as its
+      // client stays connected: StreamSpectrum and StreamTwitch both sit in a loop
+      // until the socket dies, so they are occupied threads rather than busy ones.
+      // The pool starts with roughly one worker per core and, once they are all
+      // taken, adds further threads only about twice a second - so with a handful
+      // of streams held open, an ordinary request for a page or an album cover can
+      // end up waiting on thread injection rather than on any actual work.
+      //
+      // Raising the floor past the worst case - every stream slot taken, plus room
+      // for normal traffic - costs a few mostly-idle threads and removes that
+      // stall entirely. Only ever raised, never lowered: on a machine whose
+      // default is already higher, leave it alone.
+      int minWorker, minIo;
+      ThreadPool.GetMinThreads(out minWorker, out minIo);
+      int wantThreads = MaxSpectrumClients + MaxTwitchClients + 16;
+      if (minWorker < wantThreads) {
+        try {
+          ThreadPool.SetMinThreads(wantThreads, Math.Max(minIo, wantThreads));
+          AppLog.Write("threadpool floor raised from " + minWorker + " to " + wantThreads);
+        } catch (Exception ex) {
+          AppLog.Write("could not raise threadpool floor (continuing): " + ex.Message);
+        }
+      }
 
       var poller = new Thread(PollLoop);
       poller.IsBackground = true;
@@ -934,8 +1026,25 @@ namespace NowPlaying {
           if (route == "/np") {
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Json(snap)));
           } else if (route == "/art") {
-            if (snap.Art != null && snap.Art.Length > 0) Send(ns, 200, snap.ArtMime, snap.Art);
+            // The cover is the one genuinely large thing served here, and the URL
+            // already carries ?id=, a hash of title/artist/album - so a different
+            // track is a different URL and a cached copy can never be the wrong
+            // picture. Blanket no-store made every page re-download it: the
+            // overlay preloads into an Image, then points both the <img> and the
+            // backdrop at the same URL expecting a cache hit, which under
+            // no-store is three fetches per track per page instead of one. On a
+            // page with several previews that was most of the traffic, and the
+            // first thing to fail when connections were scarce.
+            if (snap.Art != null && snap.Art.Length > 0)
+              Send(ns, 200, snap.ArtMime, snap.Art, "public, max-age=86400, immutable");
             else Send(ns, 204, "text/plain", new byte[0]);
+          } else if (route == "/prefs") {
+            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(PrefsJson()));
+          } else if (route == "/prefs/set") {
+            string pk = QueryParam(path, "key") ?? "";
+            string pv = QueryParam(path, "value") ?? "";
+            if (pk.Length > 0) SetPref(pk, pv);
+            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(PrefsJson()));
           } else if (route == "/sources") {
             // Diagnostic: what each provider reports, and which one won.
             var sb = new StringBuilder();
@@ -1075,7 +1184,8 @@ namespace NowPlaying {
     // unlike websockets, and the browser reconnects on its own if this drops.
     // Polling at 30fps over HTTP would mean a new connection every frame.
     static int _spectrumClients;
-    const int MaxSpectrumClients = 8;
+    internal const int MaxSpectrumClients = 16;
+    internal static int SpectrumClients { get { return _spectrumClients; } }
 
     static void StreamSpectrum(NetworkStream ns) {
       if (Interlocked.Increment(ref _spectrumClients) > MaxSpectrumClients) {
@@ -1114,7 +1224,8 @@ namespace NowPlaying {
     // the app started. Reconnects lose nothing that matters, because an alert
     // nobody saw within a few seconds of the event has missed its moment.
     static int _twitchClients;
-    const int MaxTwitchClients = 8;
+    internal const int MaxTwitchClients = 16;
+    internal static int TwitchClients { get { return _twitchClients; } }
 
     static void StreamTwitch(NetworkStream ns) {
       if (Interlocked.Increment(ref _twitchClients) > MaxTwitchClients) {
@@ -1180,7 +1291,14 @@ namespace NowPlaying {
       }
     }
 
+    // Almost everything served here is live state that must never be cached, so
+    // that stays the default and callers opt out deliberately rather than opting
+    // in - a stale page or a stale /np is a bug that looks like a hardware fault.
     static void Send(NetworkStream ns, int code, string contentType, byte[] body) {
+      Send(ns, code, contentType, body, null);
+    }
+
+    static void Send(NetworkStream ns, int code, string contentType, byte[] body, string cacheControl) {
       string status = code == 200 ? "OK" : code == 204 ? "No Content"
                     : code == 404 ? "Not Found" : "Error";
       var sb = new StringBuilder();
@@ -1188,7 +1306,8 @@ namespace NowPlaying {
       sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
       sb.Append("Content-Length: ").Append(body == null ? 0 : body.Length).Append("\r\n");
       sb.Append("Access-Control-Allow-Origin: *\r\n");
-      sb.Append("Cache-Control: no-cache, no-store, must-revalidate\r\n");
+      sb.Append("Cache-Control: ")
+        .Append(cacheControl ?? "no-cache, no-store, must-revalidate").Append("\r\n");
       sb.Append("Connection: close\r\n\r\n");
       var head = Encoding.ASCII.GetBytes(sb.ToString());
       ns.Write(head, 0, head.Length);
