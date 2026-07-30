@@ -795,16 +795,41 @@
     toTimers.push(setTimeout(function(){ playNextOrResume(box); }, hold * 1000));
   }
 
-  // Back-to-back events share one panel, so the next one has to restage rather
-  // than cut: without dropping the alert face first, showFace sees the same
-  // face already showing, takes its early out, and the second name simply
-  // appears in place of the first with no animation at all.
+  // Put a box back on an ordinary face. Never leave it on none: all three
+  // faces sit at opacity 0 until one is marked, so a box with no face is a
+  // fully drawn card with nothing written in it.
+  function returnToStandby(b){
+    var u = usableFaces(b);
+    if(u.length){ showFace(b, u[0]); return; }
+    b.alertFace.classList.remove('on');
+    b.current = null;
+  }
+
   function playNextOrResume(box){
     clearToTimers();
     if(toQueue.length){
-      box.alertFace.classList.remove('on');
-      box.alertFace.classList.add('leaving');
-      box.current = null;
+      // Handing straight on to the OTHER box: give this one its standby face
+      // back on the way past. In pair mode it stays on screen throughout, and
+      // dropping its alert face without putting anything in its place leaves an
+      // empty card sitting on the stream. Nothing routine picks that up either
+      // - resumeStandby only rescues boxes still marked 'alert', so the repair
+      // came down to whatever called refreshBox next. Live that meant the
+      // five-second poll; under demo=1 there is no poll at all and the box
+      // stayed blank indefinitely, which is exactly the mode the customizer
+      // previews in.
+      //
+      // Same box again is different: it has to drop the alert face and restage,
+      // or showFace sees the face it is being asked for already showing, takes
+      // its early out, and the second name appears in place of the first with
+      // no animation at all. In rotate mode the box is about to be hidden
+      // anyway, so the retreat is its exit.
+      if(toQueue[0][0] !== box && !rotate){
+        returnToStandby(box);
+      } else {
+        box.alertFace.classList.remove('on');
+        box.alertFace.classList.add('leaving');
+        box.current = null;
+      }
       toTimers.push(setTimeout(function(){
         box.alertFace.classList.remove('leaving');
         playTakeover();
@@ -818,9 +843,11 @@
   function resumeStandby(){
     if(rotate){ rotateTo(phaseIx); return; }
     [follow, subs].forEach(function(b){
-      if(b.current !== 'alert') return;
-      var u = usableFaces(b);
-      if(u.length) showFace(b, u[0]);
+      if(b.el.classList.contains('hidden')) return;
+      // null as well as 'alert'. A box that has ended up with no face showing
+      // is the failure this is here to prevent, so it must not be the one case
+      // that gets skipped.
+      if(b.current === 'alert' || b.current === null) returnToStandby(b);
     });
   }
 
