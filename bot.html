@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat bot</title>
+<style>
+  :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
+         --accent:#35C8FF; --trim:#C9A961; --on-accent:#04121F;
+         --warn:#e8b339; --bad:#ff5470; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:26px 32px 4px}
+  h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:14px;max-width:820px;line-height:1.5}
+  body.embed header{display:none}
+  body.embed .wrap{padding-top:20px}
+  .wrap{padding:18px 32px 50px;display:flex;flex-direction:column;gap:18px}
+  a{color:var(--accent)}
+
+  .banner{display:none;border-radius:12px;padding:13px 16px;font-size:13px;line-height:1.55;border:1px solid}
+  .banner.on{display:block}
+  .banner.ok{background:rgba(53,200,255,.09);border-color:rgba(53,200,255,.32)}
+  .banner.warn{background:rgba(232,179,57,.09);border-color:rgba(232,179,57,.32)}
+  .banner.bad{background:rgba(255,84,112,.09);border-color:rgba(255,84,112,.34)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .phead{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .phead h2{margin:0;font-size:14px;font-weight:700}
+  .phead .sub{color:var(--dim);font-size:12.5px}
+  .spacer{flex:1 1 auto}
+
+  /* master switch */
+  .master{display:flex;align-items:center;gap:14px;padding:16px}
+  .big{font-size:15px;font-weight:700}
+  .state{font-size:12.5px;color:var(--dim);margin-top:2px}
+  .dot{width:9px;height:9px;border-radius:50%;background:#555;flex:0 0 auto}
+  .dot.live{background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .dot.bad{background:var(--bad)}
+  .dot.warn{background:var(--warn)}
+
+  .toggle{display:inline-flex;align-items:center;cursor:pointer;flex:0 0 auto}
+  .toggle input{position:absolute;opacity:0;pointer-events:none}
+  .track{width:42px;height:24px;border-radius:999px;background:#2A3550;position:relative;transition:background .16s}
+  .track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;
+    border-radius:50%;background:#f2f2f5;transition:transform .16s}
+  .toggle input:checked + .track{background:var(--accent)}
+  .toggle input:checked + .track::after{transform:translateX(18px)}
+  .toggle input:disabled + .track{opacity:.4;cursor:not-allowed}
+
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--dim);padding:10px 16px;border-bottom:1px solid var(--line)}
+  td{padding:9px 16px;border-bottom:1px solid #171F31;font-size:13.5px;vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  tr.off td{opacity:.55}
+  .cmd{font-family:Consolas,"Cascadia Mono",monospace;font-weight:700;white-space:nowrap}
+  .tag{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+    padding:2px 6px;border-radius:5px;background:#1B2438;color:var(--dim);margin-left:7px}
+  .tag.live{background:rgba(53,200,255,.16);color:var(--accent)}
+  .tag.mod{background:rgba(232,179,57,.16);color:var(--warn)}
+  input[type=text]{width:100%;background:#0A0F1A;border:1px solid var(--line);border-radius:7px;
+    color:var(--fg);padding:7px 10px;font-size:13px;font-family:inherit}
+  input[type=text]:disabled{opacity:.5}
+  input[type=number]{width:64px;background:#0A0F1A;border:1px solid var(--line);border-radius:7px;
+    color:var(--fg);padding:7px 8px;font-size:13px;font-family:inherit}
+  button{background:#1B2438;color:var(--fg);border:0;border-radius:7px;padding:7px 13px;
+    font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+  button:hover{background:#24304A}
+  button.primary{background:var(--accent);color:var(--on-accent)}
+  button.danger{color:var(--bad)}
+  .addrow{display:flex;gap:9px;padding:14px 16px;flex-wrap:wrap;align-items:center}
+  .addrow input[type=text]{flex:1 1 160px;width:auto}
+
+  .try{display:flex;gap:9px;padding:14px 16px;flex-wrap:wrap;align-items:center}
+  .try input[type=text]{flex:1 1 220px;width:auto;font-family:Consolas,"Cascadia Mono",monospace}
+  .tryout{padding:0 16px 14px;font-size:13px;line-height:1.5;color:var(--dim)}
+  .tryout b{color:var(--fg)}
+  .tryout .said{color:#BFE6FA;font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px}
+
+  .feed{padding:4px 16px 14px;font-size:12.5px;line-height:1.6;color:var(--dim)}
+  .feed div{padding:3px 0;border-bottom:1px solid #141B2A}
+  .feed div:last-child{border-bottom:0}
+  .feed .who{color:var(--fg);font-weight:600}
+  .feed .txt{color:#BFE6FA}
+  .empty{color:var(--dim);font-size:13px;padding:14px 16px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Chat bot</h1>
+  <p>Answers commands in your Twitch chat. It runs inside this app &mdash; nothing else to
+     start and nothing else to keep open.</p>
+</header>
+
+<div class="wrap">
+  <div class="banner" id="banner"></div>
+
+  <div class="panel">
+    <div class="master">
+      <span class="dot" id="dot"></span>
+      <div>
+        <div class="big">Chat bot</div>
+        <div class="state" id="state">&mdash;</div>
+      </div>
+      <span class="spacer"></span>
+      <label class="toggle" title="Turn the bot on or off">
+        <input type="checkbox" id="master" /><span class="track"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead">
+      <h2>Try a command</h2>
+      <span class="sub">Runs it through the real parser without posting to chat.</span>
+    </div>
+    <div class="try">
+      <input type="text" id="tryMsg" value="!song" spellcheck="false" />
+      <label class="toggle" title="Pretend to be a moderator">
+        <input type="checkbox" id="tryMod" /><span class="track"></span>
+      </label>
+      <span class="sub" style="color:var(--dim);font-size:12.5px">as mod</span>
+      <button type="button" class="primary" id="tryGo">Test</button>
+    </div>
+    <div class="tryout" id="tryOut"></div>
+  </div>
+
+  <div class="panel">
+    <div class="phead">
+      <h2>Commands</h2>
+      <span class="sub">Switch on the ones you want. Edit the text, then press Enter.</span>
+    </div>
+    <table><thead><tr>
+      <th style="width:1%">On</th><th>Command</th><th>Replies with</th>
+      <th style="width:1%">Cooldown</th><th style="width:1%"></th>
+    </tr></thead><tbody id="rows"></tbody></table>
+    <div class="addrow">
+      <input type="text" id="newName" placeholder="new command name (without !)" spellcheck="false" />
+      <input type="text" id="newText" placeholder="what it should say" spellcheck="false" />
+      <button type="button" class="primary" id="addBtn">Add</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><h2>Recently answered</h2>
+      <span class="sub">The last few things it actually said in chat.</span></div>
+    <div class="feed" id="feed"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var bannerEl = document.getElementById('banner'),
+      dotEl = document.getElementById('dot'), stateEl = document.getElementById('state'),
+      masterEl = document.getElementById('master'), rowsEl = document.getElementById('rows'),
+      feedEl = document.getElementById('feed');
+
+  if(new URLSearchParams(location.search).get('embed') === '1')
+    document.body.classList.add('embed');
+
+  function esc(s){ return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  var data = null, editing = false;
+
+  function set(params){
+    // One endpoint for every switch, so this is the only place that talks back.
+    return fetch('/bot/set?' + params, {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ data = d; render(); })
+      .catch(function(){});
+  }
+
+  function render(){
+    if(!data) return;
+    var s = data.status;
+
+    masterEl.checked = !!data.enabled;
+    masterEl.disabled = !data.configured;
+
+    dotEl.className = 'dot' + (s === 'live' ? ' live'
+      : (s === 'bad-token' || s === 'error') ? ' bad'
+      : s === 'connecting' ? ' warn' : '');
+
+    stateEl.textContent =
+        s === 'live'       ? 'Connected as ' + data.botUser + ' in #' + data.channel
+                             + (data.sent ? '  ·  ' + data.sent + ' replies sent' : '')
+      : s === 'connecting' ? 'Connecting to Twitch chat…'
+      : s === 'disabled'   ? 'Switched off'
+      : s === 'bad-token'  ? 'Twitch rejected the login'
+      : s === 'off'        ? 'Not set up yet'
+                           : 'Connection problem';
+
+    // The banner is the difference between "it didn't work" and knowing why.
+    var cls = 'warn', html = '';
+    if(data.scopeProblem){
+      cls = 'bad'; html = esc(data.scopeProblem);
+    } else if(s === 'off'){
+      var why = esc(data.detail || 'The bot is not configured yet');
+      if(!/[.!?]$/.test(why)) why += '.';
+      html = why + ' Add <code>botUsername</code> and <code>oauthToken</code> for the bot '
+           + 'account to <code>twitch-config.json</code>, then restart.';
+    } else if(s === 'bad-token'){
+      cls = 'bad'; html = esc(data.detail);
+    } else if(s === 'error'){
+      cls = 'bad'; html = esc(data.detail || 'Connection problem.');
+    } else if(s === 'live'){
+      cls = 'ok';
+      html = 'Listening in <strong>#' + esc(data.channel) + '</strong> as <strong>'
+           + esc(data.botUser) + '</strong>'
+           + (data.scopeUser ? ', token verified' : '') + '.'
+           + (data.reconnects ? ' Reconnected ' + data.reconnects + ' time(s) since start.' : '');
+    } else if(s === 'disabled' && data.configured){
+      html = 'Ready to go &mdash; flip the switch above to connect.';
+    }
+    bannerEl.className = 'banner' + (html ? ' on ' + cls : '');
+    bannerEl.innerHTML = html;
+
+    if(!editing) renderRows();
+    renderFeed();
+  }
+
+  function renderRows(){
+    var out = '';
+    (data.commands || []).forEach(function(c){
+      var live = c.builtin ? '<span class="tag live">live</span>' : '';
+      var mod  = c.modOnly ? '<span class="tag mod">mods</span>' : '';
+      var alias = c.aliases ? '<div style="color:var(--dim);font-size:11.5px;margin-top:2px">also '
+                  + esc(c.aliases.split(',').map(function(a){ return '!' + a.trim(); }).join(' ')) + '</div>' : '';
+      out += '<tr class="' + (c.enabled ? '' : 'off') + '" data-n="' + esc(c.name) + '">'
+        + '<td><label class="toggle"><input type="checkbox" class="en"' + (c.enabled ? ' checked' : '')
+          + ' /><span class="track"></span></label></td>'
+        + '<td><span class="cmd">!' + esc(c.name) + '</span>' + live + mod + alias + '</td>'
+        + '<td>' + (c.builtin
+            ? '<span style="color:var(--dim)">answers with live data</span>'
+            : '<input type="text" class="resp" value="' + esc(c.response) + '" spellcheck="false" />')
+          + '</td>'
+        + '<td><input type="number" class="cd" min="0" max="600" value="' + c.cooldown + '" /></td>'
+        + '<td>' + (c.builtin ? '' : '<button type="button" class="danger del">Delete</button>') + '</td>'
+        + '</tr>';
+    });
+    rowsEl.innerHTML = out;
+
+    [].forEach.call(rowsEl.querySelectorAll('tr'), function(tr){
+      var name = tr.getAttribute('data-n');
+      tr.querySelector('.en').addEventListener('change', function(){
+        set('what=command&name=' + encodeURIComponent(name) + '&value=' + (this.checked ? '1' : '0'));
+      });
+      var resp = tr.querySelector('.resp'), cd = tr.querySelector('.cd'),
+          del = tr.querySelector('.del');
+      // Typing must not be interrupted by the 3s poll redrawing the table.
+      [resp, cd].forEach(function(el){
+        if(!el) return;
+        el.addEventListener('focus', function(){ editing = true; });
+        el.addEventListener('blur', function(){ editing = false; save(); });
+        el.addEventListener('keydown', function(e){ if(e.key === 'Enter') el.blur(); });
+      });
+      function save(){
+        set('what=edit&name=' + encodeURIComponent(name)
+          + (resp ? '&response=' + encodeURIComponent(resp.value) : '')
+          + '&cooldown=' + encodeURIComponent(cd.value));
+      }
+      if(del) del.addEventListener('click', function(){
+        set('what=remove&name=' + encodeURIComponent(name));
+      });
+    });
+  }
+
+  function renderFeed(){
+    var r = data.recent || [];
+    if(!r.length){
+      feedEl.innerHTML = '<div style="border:0;padding:6px 0">Nothing yet. '
+        + 'Anything the bot answers in chat shows up here.</div>';
+      return;
+    }
+    feedEl.innerHTML = r.map(function(x){
+      return '<div>' + esc(x.at) + '  <span class="who">' + esc(x.who) + '</span> used <b>!'
+        + esc(x.cmd) + '</b><br><span class="txt">' + esc(x.text) + '</span></div>';
+    }).join('');
+  }
+
+  masterEl.addEventListener('change', function(){
+    set('what=bot&value=' + (this.checked ? '1' : '0'));
+  });
+
+  document.getElementById('addBtn').addEventListener('click', function(){
+    var n = document.getElementById('newName'), t = document.getElementById('newText');
+    if(!n.value.trim()) return;
+    set('what=add&name=' + encodeURIComponent(n.value.trim())
+      + '&response=' + encodeURIComponent(t.value))
+      .then(function(){ n.value = ''; t.value = ''; });
+  });
+
+  var tryOut = document.getElementById('tryOut');
+  document.getElementById('tryGo').addEventListener('click', function(){
+    var msg = document.getElementById('tryMsg').value;
+    var mod = document.getElementById('tryMod').checked ? '1' : '0';
+    fetch('/bot/test?msg=' + encodeURIComponent(msg) + '&mod=' + mod, {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        tryOut.innerHTML = d.answered
+          ? 'Matched <b>!' + esc(d.matched) + '</b> &rarr; <span class="said">' + esc(d.reply) + '</span>'
+          : 'No reply. Either it is not a command, it is switched off, it is '
+            + 'mods-only, or it is still cooling down.';
+      })
+      .catch(function(){ tryOut.textContent = 'Could not reach the app.'; });
+  });
+
+  (function poll(){
+    fetch('/bot',{cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ data = d; render(); })
+      .catch(function(){})
+      .finally(function(){ setTimeout(poll, 3000); });
+  })();
+})();
+</script>
+</body>
+</html>

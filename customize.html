@@ -5,8 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Customize overlay</title>
 <style>
-  :root{ --bg:#0d0d10; --panel:#16161a; --panel2:#131317; --line:#26262e;
-         --fg:#f2f2f5; --dim:#9a9aa8; --accent:#1db954; }
+  /* Shockblade: electric blue over deep blue-black, cool white type, gold used
+     only as trim. The greys are deliberately blue-tinted rather than neutral -
+     a neutral #16161a panel next to a cyan accent reads as dirty. */
+  :root{ --bg:#080B14; --panel:#10141F; --panel2:#0D111A; --line:#1E2740;
+         --fg:#EAF2FF; --dim:#8A9BC0; --accent:#35C8FF; --trim:#C9A961;
+         --on-accent:#04121F; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
@@ -25,7 +29,7 @@
   .tabs{display:flex;gap:8px;padding:18px 32px 0;flex-wrap:wrap}
   .tab{background:var(--panel);border:1px solid var(--line);color:var(--dim);
     border-radius:10px;padding:9px 16px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
-  .tab[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#06210f}
+  .tab[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
   .tab:not([aria-pressed=true]):hover{color:var(--fg)}
 
   .page{padding:18px 32px 40px;display:flex;flex-direction:column;gap:20px}
@@ -37,22 +41,22 @@
   .previewbar h2{margin:0;font-size:14px;font-weight:700}
   .spacer{flex:1 1 auto}
   .chipset{display:flex;gap:6px;flex-wrap:wrap}
-  .chip{background:#101014;border:1px solid var(--line);color:var(--dim);border-radius:999px;
+  .chip{background:#0A0F1A;border:1px solid var(--line);color:var(--dim);border-radius:999px;
     padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer}
-  .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#06210f}
+  .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
   .dims{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;
-    background:#101014;border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
+    background:#0A0F1A;border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap}
 
   .stagewrap{position:relative;display:flex;align-items:center;justify-content:center;
     min-height:120px;padding:18px;box-sizing:border-box;transition:background .2s}
   .sizehint{display:none;padding:11px 16px;font-size:12.5px;line-height:1.5;color:var(--dim);
-    border-top:1px solid var(--line);background:#101014}
+    border-top:1px solid var(--line);background:#0A0F1A}
   .sizehint.on{display:block}
   .sizehint b{color:var(--fg);font-variant-numeric:tabular-nums}
   .stagewrap.bg-stream{background:linear-gradient(135deg,#2b3a55 0%,#4a3b63 45%,#7a4b53 100%)}
   .stagewrap.bg-dark{background:#07070a}
   .stagewrap.bg-light{background:#e9e9ee}
-  .stagewrap.bg-grid{background:#1a1a20}
+  .stagewrap.bg-grid{background:#141B2A}
   .stagewrap.bg-stream::before,.stagewrap.bg-grid::before{content:"";position:absolute;inset:0;opacity:.16;
     background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),
                      linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
@@ -79,11 +83,11 @@
   .row > .lbl{flex:0 0 78px;color:var(--dim);font-size:12.5px;font-weight:600}
   .row .ctl{flex:1 1 160px;display:flex;align-items:center;gap:10px;min-width:0}
 
-  .seg{display:flex;background:#101014;border:1px solid var(--line);border-radius:8px;
+  .seg{display:flex;background:#0A0F1A;border:1px solid var(--line);border-radius:8px;
     padding:2px;gap:2px;flex-wrap:wrap}
   .seg button{background:transparent;border:0;border-radius:6px;color:var(--dim);
     padding:6px 11px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
-  .seg button[aria-pressed=true]{background:var(--accent);color:#06210f}
+  .seg button[aria-pressed=true]{background:var(--accent);color:var(--on-accent)}
   .seg button:not([aria-pressed=true]):hover{color:var(--fg)}
 
   input[type=range]{flex:1 1 auto;min-width:90px;accent-color:var(--accent);cursor:pointer}
@@ -99,7 +103,7 @@
   .toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;
     padding:7px 0;user-select:none}
   .toggle input{position:absolute;opacity:0;pointer-events:none}
-  .track{width:36px;height:20px;border-radius:999px;background:#31313c;flex:0 0 auto;
+  .track{width:36px;height:20px;border-radius:999px;background:#2A3550;flex:0 0 auto;
     position:relative;transition:background .16s}
   .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
     border-radius:50%;background:#f2f2f5;transition:transform .16s}
@@ -107,9 +111,9 @@
   .toggle input:checked + .track::after{transform:translateX(16px)}
   .toggle input:focus-visible + .track{outline:2px solid var(--fg);outline-offset:2px}
 
-  button.action{background:#2a2a33;color:var(--fg);border:0;border-radius:7px;
+  button.action{background:#1B2438;color:var(--fg);border:0;border-radius:7px;
     padding:7px 13px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
-  button.action:hover{background:#35353f}
+  button.action:hover{background:#24304A}
 
   /* Connection state for the Twitch sources, so a missing token is visible
      here rather than only as two boxes that never appear on stream. */
@@ -118,19 +122,19 @@
   .banner.on{display:block}
   .banner.warn{background:#2a1f10;border-color:#5a4420;color:#f2d6a2}
   .banner.bad{background:#2a1414;border-color:#5c2626;color:#f3bcbc}
-  .banner.ok{background:#10231a;border-color:#1f4a33;color:#a9e6c4}
+  .banner.ok{background:#0B2233;border-color:#1D4C66;color:#A9DCF0}
   .banner code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}
 
   /* ---------------- sticky output ---------------- */
   .out{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;
-    padding:14px 18px;background:#101014;border:1px solid var(--line);border-radius:12px;
+    padding:14px 18px;background:#0A0F1A;border:1px solid var(--line);border-radius:12px;
     box-shadow:0 -10px 30px rgba(0,0,0,.5);flex-wrap:wrap}
-  .out code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#cfe9d8;
+  .out code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#BFE6FA;
     word-break:break-all;flex:1 1 320px}
-  button.primary{background:var(--accent);color:#06210f;border:0;border-radius:7px;
+  button.primary{background:var(--accent);color:var(--on-accent);border:0;border-radius:7px;
     padding:9px 16px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap}
   button.primary:hover{filter:brightness(1.08)}
-  button.primary.copied{background:#3a3a44;color:var(--fg)}
+  button.primary.copied{background:#2A3550;color:var(--fg)}
   footer{color:var(--dim);font-size:13px;padding:0 32px 46px;line-height:1.6}
 </style>
 </head>
@@ -178,7 +182,9 @@
 
 <script>
 (function(){
-  var SWATCHES = ['1db954','fa2d48','ff0055','7b5cff','00c2ff','ffb300','ffffff','9a9aa8'];
+  // Shockblade first: the electric blue, its paler lightning tint, the white of
+  // the garb and the gold of the trim. The rest stay for anyone who wants them.
+  var SWATCHES = ['35c8ff','8fe3ff','ffffff','c9a961','7b5cff','00e5c0','fa2d48','ffb300'];
   var BACKGROUNDS = [['stream','Gameplay'],['dark','Dark'],['light','Light'],['grid','Grid']];
 
   // True OBS source dimensions. The preview derives its own size from these, so
@@ -217,7 +223,7 @@
       // is read once at startup, so changing it reloads the preview frame.
       live:['accent','radius','scale','opacity'],
       defaults:{
-        layout:'card', accent:'1db954', theme:'glass', align:'left', valign:'bottom',
+        layout:'card', accent:'35c8ff', theme:'glass', align:'left', valign:'bottom',
         scale:1, radius:18, opacity:100, transition:'slide', eq:'live', bars:5,
         speed:60, showAlbum:0, showArt:1, hideWhenPaused:0
       },
@@ -270,7 +276,7 @@
           + 'Use the test buttons to see each kind without waiting for a real one.',
       live:[],
       defaults:{
-        style:'slide', accent:'1db954', followColor:'1db954', subColor:'a970ff',
+        style:'slide', frame:'blade', accent:'35c8ff', followColor:'35c8ff', subColor:'a970ff',
         giftColor:'ff9d3f', align:'center', valign:'top', scale:1, radius:16,
         opacity:100, hold:6, showMessage:1
       },
@@ -287,6 +293,9 @@
           { key:'style', label:'Arrives', type:'seg', options:[
             ['slide','Slide'],['pop','Pop'],['bar','Banner']],
             note:'Use the test buttons above to watch it arrive.' },
+          { key:'frame', label:'Frame', type:'seg', options:[['blade','Blade'],['soft','Plain']],
+            note:'Blade cuts two corners, brackets the accent and turns the icon plate '
+               + 'on its point. Plain is the original bar down one edge.' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
@@ -318,13 +327,16 @@
           + '<strong>Browser Source</strong> so it can be positioned away from the now-playing card.',
       live:[],
       defaults:{
-        accent:'1db954', followColor:'1db954', subColor:'a970ff', theme:'glass',
-        align:'left', valign:'top', scale:1, radius:14, opacity:100, cycle:8,
+        accent:'35c8ff', followColor:'35c8ff', subColor:'a970ff', theme:'glass',
+        frame:'blade', align:'left', valign:'top', scale:1, radius:14, opacity:100, cycle:8,
         transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1
       },
       size:function(){ return {w:360, h:240}; },
       groups:[
         { title:'Look', controls:[
+          { key:'frame', label:'Frame', type:'seg', options:[['blade','Blade'],['soft','Plain']],
+            note:'Blade cuts two corners, brackets the accent and marks the label with a '
+               + 'shuriken. Plain is the original bar down one edge.' },
           { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']] },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },

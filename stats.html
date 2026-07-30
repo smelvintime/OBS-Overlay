@@ -6,8 +6,8 @@
 <title>Followers and subscribers</title>
 <style>
   /* ---------------- Options via URL query params (all optional) ----------------
-     ?accent=1db954                base accent, hex no #
-     ?followColor=1db954           per-box colours, hex no #
+     ?accent=35c8ff                base accent, hex no #
+     ?followColor=35c8ff           per-box colours, hex no #
      ?subColor=a970ff
      ?align=left|center|right      horizontal position          (default left)
      ?valign=top|middle|bottom     vertical position            (default top)
@@ -19,6 +19,8 @@
      ?transition=slide|fade        how faces change             (default slide)
      ?width=300                    box width px                 (default 300)
      ?gap=12                       space between boxes px       (default 12)
+     ?frame=blade|soft             blade = cut corners, brackets and a shuriken
+                                   mark; soft = the plain bar   (default blade)
      ?showFollowers=0|1            show the follower box        (default 1)
      ?showSubs=0|1                 show the subscriber box      (default 1)
      ?followGoal=500               override the automatic goal
@@ -30,8 +32,8 @@
      face instead of cycling to a blank one.
   ---------------------------------------------------------------------------- */
   :root{
-    --accent:#1db954;
-    --follow:#1db954;
+    --accent:#35c8ff;
+    --follow:#35c8ff;
     --sub:#a970ff;
     --overlay-opacity:1;
     --radius:14px;
@@ -41,6 +43,9 @@
     --card-border:rgba(255,255,255,.08);
     --text:#fff;
     --subtext:rgba(255,255,255,.6);
+    /* Four blades around a hollow centre. evenodd punches the hole so the mask
+       reads as a shuriken and not a plain star. */
+    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' fill-rule='evenodd' d='M12 1.2 14.7 9.3 22.8 12 14.7 14.7 12 22.8 9.3 14.7 1.2 12 9.3 9.3Z M14.2 12A2.2 2.2 0 1 1 9.8 12 2.2 2.2 0 1 1 14.2 12Z'/%3E%3C/svg%3E");
   }
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
@@ -68,8 +73,32 @@
   body.solid .box{background:#131316;backdrop-filter:none;-webkit-backdrop-filter:none}
   .box.show{opacity:var(--overlay-opacity);transform:none}
   .box.hidden{display:none}
-  .box::before{content:"";position:absolute;left:0;top:16%;bottom:16%;width:3px;
-    border-radius:3px;background:var(--c);box-shadow:0 0 12px var(--c)}
+
+  /* ---- blade frame ---------------------------------------------------------
+     Two opposite corners are cut back to almost nothing and the other two stay
+     round, which tilts the whole silhouette along a diagonal and reads as an
+     edge rather than a panel. The accent then sits in brackets on the two sharp
+     corners instead of a bar down one side - same job, carried by the shape
+     rather than a stripe glued to it.
+
+     Deliberately not clip-path: a real chamfer would drop the border along the
+     cut and take the drop shadow with it. Radius keeps border, shadow and the
+     backdrop blur all intact, and at this size reads the same. */
+  body.frame-blade .box{border-radius:var(--radius) 3px var(--radius) 3px}
+  body.frame-blade .box::before,
+  body.frame-blade .box::after{
+    content:"";position:absolute;width:15px;height:15px;pointer-events:none;
+    opacity:.95;transition:opacity .3s ease}
+  body.frame-blade .box::before{top:-1px;right:-1px;
+    border-top:2px solid var(--c);border-right:2px solid var(--c);
+    border-top-right-radius:3px;filter:drop-shadow(0 0 5px var(--c))}
+  body.frame-blade .box::after{bottom:-1px;left:-1px;
+    border-bottom:2px solid var(--c);border-left:2px solid var(--c);
+    border-bottom-left-radius:3px;filter:drop-shadow(0 0 5px var(--c))}
+
+  /* The old look, for anyone who wants the plain bar back. */
+  body.frame-soft .box::before{content:"";position:absolute;left:0;top:16%;bottom:16%;
+    width:3px;border-radius:3px;background:var(--c);box-shadow:0 0 12px var(--c)}
 
   /* A fixed face height is what stops the stack twitching every time a box
      flips between a name and a progress bar, since the two are different
@@ -87,6 +116,13 @@
 
   .label{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
     color:var(--c);opacity:.95}
+  /* A four-blade shuriken, masked rather than drawn, so it takes the accent
+     colour of whichever box it is in without a second copy per colour. */
+  body.frame-blade .label::before{
+    content:"";display:inline-block;width:9px;height:9px;margin-right:6px;
+    vertical-align:-1px;background-color:var(--c);
+    -webkit-mask:var(--shuriken) center/contain no-repeat;
+            mask:var(--shuriken) center/contain no-repeat}
   .value{margin-top:3px;font-size:20px;font-weight:700;letter-spacing:-.01em;
     line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .value .of{font-size:13px;font-weight:600;color:var(--subtext);margin-left:2px}
@@ -97,6 +133,13 @@
   .fill{height:100%;width:0;border-radius:6px;background:var(--c);
     box-shadow:0 0 10px var(--c);
     transition:width .6s cubic-bezier(.22,.9,.3,1)}
+
+  /* Skewed into a parallelogram so the goal bar reads as a cut rather than a
+     tube. The 2px inset keeps the leading corner off the box padding, since
+     skewing pushes the top edge out past the element's own width. */
+  body.frame-blade .bar{transform:skewX(-22deg);border-radius:2px;
+    margin-left:2px;margin-right:2px}
+  body.frame-blade .fill{border-radius:0}
 
   /* The count nudges when a real event lands, so a change is noticeable even
      if the box happens to be showing the other face at the time. */
@@ -157,6 +200,10 @@
   if(['slide','fade','none'].indexOf(tr) < 0) tr = 'slide';
   document.body.className = 'tr-' + tr;
   if((qs.get('theme')||'glass').toLowerCase() === 'solid') document.body.classList.add('solid');
+
+  var frame = (qs.get('frame')||'blade').toLowerCase();
+  if(['blade','soft'].indexOf(frame) < 0) frame = 'blade';
+  document.body.classList.add('frame-' + frame);
 
   function px(name, cssVar, lo, hi){
     var v = parseInt(qs.get(name),10);

@@ -24,10 +24,13 @@ $src     = "$PSScriptRoot\src\NowPlayingOverlay.cs"
 $srcAudio = "$PSScriptRoot\src\AudioSpectrum.cs"
 $srcTwitch = "$PSScriptRoot\src\TwitchEvents.cs"
 $srcLog  = "$PSScriptRoot\src\AppLog.cs"
+$srcChat = "$PSScriptRoot\src\TwitchChat.cs"
+$srcCmds = "$PSScriptRoot\src\BotCommands.cs"
 $overlay = "$PSScriptRoot\overlay.html"
 $layouts = "$PSScriptRoot\layouts.html"
 $control = "$PSScriptRoot\control.html"
 $app     = "$PSScriptRoot\app.html"
+$botPage = "$PSScriptRoot\bot.html"
 $custom  = "$PSScriptRoot\customize.html"
 $alerts  = "$PSScriptRoot\alerts.html"
 $stats   = "$PSScriptRoot\stats.html"
@@ -40,7 +43,7 @@ if (-not (Test-Path $sysRt))   { $missing += "System.Runtime facade: $sysRt" }
 foreach ($n in 'Windows.Media.winmd','Windows.Foundation.winmd','Windows.Storage.winmd') {
   if (-not (Test-Path (Join-Path $winmd $n))) { $missing += "WinRT metadata: $n" }
 }
-foreach ($f in $src,$srcAudio,$srcTwitch,$srcLog,$overlay,$layouts,$control,$custom,$alerts,$stats,$app) {
+foreach ($f in $src,$srcAudio,$srcTwitch,$srcLog,$srcChat,$srcCmds,$overlay,$layouts,$control,$custom,$alerts,$stats,$app,$botPage) {
   if (-not (Test-Path $f)) { $missing += "source file: $f" }
 }
 if ($missing.Count) {
@@ -80,12 +83,15 @@ $cscArgs = @(
   "/resource:$alerts,alerts.html"
   "/resource:$stats,stats.html"
   "/resource:$app,app.html"
+  "/resource:$botPage,bot.html"
   # System.Web.Extensions (JavaScriptSerializer, used to read Twitch JSON) is
   # already in csc.rsp, so referencing it here would be a duplicate-import error.
   $src
   $srcAudio
   $srcTwitch
   $srcLog
+  $srcChat
+  $srcCmds
 )
 
 $output = & $csc @cscArgs 2>&1

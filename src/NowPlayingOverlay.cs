@@ -50,6 +50,10 @@ namespace NowPlaying {
     static volatile Snapshot _current = new Snapshot();
     static int _port = 8787;
 
+    // The chat bot answers !song from the same snapshot the overlay draws, so
+    // chat and screen can never disagree about what is playing.
+    internal static Snapshot CurrentSnapshot() { return _current; }
+
     // The media APIs (WinRT session manager, iTunes COM) are single shared
     // objects. The poller touches them every second and /sources can touch them
     // from a request thread, so all provider access is serialised through this.
@@ -81,14 +85,17 @@ namespace NowPlaying {
           string v = line.Substring(eq + 1).Trim();
           if (k == "mode") _mode = NormalizeMode(v);
           else if (k == "app") _pinApp = v;
+          else if (k == "bot") TwitchChat.RestoreEnabled(v == "1" || v == "on" || v == "true");
         }
         if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
       } catch { }
     }
 
-    static void SaveSettings() {
+    internal static void SaveSettings() {
       try {
-        File.WriteAllText(SettingsPath(), "mode=" + _mode + "\r\napp=" + _pinApp + "\r\n");
+        File.WriteAllText(SettingsPath(),
+          "mode=" + _mode + "\r\napp=" + _pinApp + "\r\n"
+          + "bot=" + (TwitchChat.Enabled ? "1" : "0") + "\r\n");
       } catch { }
     }
 
@@ -177,10 +184,14 @@ namespace NowPlaying {
           using (var g = Graphics.FromImage(bmp)) {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Color.Transparent);
-            using (var b = new SolidBrush(Color.FromArgb(29, 185, 84)))
+            // Matches --accent in the pages (#35C8FF), so the tray icon and the
+            // dashboard are recognisably the same product.
+            using (var b = new SolidBrush(Color.FromArgb(0x35, 0xC8, 0xFF)))
               g.FillEllipse(b, 1, 1, 30, 30);
+            // Dark glyph on the bright accent, the same pairing the buttons use.
+            // White on #35C8FF is barely legible at 32px in a taskbar.
             using (var f = new Font("Segoe UI Symbol", 17, FontStyle.Bold))
-            using (var w = new SolidBrush(Color.White)) {
+            using (var w = new SolidBrush(Color.FromArgb(0x04, 0x12, 0x1F))) {
               var sf = new StringFormat { Alignment = StringAlignment.Center,
                                           LineAlignment = StringAlignment.Center };
               g.DrawString("♫", f, w, new RectangleF(0, 0, 32, 32), sf);
@@ -207,6 +218,7 @@ namespace NowPlaying {
       menu.Items.Add("Choose which player to follow...", null, (s, e) => OpenUrl("/app#control"));
       menu.Items.Add("Customize the overlay...", null, (s, e) => OpenUrl("/app#customize"));
       menu.Items.Add("Compare layouts...", null, (s, e) => OpenUrl("/app#layouts"));
+      menu.Items.Add("Chat bot...", null, (s, e) => OpenUrl("/app#bot"));
       menu.Items.Add("Preview overlay...", null, (s, e) => OpenUrl("/"));
       menu.Items.Add(new ToolStripSeparator());
 
@@ -449,6 +461,7 @@ namespace NowPlaying {
 
       AudioSpectrum.Start();   // live equaliser; self-heals if the device changes
       TwitchEvents.Start();    // no-op unless twitch-config.json has API creds
+      TwitchChat.Start();      // no-op unless configured AND switched on
 
       var accept = new Thread(() => {
         while (true) {
@@ -872,6 +885,41 @@ namespace NowPlaying {
             string who = QueryParam(path, "user") ?? "";
             Send(ns, 200, "application/json; charset=utf-8",
                  Encoding.UTF8.GetBytes(TwitchEvents.TestFire(kind, who)));
+          } else if (route == "/bot") {
+            Send(ns, 200, "application/json; charset=utf-8",
+                 Encoding.UTF8.GetBytes(TwitchChat.StatusJson()));
+          } else if (route == "/bot/set") {
+            // One endpoint for every switch on the page: the master toggle, a
+            // per-command toggle, an edit, an add, a delete. Keeps the browser
+            // side to a single fetch helper.
+            string what = QueryParam(path, "what") ?? "";
+            string name = QueryParam(path, "name") ?? "";
+            string val = QueryParam(path, "value") ?? "";
+            bool on = (val == "1" || val == "true");
+
+            if (what == "bot") {
+              TwitchChat.SetEnabled(on);
+              SaveSettings();
+            } else if (what == "command") {
+              BotCommands.SetEnabled(name, on);
+            } else if (what == "edit") {
+              int cd; if (!int.TryParse(QueryParam(path, "cooldown") ?? "", out cd)) cd = -1;
+              BotCommands.Update(name, QueryParam(path, "response"), cd,
+                                 (QueryParam(path, "modOnly") ?? "") == "1",
+                                 QueryParam(path, "aliases"));
+            } else if (what == "add") {
+              BotCommands.Add(name, QueryParam(path, "response") ?? "");
+            } else if (what == "remove") {
+              BotCommands.Remove(name);
+            }
+            Send(ns, 200, "application/json; charset=utf-8",
+                 Encoding.UTF8.GetBytes(TwitchChat.StatusJson()));
+          } else if (route == "/bot/test") {
+            Send(ns, 200, "application/json; charset=utf-8",
+                 Encoding.UTF8.GetBytes(TwitchChat.TestLine(
+                   QueryParam(path, "msg") ?? "!song",
+                   (QueryParam(path, "mod") ?? "") == "1",
+                   QueryParam(path, "nick") ?? "")));
           } else if (route == "/spectrum.json") {
             Send(ns, 200, "application/json; charset=utf-8",
                  Encoding.UTF8.GetBytes(SpectrumJson()));
@@ -886,6 +934,8 @@ namespace NowPlaying {
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(body));
           } else if (route == "/app" || route == "/app/") {
             SendResource(ns, "app.html");
+          } else if (route == "/bot-page" || route == "/bot-page/") {
+            SendResource(ns, "bot.html");
           } else if (route == "/control" || route == "/control/") {
             SendResource(ns, "control.html");
           } else if (route == "/layouts" || route == "/layouts/") {

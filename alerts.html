@@ -7,10 +7,12 @@
 <style>
   /* ---------------- Options via URL query params (all optional) ----------------
      ?style=slide|pop|bar          how the alert arrives        (default slide)
-     ?accent=1db954                base accent, hex no #
-     ?followColor=1db954           per-kind colours, hex no #
+     ?accent=35c8ff                base accent, hex no #
+     ?followColor=35c8ff           per-kind colours, hex no #
      ?subColor=a970ff
      ?giftColor=ff9d3f
+     ?frame=blade|soft             blade = cut corners, brackets and a shuriken
+                                   plate; soft = the plain bar  (default blade)
      ?align=left|center|right      horizontal position          (default center)
      ?valign=top|middle|bottom     vertical position            (default top)
      ?scale=1.0                    size multiplier
@@ -24,8 +26,8 @@
      happening - it is meant to sit over the whole canvas as its own OBS source.
   ---------------------------------------------------------------------------- */
   :root{
-    --accent:#1db954;
-    --follow:#1db954;
+    --accent:#35c8ff;
+    --follow:#35c8ff;
     --sub:#a970ff;
     --gift:#ff9d3f;
     --overlay-opacity:1;
@@ -34,6 +36,8 @@
     --card-border:rgba(255,255,255,.09);
     --text:#fff;
     --subtext:rgba(255,255,255,.66);
+    /* Four blades around a hollow centre; evenodd punches the hole. */
+    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' fill-rule='evenodd' d='M12 1.2 14.7 9.3 22.8 12 14.7 14.7 12 22.8 9.3 14.7 1.2 12 9.3 9.3Z M14.2 12A2.2 2.2 0 1 1 9.8 12 2.2 2.2 0 1 1 14.2 12Z'/%3E%3C/svg%3E");
   }
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
@@ -58,14 +62,39 @@
     color:var(--text);max-width:min(560px,88vw);
     opacity:0;will-change:transform,opacity;
   }
-  .alert::before{content:"";position:absolute;left:0;top:14%;bottom:14%;width:3px;
-    border-radius:3px;background:var(--c);box-shadow:0 0 14px var(--c)}
+  /* ---- blade frame ---------------------------------------------------------
+     Same language as the stat boxes: two corners cut back, the accent carried
+     in brackets on the diagonal rather than a stripe down one edge. */
+  body.frame-blade .alert{border-radius:var(--radius) 3px var(--radius) 3px}
+  body.frame-blade .alert::before,
+  body.frame-blade .alert::after{
+    content:"";position:absolute;width:18px;height:18px;pointer-events:none}
+  body.frame-blade .alert::before{top:-1px;right:-1px;
+    border-top:2px solid var(--c);border-right:2px solid var(--c);
+    border-top-right-radius:3px;filter:drop-shadow(0 0 6px var(--c))}
+  body.frame-blade .alert::after{bottom:-1px;left:-1px;
+    border-bottom:2px solid var(--c);border-left:2px solid var(--c);
+    border-bottom-left-radius:3px;filter:drop-shadow(0 0 6px var(--c))}
+
+  body.frame-soft .alert::before{content:"";position:absolute;left:0;top:14%;bottom:14%;
+    width:3px;border-radius:3px;background:var(--c);box-shadow:0 0 14px var(--c)}
 
   .icon{flex:0 0 auto;width:46px;height:46px;border-radius:50%;
     display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1;
     background:color-mix(in srgb,var(--c) 22%,transparent);
     border:1px solid color-mix(in srgb,var(--c) 55%,transparent);
     color:var(--c)}
+  /* The plate turns 45 degrees into a kite; the glyph inside turns back so it
+     stays upright. A rotated square next to cut corners is the whole motif in
+     one shape. */
+  body.frame-blade .icon{border-radius:6px;transform:rotate(45deg);
+    width:42px;height:42px;margin-left:3px}
+  body.frame-blade .icon > *{transform:rotate(-45deg);display:flex}
+  /* Masked rather than a font glyph, so it is a real shuriken at any size and
+     takes the per-kind colour for free. */
+  .shuriken{width:22px;height:22px;background-color:var(--c);
+    -webkit-mask:var(--shuriken) center/contain no-repeat;
+            mask:var(--shuriken) center/contain no-repeat}
   .body{min-width:0}
   .head{font-size:19px;font-weight:700;letter-spacing:-.01em;line-height:1.25;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -135,6 +164,10 @@
   if(['slide','pop','bar'].indexOf(style) < 0) style = 'slide';
   document.body.className = 'style-' + style;
 
+  var frame = (qs.get('frame')||'blade').toLowerCase();
+  if(['blade','soft'].indexOf(frame) < 0) frame = 'blade';
+  document.body.classList.add('frame-' + frame);
+
   var align  = (qs.get('align')||'center').toLowerCase();
   var valign = (qs.get('valign')||'top').toLowerCase();
   if(['left','center','right'].indexOf(align) < 0) align = 'center';
@@ -178,7 +211,7 @@
   function plural(n, one, many){ return n + ' ' + (n === 1 ? one : many); }
 
   function render(a){
-    var kind = a.kind, colour = 'var(--follow)', icon = '♥', head = '', sub = '', msg = '';
+    var kind = a.kind, colour = 'var(--follow)', icon = 'shuriken', head = '', sub = '', msg = '';
 
     if(kind === 'follow'){
       head = a.user; sub = 'just followed';
@@ -203,7 +236,13 @@
     }
 
     card.style.setProperty('--c', colour);
-    iconEl.textContent = icon;
+    // Wrapped in a span either way: the blade frame counter-rotates whatever is
+    // inside the plate, and it needs a real element to turn.
+    iconEl.textContent = '';
+    var glyph = document.createElement('span');
+    if(icon === 'shuriken') glyph.className = 'shuriken';
+    else glyph.textContent = icon;
+    iconEl.appendChild(glyph);
     headEl.textContent = head;
     subEl.textContent = sub;
     msgEl.textContent = msg;

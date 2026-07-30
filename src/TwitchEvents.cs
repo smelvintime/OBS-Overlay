@@ -109,6 +109,29 @@ namespace NowPlaying {
       return null;
     }
 
+    // The chat bot reads the same file for its own credentials, and the Helix
+    // helpers below are the only place that knows how to talk to Twitch's REST
+    // API correctly (client-id pairing, error bodies never returned as data).
+    // Sharing them beats a second, subtly different copy.
+    internal static string FindConfigPath() { return FindConfig(); }
+
+    internal static Dictionary<string, object> ReadConfig(string path) {
+      return new JavaScriptSerializer().DeserializeObject(File.ReadAllText(path))
+             as Dictionary<string, object>;
+    }
+
+    internal static string Helix(string url, out int httpStatus) {
+      return HelixGet(url, out httpStatus);
+    }
+
+    internal static string BroadcasterId { get { return _broadcasterId; } }
+    internal static bool ApiReady { get { return _broadcasterId.Length > 0; } }
+
+    internal static object NavPublic(string json, params string[] path) {
+      try { return Nav(_ser.DeserializeObject(json), path); } catch { return null; }
+    }
+    internal static string SNavPublic(object o, params string[] path) { return SNav(o, path); }
+
     static string StatePath() {
       string dir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
