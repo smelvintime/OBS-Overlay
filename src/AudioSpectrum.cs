@@ -158,6 +158,10 @@ namespace NowPlaying {
 
     static readonly double[] _smoothed = new double[Bands];
     static double _agc = 0.02;                         // adapts to overall volume
+    // Each band's own recent peak, released far more slowly than _agc. This is
+    // what stops bass-heavy music from pinning the left-hand bars - see the long
+    // note in Compute() for why the global _agc alone could never do it.
+    static readonly double[] _ref = new double[Bands];
 
     public static string Status { get { return _status; } }
 
@@ -453,13 +457,51 @@ namespace NowPlaying {
       else _agc += (frameMax - _agc) * 0.08;                // ease down
       if (_agc < 1e-5) _agc = 1e-5;
 
+      // Why the global _agc cannot carry this on its own.
+      //
+      // _agc snaps up to frameMax the instant it rises, and frameMax in nearly
+      // all music IS the bass. So the loudest band is dividing by itself every
+      // frame and lands on 1.0 by construction. On bass-heavy tracks that meant
+      // the left-hand bars sat welded to the top and the kick drum - the one
+      // thing worth seeing - was invisible, because there was no headroom left
+      // above the level the bass already held.
+      //
+      // Each band now also carries its own reference, released about five times
+      // slower than _agc (0.015 against 0.08, so roughly a two-second memory
+      // rather than half a second). A band is measured against what IT has been
+      // doing lately instead of against whatever the loudest band is doing right
+      // now. Sustained bass pushes its own reference up and then reads part-way
+      // down it between hits, so the kick has somewhere to travel to.
+      //
+      // Two floors keep that from misbehaving. The relative floor stops a band
+      // that is genuinely quiet from being self-normalised up into a full bar -
+      // without it, tape hiss in a dead treble band would dance like a lead
+      // instrument. The absolute floor is the same silence guard _agc already
+      // had: in a silent room every reference decays toward the noise floor, and
+      // dividing noise by noise is 1.0, which would light the whole meter up.
+      const double PerBand = 0.75;      // 0 = old global behaviour, 1 = fully per-band
       for (int b = 0; b < Bands; b++) {
-        double norm = raw[b] / _agc;                        // 0..1
+        if (raw[b] > _ref[b]) _ref[b] = raw[b];             // snap up on a transient
+        else _ref[b] += (raw[b] - _ref[b]) * 0.015;         // then let go slowly
+
+        double denom = (1 - PerBand) * _agc + PerBand * _ref[b];
+        double relFloor = _agc * 0.12;
+        if (denom < relFloor) denom = relFloor;
+        if (denom < 1e-5) denom = 1e-5;
+
+        double norm = raw[b] / denom;                       // 0..1
         if (norm > 1) norm = 1;
         // Perceptual curve: loudness is roughly logarithmic, so without this
-        // everything below the peak looks nearly flat. The 1.25 headroom lets
-        // the strongest bands actually reach the top of the meter.
-        double shaped = Math.Pow(norm, 0.45) * 1.25;
+        // everything below the peak looks nearly flat.
+        //
+        // The old curve multiplied by 1.25 to let the strongest bands reach the
+        // top. Solving Math.Pow(n, 0.45) * 1.25 >= 1 gives n >= 0.61, so every
+        // band above 61% of the reference clipped to a full bar and the top
+        // third of the range did not exist. That alone flattened the loud end
+        // even before the _agc problem above. Per-band references reach 1.0 on
+        // their own at a real peak, so the multiplier is gone and the exponent
+        // is gentler.
+        double shaped = Math.Pow(norm, 0.55);
         if (shaped > 1) shaped = 1;
         // Fast attack, slower release - the classic VU meter feel. Release is
         // what governs how lively this looks: a slow one leaves the bars
