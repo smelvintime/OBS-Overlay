@@ -942,6 +942,20 @@
                                : ', but not subscribed to any events yet.');
       if(twitch.subs && twitch.subs.total === -2)
         html += ' Subscriptions are unavailable with this token or channel, so that box stays hidden.';
+      // Connected but with nothing in it is the confusing case: the preview
+      // quietly switches to sample numbers and otherwise looks like it is
+      // simply ignoring the settings. Say so, and say which parts of the real
+      // thing will still be empty once it is on stream.
+      if(current === 'stats' && statsDemo){
+        var missing = [];
+        if(twitch.followers && twitch.followers.total === 0) missing.push('no followers yet');
+        if(twitch.followers && !twitch.followers.latest)     missing.push('no recent follower recorded');
+        if(twitch.subs && twitch.subs.total === -2)          missing.push('no subscriptions on this channel');
+        html += '<br><strong>The preview below is sample data.</strong> This channel has '
+             + (missing.length ? missing.join(', ') : 'nothing to show yet')
+             + ', which on stream draws a single box holding a single face &mdash; nothing to '
+             + 'cycle between. Style it here and it will look right once the numbers arrive.';
+      }
       // The count is the thing to watch when testing with a second account: it
       // separates "Twitch sent nothing" from "the page failed to draw it".
       html += '<br><strong>' + ev.received + '</strong> event'
@@ -974,6 +988,24 @@
     bannerEl.innerHTML = html;
   }
 
+  // How many faces the real data could actually fill. "Live" only says the
+  // socket connected; it says nothing about there being anything to look at. A
+  // brand-new or non-affiliate channel connects perfectly and still reports no
+  // followers, no most-recent name and no subscriptions at all - which draws
+  // exactly one box holding exactly one face. That is right on stream and
+  // useless here, because there is no second face to cycle to, no subscriber
+  // box to put above the follower box, and nothing to watch a transition on.
+  // Below two faces there is nothing to dress, so the preview uses samples.
+  function facesAvailable(d){
+    if(!d) return 0;
+    var n = 0;
+    if(d.followers && d.followers.total >= 0) n++;
+    if(d.followers && d.followers.latest)     n++;
+    if(d.subs && d.subs.total >= 0)           n++;
+    if(d.subs && d.subs.latest)               n++;
+    return n;
+  }
+
   // Polled rather than read once, so the banner doubles as a test readout: follow
   // from a second account and the received count ticks up here within seconds.
   (function pollTwitch(){
@@ -982,7 +1014,7 @@
       .then(function(d){
         twitch = d;
         var wasDemo = statsDemo;
-        statsDemo = (d.status !== 'live');
+        statsDemo = (d.status !== 'live') || facesAvailable(d) < 2;
         showBanner();
         if(current === 'stats' && wasDemo !== statsDemo) reloadFrame();
       })
