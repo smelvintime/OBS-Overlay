@@ -40,9 +40,22 @@
     --card-border:rgba(255,255,255,.09);
     --text:#fff;
     --subtext:rgba(255,255,255,.66);
-    /* Four swept blades around a hollow hub - one blade rotated four times,
-       with the centre punched by an SVG mask. */
-    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='1.85' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)'%3E%3Ccircle cx='12' cy='12' r='3.5'/%3E%3Cpath d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(90 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(180 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3Cpath transform='rotate(270 12 12)' d='M14.3 9.7C16.4 7.4 15.4 3.6 12.9 1.5 12.2 4.8 11 7.5 9.7 9.7Z'/%3E%3C/g%3E%3C/svg%3E");
+    /* Three blades, not four - Zed's shuriken is a tri-blade, and a four-point
+       star reads as a generic ninja prop rather than as him.
+       Each blade is a claw: one path rotated to 120 and 240, with the centre
+       punched by an SVG mask.
+       Two things about the geometry are load-bearing and easy to break.
+       Both root points sit ON the hub circle (r 4.3), so the base of each blade
+       is a 115-degree arc of the hub and the blade grows out of the centre ring.
+       An earlier cut had the back edge starting at r 8.5 and only the inner root
+       on the hub, which pinned each claw to the middle by a single vertex and
+       left its base hanging in open space - the whole thing looked broken and it
+       was not obvious why.
+       The two edges also both run the full length of the blade and converge on
+       an 18-degree cusp. Join them with an arc instead and the blade becomes a
+       circular sector, which reads as a fan; scoop only near the tip and it
+       reads as a fat comma. */
+    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='2.7' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)'%3E%3Ccircle cx='12' cy='12' r='4.3'/%3E%3Cpath d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(120 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(240 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3C/g%3E%3C/svg%3E");
   }
   /* Shadow - base Zed rather than Shockblade. Same variable names, so every rule
      below is written once and both palettes drive it. Sub and gift keep their own
