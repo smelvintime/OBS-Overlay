@@ -85,6 +85,7 @@ icon → **Open dashboard…**):
 | [Twitch](docs/twitch.md) | The setup wizard, alerts and goal boxes, styling, testing without real events, the chat bot, manual setup |
 | [Themes](docs/themes.md) | Switching, building your own, sharing theme files |
 | [Reference](docs/reference.md) | Tray menu, autostart, ports, crash recovery, the HTTP API |
+| [Extending](docs/extending.md) | For tinkerers: adding your own pages, overlays and themes — each plugs in as a single dropped file |
 
 ## License
 

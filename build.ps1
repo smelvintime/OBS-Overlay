@@ -22,32 +22,19 @@ $csc     = "$env:windir\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $winmd   = "$env:windir\System32\WinMetadata"
 $fw      = "$env:windir\Microsoft.NET\Framework64\v4.0.30319"
 $sysRt   = "$env:windir\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.0.0__b03f5f7f11d50a3a\System.Runtime.dll"
-$src     = "$PSScriptRoot\src\NowPlayingOverlay.cs"
-$srcAudio = "$PSScriptRoot\src\AudioSpectrum.cs"
-$srcTwitch = "$PSScriptRoot\src\TwitchEvents.cs"
-$srcLog  = "$PSScriptRoot\src\AppLog.cs"
-$srcChat = "$PSScriptRoot\src\TwitchChat.cs"
-$srcCmds = "$PSScriptRoot\src\BotCommands.cs"
-$srcDiag = "$PSScriptRoot\src\Diagnostics.cs"
+
+# Everything is discovered, not listed: every .cs in src\ compiles in, every
+# .html in the repo root is embedded (the server serves any embedded page at
+# /<name> by convention), and every themes\*.json ships as a built-in theme.
+# Adding a page, a theme or a C# module is dropping a file - no build edits.
 # Deliberately no installer source: self-copying and shortcut-writing are
 # exactly the patterns antivirus heuristics distrust, so the app stays a
 # single file the user places wherever they want it.
-$overlay = "$PSScriptRoot\overlay.html"
-$layouts = "$PSScriptRoot\layouts.html"
-$control = "$PSScriptRoot\control.html"
-$app     = "$PSScriptRoot\app.html"
-$botPage = "$PSScriptRoot\bot.html"
-$helpPage = "$PSScriptRoot\help.html"
-$custom  = "$PSScriptRoot\customize.html"
-$alerts  = "$PSScriptRoot\alerts.html"
-$stats   = "$PSScriptRoot\stats.html"
-$setup   = "$PSScriptRoot\setup.html"
-$themesPage = "$PSScriptRoot\themes.html"
-$looksPage = "$PSScriptRoot\looks.html"
-$shared  = "$PSScriptRoot\shared.js"
-$themeSb = "$PSScriptRoot\themes\shockblade.json"
-$themeSh = "$PSScriptRoot\themes\shadow.json"
-$outExe  = Join-Path $OutDir 'NowPlayingOverlay.exe'
+$srcFiles   = @(Get-ChildItem "$PSScriptRoot\src\*.cs"      | Sort-Object Name)
+$pageFiles  = @(Get-ChildItem "$PSScriptRoot\*.html"        | Sort-Object Name)
+$themeFiles = @(Get-ChildItem "$PSScriptRoot\themes\*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
+$shared     = "$PSScriptRoot\shared.js"
+$outExe     = Join-Path $OutDir 'NowPlayingOverlay.exe'
 
 # Fail with a useful message rather than a compiler error further down.
 $missing = @()
@@ -56,8 +43,18 @@ if (-not (Test-Path $sysRt))   { $missing += "System.Runtime facade: $sysRt" }
 foreach ($n in 'Windows.Media.winmd','Windows.Foundation.winmd','Windows.Storage.winmd') {
   if (-not (Test-Path (Join-Path $winmd $n))) { $missing += "WinRT metadata: $n" }
 }
-foreach ($f in $src,$srcAudio,$srcTwitch,$srcLog,$srcChat,$srcCmds,$srcDiag,$overlay,$layouts,$control,$custom,$alerts,$stats,$app,$botPage,$helpPage,$setup) {
-  if (-not (Test-Path $f)) { $missing += "source file: $f" }
+if ($srcFiles.Count -eq 0) { $missing += "source files: $PSScriptRoot\src\*.cs" }
+# The two pages the app cannot come up without; everything else is optional.
+foreach ($core in 'overlay.html','app.html') {
+  if (-not ($pageFiles | Where-Object { $_.Name -eq $core })) { $missing += "page: $core" }
+}
+if (-not (Test-Path $shared)) { $missing += "shared.js" }
+# Page names become URLs (/<name>) and resource lookups are case-sensitive,
+# so hold the convention at the door instead of debugging it at runtime.
+foreach ($p in $pageFiles) {
+  if ($p.BaseName -cnotmatch '^[a-z0-9-]+$') {
+    $missing += "page name must be lowercase letters/digits/dashes: $($p.Name)"
+  }
 }
 if ($missing.Count) {
   Write-Host ""
@@ -120,34 +117,18 @@ $cscArgs = @(
   "/reference:$sysRt"
   "/reference:$fw\Microsoft.CSharp.dll"
   "/reference:$fw\System.Core.dll"
-  # embedded so the .exe needs no files beside it
-  "/resource:$overlay,overlay.html"
-  "/resource:$layouts,layouts.html"
-  "/resource:$control,control.html"
-  "/resource:$custom,customize.html"
-  "/resource:$alerts,alerts.html"
-  "/resource:$stats,stats.html"
-  "/resource:$app,app.html"
-  "/resource:$botPage,bot.html"
-  "/resource:$helpPage,help.html"
-  "/resource:$setup,setup.html"
-  "/resource:$themesPage,themes.html"
-  "/resource:$looksPage,looks.html"
-  "/resource:$shared,shared.js"
-  # Built-in themes ride along as data; user themes live in %APPDATA%.
-  "/resource:$themeSb,theme-shockblade.json"
-  "/resource:$themeSh,theme-shadow.json"
-  # System.Web.Extensions (JavaScriptSerializer, used to read Twitch JSON) is
-  # already in csc.rsp, so referencing it here would be a duplicate-import error.
-  $src
-  $srcAudio
-  $srcTwitch
-  $srcLog
-  $srcChat
-  $srcCmds
-  $srcDiag
-  $srcStamp
 )
+# Embedded so the .exe needs no files beside it. Resource names are the plain
+# file names; the server's convention route and theme discovery key off them.
+foreach ($p in $pageFiles)  { $cscArgs += "/resource:$($p.FullName),$($p.Name)" }
+$cscArgs += "/resource:$shared,shared.js"
+# Built-in themes ride along as data (theme-<file> prefix marks them as such);
+# user themes live in %APPDATA%.
+foreach ($t in $themeFiles) { $cscArgs += "/resource:$($t.FullName),theme-$($t.Name)" }
+# System.Web.Extensions (JavaScriptSerializer, used to read Twitch JSON) is
+# already in csc.rsp, so referencing it here would be a duplicate-import error.
+foreach ($s in $srcFiles)   { $cscArgs += $s.FullName }
+$cscArgs += $srcStamp
 
 $output = & $csc @cscArgs 2>&1
 $code = $LASTEXITCODE

@@ -1360,6 +1360,12 @@ namespace NowPlaying {
             SendResource(ns, "stats.html");
           } else if (route == "/") {
             SendResource(ns, "overlay.html");
+          } else if (IsEmbeddedPage(route)) {
+            // Convention route: build.ps1 embeds every .html in the repo root,
+            // so a page dropped in there is served at /<name> with no entry in
+            // this chain. The explicit routes above always win, and PageNameRe
+            // allows no dots or slashes, so there is nothing to traverse with.
+            SendResource(ns, route.Trim('/') + ".html");
           } else {
             Send(ns, 404, "text/plain", Encoding.UTF8.GetBytes("Not found"));
           }
@@ -1611,6 +1617,20 @@ namespace NowPlaying {
       }
     }
 
+    // The names build.ps1 accepts for pages, which is also what keeps this
+    // safe as a URL: lowercase letters, digits and dashes only.
+    static readonly System.Text.RegularExpressions.Regex PageNameRe =
+      new System.Text.RegularExpressions.Regex("^[a-z0-9-]{1,64}$");
+
+    static bool IsEmbeddedPage(string route) {
+      string name = route.Trim('/');
+      if (!PageNameRe.IsMatch(name)) return false;
+      try {
+        return Assembly.GetExecutingAssembly()
+          .GetManifestResourceInfo(name + ".html") != null;
+      } catch { return false; }
+    }
+
     static void SendResource(NetworkStream ns, string name) {
       SendResource(ns, name, "text/html; charset=utf-8");
     }
@@ -1652,7 +1672,28 @@ namespace NowPlaying {
       return dir;
     }
 
-    static readonly string[] BuiltinThemes = { "theme-shockblade.json", "theme-shadow.json" };
+    // Discovered from the exe rather than listed here: build.ps1 embeds every
+    // themes\*.json as theme-<file>, so shipping a new built-in theme is
+    // dropping a file in that folder - nothing in this file changes.
+    static string[] BuiltinThemes() {
+      var list = new List<string>();
+      foreach (var n in Assembly.GetExecutingAssembly().GetManifestResourceNames())
+        if (n.StartsWith("theme-", StringComparison.Ordinal)
+            && n.EndsWith(".json", StringComparison.Ordinal)) list.Add(n);
+      list.Sort(StringComparer.Ordinal);       // stable order across runs
+      return list.ToArray();
+    }
+
+    // "shockblade" -> is theme-shockblade.json compiled into this exe?
+    // The guards that used to hard-code the two original names go through this
+    // instead, so a new built-in theme is automatically protected from being
+    // shadowed or deleted by a user file of the same name.
+    static bool IsBuiltinTheme(string name) {
+      try {
+        return Assembly.GetExecutingAssembly()
+          .GetManifestResourceInfo("theme-" + name + ".json") != null;
+      } catch { return false; }
+    }
 
     static string ThemesJson() {
       string active;
@@ -1664,7 +1705,7 @@ namespace NowPlaying {
       var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
       bool first = true;
 
-      foreach (var res in BuiltinThemes) {
+      foreach (var res in BuiltinThemes()) {
         string raw = ResourceText(res);
         if (raw == null) continue;
         if (!first) sb.Append(',');
@@ -1741,7 +1782,7 @@ namespace NowPlaying {
         error = "theme names are 1-32 characters: lowercase letters, digits and dashes";
         return false;
       }
-      if (name == "shockblade" || name == "shadow") {
+      if (IsBuiltinTheme(name)) {
         error = "that name belongs to a built-in theme";
         return false;
       }
@@ -1796,7 +1837,7 @@ namespace NowPlaying {
     static bool DeleteUserTheme(string name, out string error) {
       error = "";
       if (!ThemeNameRe.IsMatch(name)) { error = "no such theme"; return false; }
-      if (name == "shockblade" || name == "shadow") { error = "built-in themes cannot be deleted"; return false; }
+      if (IsBuiltinTheme(name)) { error = "built-in themes cannot be deleted"; return false; }
       try {
         string file = Path.Combine(ThemesDir(), name + ".json");
         if (File.Exists(file)) File.Delete(file);
