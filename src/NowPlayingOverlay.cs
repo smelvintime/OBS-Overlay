@@ -497,10 +497,16 @@ namespace NowPlaying {
       _relaunchArgs = keepArgs.ToArray();
       if (_relaunchCount > 0) AppLog.Write("this is relaunch #" + _relaunchCount + " after a crash");
 
-      // Offer to install on the very first run, before the port is bound.
-      // Skipped for a relaunch after a crash - the question has been answered
-      // once already, and a crash loop must not become a dialog loop.
-      if (_relaunchCount == 0 && Installer.MaybeOffer()) return 0;
+      // No first-run installer, deliberately. Two attempts at one lived here:
+      // the first copied the exe to a folder the user chose and launched it,
+      // the second only opened Explorer but still created shortcuts through
+      // WScript.Shell. Both were deleted on download as
+      // Trojan:Win32/Wacatac.C!ml, while a build with the file excluded from
+      // the compile entirely was clean - same URL, same reputation, one
+      // variable. Self-copying and late-bound shell automation are what
+      // droppers do, and an unsigned binary cannot do them and look like
+      // anything else. The advice moved to setup.html and the README, where it
+      // costs nothing in the binary. Worth restoring if this is ever signed.
 
       // A crashed instance's socket is not always released the instant the
       // process dies - an auto-relaunch (below) can spawn fast enough to hit

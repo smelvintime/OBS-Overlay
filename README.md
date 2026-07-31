@@ -15,10 +15,12 @@ repository to use the overlay — that's only for building it yourself.
 
 ## Quick start
 
-1. **Run it.** The first time, it asks where you'd like to keep it and offers a
-   desktop/Start-menu shortcut, so it doesn't end up lost in Downloads. It copies
-   itself there and starts from its new home. After that no window appears: it lives
-   in the **system tray** (bottom-right, next to the clock).
+1. **Move it out of Downloads, then run it.** Drag the file somewhere it will stay —
+   `Documents`, or a folder of your own. It's one self-contained file, so that's the
+   whole job, and clearing out Downloads later would otherwise take your overlay with
+   it. Right-click it there and **Pin to Start** or **Create shortcut** if you want it
+   handy. Then run it: no window appears, it lives in the **system tray**
+   (bottom-right, next to the clock).
 2. **Set up Twitch** (optional) — a setup page opens on first run and walks you
    through it, including a **Connect with Twitch** button that handles sign-in for
    you. No terminal, no tokens to paste, and it renews itself afterwards. Skip this
