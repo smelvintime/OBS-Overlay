@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Themes</title>
+<style>
+  :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
+         --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F;
+         --input:#0A0F1A; --ghost:#1B2438; --ghost-h:#24304A;
+         --track:#2A3550; --hair:#171F31; --code:#BFE6FA; --bad:#ff5470; }
+  /* Other palettes come from /themes as data - shared.js applies them. */
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:26px 32px 4px}
+  h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:14px;max-width:820px;line-height:1.5}
+  body.embed header{display:none}
+  body.embed .wrap{padding-top:20px}
+  .wrap{padding:18px 32px 50px;display:flex;flex-direction:column;gap:18px}
+  a{color:var(--accent)}
+
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .bar .note{color:var(--dim);font-size:12.5px}
+  button{background:var(--ghost);color:var(--fg);border:0;border-radius:8px;padding:8px 14px;
+    font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+  button:hover{background:var(--ghost-h)}
+  button.primary{background:var(--accent);color:var(--on-accent)}
+  button.danger{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+  button.small{padding:5px 10px;font-size:12px}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    cursor:pointer;outline:2px solid transparent}
+  .card.sel{outline-color:var(--accent)}
+  /* The mock is drawn from each theme's own variables, set inline per card -
+     a still-life of a dashboard sliver and an overlay card, no iframe. A grid
+     of live iframes is exactly the six-connection starvation the dashboard
+     already met once; see app.html. */
+  .mock{height:110px;display:flex;flex-direction:column;gap:8px;padding:12px;
+    background:var(--m-bg,#080B14)}
+  .mock .mhead{height:14px;border-radius:4px;background:var(--m-panel,#10141F);
+    border:1px solid var(--m-line,#1E2740);display:flex;align-items:center;gap:4px;padding:0 5px}
+  .mock .mhead i{display:block;width:22px;height:5px;border-radius:2px;background:var(--m-accent,#9BD4F5)}
+  .mock .mhead i+i{width:14px;opacity:.45}
+  .mock .mcard{flex:1;border-radius:8px;background:var(--m-card,rgba(18,18,20,.82));
+    border:1px solid var(--m-border,rgba(255,255,255,.08));display:flex;align-items:center;
+    gap:8px;padding:0 10px}
+  .mock .mart{width:34px;height:34px;border-radius:6px;background:var(--m-accent,#9BD4F5)}
+  .mock .mlines{flex:1;display:flex;flex-direction:column;gap:5px}
+  .mock .mlines i{display:block;height:6px;border-radius:3px;background:var(--m-text,#fff);width:70%}
+  .mock .mlines i+i{height:5px;background:var(--m-subtext,rgba(255,255,255,.62));width:45%}
+  .meta{display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--hair)}
+  .meta .name{font-weight:700;font-size:13.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tag{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:2px 6px}
+  .tag.on{color:var(--on-accent);background:var(--accent);border-color:var(--accent)}
+  .cardbtns{display:flex;gap:6px;padding:0 12px 12px;flex-wrap:wrap}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .phead{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .phead h2{margin:0;font-size:14px;font-weight:700}
+  .phead .sub{color:var(--dim);font-size:12.5px}
+  .pbody{padding:15px 16px}
+
+  .preview{height:230px;border:0;width:100%;display:block;background:
+    repeating-conic-gradient(#101015 0% 25%, #17171d 0% 50%) 0 0/28px 28px}
+
+  .editor{display:none}
+  .editor.on{display:block}
+  .frow{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:12px;color:var(--dim);font-weight:700}
+  .field input[type=text]{background:var(--input);border:1px solid var(--line);color:var(--fg);
+    border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;width:220px}
+  .field input[type=color]{width:44px;height:32px;border:1px solid var(--line);border-radius:8px;
+    background:var(--input);padding:2px;cursor:pointer}
+  .field input[type=range]{width:110px}
+  .field .pair{display:flex;align-items:center;gap:8px}
+  .field .pct{font-size:11.5px;color:var(--dim);width:34px;text-align:right;
+    font-variant-numeric:tabular-nums}
+  .sect{margin:4px 0 8px;font-size:12.5px;font-weight:700;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.05em}
+  .msg{display:none;border-radius:10px;padding:10px 13px;font-size:13px;margin-top:12px;border:1px solid}
+  .msg.on{display:block}
+  .msg.ok{background:rgba(155,212,245,.09);border-color:rgba(155,212,245,.32)}
+  .msg.bad{background:rgba(255,84,112,.09);border-color:rgba(255,84,112,.34);color:var(--bad)}
+</style>
+<script src="/shared.js"></script>
+<script>if(window.NPO) NPO.themeBoot('dashboard');</script>
+</head>
+<body>
+<header>
+  <h1>Themes</h1>
+  <p>Every palette this app knows. Apply one to recolour the dashboard and every OBS source
+     at once, make your own from any starting point, or trade them as files with other people.</p>
+</header>
+
+<div class="wrap">
+
+  <div class="bar">
+    <button type="button" class="primary" id="newBtn">New theme</button>
+    <button type="button" id="importBtn">Import a theme file</button>
+    <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+    <span class="note">Your themes live in the app's data folder as plain JSON &mdash;
+      export one and send the file to share a look.</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="panel">
+    <div class="phead"><h2>Live preview</h2>
+      <span class="sub" id="prevSub">click a card above</span></div>
+    <iframe class="preview" id="preview" title="Theme preview"></iframe>
+  </div>
+
+  <div class="panel editor" id="editor">
+    <div class="phead"><h2 id="edTitle">New theme</h2>
+      <span class="sub">colours land in the preview as you pick them</span></div>
+    <div class="pbody">
+      <div class="frow">
+        <div class="field"><label for="edLabel">Name</label>
+          <input type="text" id="edLabel" maxlength="40" placeholder="My theme"></div>
+      </div>
+
+      <div class="sect">Overlay &amp; alert colours (what OBS shows)</div>
+      <div class="frow" id="srcFields"></div>
+
+      <div class="sect">Dashboard colours (these pages)</div>
+      <div class="frow" id="dashFields"></div>
+
+      <div class="bar">
+        <button type="button" class="primary" id="saveBtn">Save theme</button>
+        <button type="button" id="cancelBtn">Cancel</button>
+      </div>
+      <div class="msg" id="edMsg"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+  function $(id){ return document.getElementById(id); }
+
+  if(window.NPO && NPO.qs().get('embed') === '1') document.body.classList.add('embed');
+
+  var THEMES = null;        // last /themes answer
+  var selected = null;      // name of the selected card
+  var editing = null;       // def being edited, or null
+
+  /* ---- colour plumbing ------------------------------------------------------ */
+
+  function hexToRgb(h){
+    if(!/^#[0-9a-fA-F]{6}$/.test(h)) return null;
+    return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+  }
+  function rgbToHex(r){
+    function b(n){ n = Math.max(0, Math.min(255, Math.round(n))); var s = n.toString(16); return s.length<2 ? '0'+s : s; }
+    return '#' + b(r[0]) + b(r[1]) + b(r[2]);
+  }
+  function mix(hexA, hexB, t){
+    var a = hexToRgb(hexA), c = hexToRgb(hexB);
+    if(!a || !c) return hexA;
+    return rgbToHex([a[0]+(c[0]-a[0])*t, a[1]+(c[1]-a[1])*t, a[2]+(c[2]-a[2])*t]);
+  }
+  function rgba(hex, alpha){
+    var r = hexToRgb(hex);
+    if(!r) return hex;
+    return 'rgba(' + r[0] + ',' + r[1] + ',' + r[2] + ',' + alpha + ')';
+  }
+  // Best-effort read of an existing value back into picker + slider.
+  function parseColorish(v, fallbackHex, fallbackA){
+    v = String(v || '').trim();
+    var m = v.match(/^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\)$/);
+    if(m) return { hex: rgbToHex([+m[1], +m[2], +m[3]]), a: m[4] === undefined ? 1 : +m[4] };
+    if(/^#[0-9a-fA-F]{6}$/.test(v)) return { hex: v, a: 1 };
+    if(/^#[0-9a-fA-F]{3}$/.test(v))
+      return { hex: '#' + v[1]+v[1]+v[2]+v[2]+v[3]+v[3], a: 1 };
+    return { hex: fallbackHex, a: fallbackA };
+  }
+
+  /* ---- editor field definitions --------------------------------------------- */
+  // Each entry: [cssVar, label, default hex, default alpha or null for opaque].
+  // The overlay set is the union every source page reads; the dashboard set is
+  // the eight anyone actually thinks about - the fussy dashboard leftovers
+  // (inputs, hover ghosts, hairlines) are derived from these on save, which is
+  // how a theme made here always looks deliberate without a 14-colour form.
+  var SRC_FIELDS = [
+    ['--accent',      'Accent',        '#9bd4f5', null],
+    ['--follow',      'Follow',        '#9bd4f5', null],
+    ['--sub',         'Sub',           '#7b5cff', null],
+    ['--gift',        'Gift',          '#00e5c0', null],
+    ['--text',        'Text',          '#ffffff', null],
+    ['--subtext',     'Muted text',    '#ffffff', 0.62],
+    ['--card-bg',     'Card',          '#121214', 0.82],
+    ['--card-border', 'Card border',   '#ffffff', 0.08]
+  ];
+  var DASH_FIELDS = [
+    ['--bg',        'Background',     '#080B14', null],
+    ['--panel',     'Panels',         '#10141F', null],
+    ['--line',      'Borders',        '#1E2740', null],
+    ['--fg',        'Text',           '#EAF2FF', null],
+    ['--dim',       'Muted text',     '#8A9BC0', null],
+    ['--accent',    'Accent',         '#9BD4F5', null],
+    ['--trim',      'Trim',           '#C9A961', null],
+    ['--on-accent', 'Text on accent', '#04121F', null]
+  ];
+
+  function buildFields(host, defs, prefix){
+    host.innerHTML = '';
+    defs.forEach(function(f){
+      var wrap = document.createElement('div');
+      wrap.className = 'field';
+      var lab = document.createElement('label');
+      lab.textContent = f[1];
+      var pair = document.createElement('div');
+      pair.className = 'pair';
+      var inp = document.createElement('input');
+      inp.type = 'color'; inp.value = f[2];
+      inp.id = prefix + f[0];
+      inp.addEventListener('input', editChanged);
+      pair.appendChild(inp);
+      if(f[3] !== null){
+        var rng = document.createElement('input');
+        rng.type = 'range'; rng.min = 5; rng.max = 100; rng.value = Math.round(f[3]*100);
+        rng.id = prefix + f[0] + ':a';
+        var pct = document.createElement('span');
+        pct.className = 'pct'; pct.textContent = rng.value + '%';
+        rng.addEventListener('input', function(){ pct.textContent = rng.value + '%'; editChanged(); });
+        pair.appendChild(rng); pair.appendChild(pct);
+      }
+      wrap.appendChild(lab); wrap.appendChild(pair);
+      host.appendChild(wrap);
+    });
+  }
+  buildFields($('srcFields'), SRC_FIELDS, 's:');
+  buildFields($('dashFields'), DASH_FIELDS, 'd:');
+
+  function readFields(defs, prefix){
+    var out = {};
+    defs.forEach(function(f){
+      var hex = $(prefix + f[0]).value;
+      if(f[3] === null){ out[f[0]] = hex; return; }
+      var a = (+$(prefix + f[0] + ':a').value) / 100;
+      out[f[0]] = rgba(hex, Math.round(a*100)/100);
+    });
+    return out;
+  }
+  function fillFields(defs, prefix, vars){
+    defs.forEach(function(f){
+      var got = parseColorish(vars && vars[f[0]], f[2], f[3] === null ? 1 : f[3]);
+      $(prefix + f[0]).value = got.hex;
+      if(f[3] !== null){
+        var rng = $(prefix + f[0] + ':a');
+        rng.value = Math.round(got.a * 100);
+        rng.nextElementSibling.textContent = rng.value + '%';
+      }
+    });
+  }
+
+  // The dashboard's supporting colours, derived so the form stays small.
+  function deriveDashboard(d){
+    d['--panel2']  = mix(d['--panel'], d['--bg'], .5);
+    d['--input']   = mix(d['--panel'], '#000000', .35);
+    d['--ghost']   = mix(d['--line'], d['--panel'], .45);
+    d['--ghost-h'] = d['--line'];
+    d['--track']   = mix(d['--line'], d['--fg'], .12);
+    d['--hair']    = mix(d['--line'], d['--bg'], .45);
+    d['--code']    = mix(d['--accent'], '#ffffff', .35);
+    return d;
+  }
+
+  function editorDef(){
+    var label = $('edLabel').value.trim() || 'My theme';
+    var name = editing && editing.fixedName ? editing.fixedName
+             : label.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,32) || 'theme';
+    var src = readFields(SRC_FIELDS, 's:');
+    var dash = deriveDashboard(readFields(DASH_FIELDS, 'd:'));
+    return { name: name, label: label,
+             swatch: [dash['--accent'], dash['--bg']],
+             dashboard: dash, source: src };
+  }
+
+  /* ---- live preview ---------------------------------------------------------- */
+  // One iframe, always the song overlay pinned to the default palette; the
+  // theme being shown is painted over it from here. Painting from the parent
+  // (same origin) rather than round-tripping ?theme= means unsaved edits show
+  // instantly, and one mechanism covers saved cards and the editor both.
+  var prevReady = false, pendingVars = null;
+  $('preview').addEventListener('load', function(){ prevReady = true; if(pendingVars) paintPreview(pendingVars); });
+
+  function ensurePreview(){
+    if(!$('preview').src) $('preview').src = '/?theme=shockblade&preview=1&eq=anim&bg=dark';
+  }
+  function paintPreview(vars){
+    ensurePreview();
+    if(!prevReady){ pendingVars = vars; return; }
+    try {
+      var doc = $('preview').contentDocument;
+      var tag = doc.getElementById('hub-preview');
+      if(!tag){ tag = doc.createElement('style'); tag.id = 'hub-preview'; doc.head.appendChild(tag); }
+      tag.textContent = window.NPO ? NPO.cssFor({ hub: vars }, 'hub') : '';
+    } catch(e){}
+  }
+
+  function editChanged(){
+    if($('editor').className.indexOf('on') < 0) return;
+    var def = editorDef();
+    $('prevSub').textContent = 'editing: ' + def.label;
+    paintPreview(def.source);
+  }
+
+  /* ---- cards ------------------------------------------------------------------ */
+
+  function mockStyle(def){
+    var s = def.source || {}, d = def.dashboard || {};
+    // Card mocks fall back to the default look var-by-var, exactly like a page would.
+    return '--m-bg:' + (d['--bg'] || '#080B14')
+         + ';--m-panel:' + (d['--panel'] || '#10141F')
+         + ';--m-line:' + (d['--line'] || '#1E2740')
+         + ';--m-accent:' + (s['--accent'] || '#9bd4f5')
+         + ';--m-card:' + (s['--card-bg'] || 'rgba(18,18,20,.82)')
+         + ';--m-border:' + (s['--card-border'] || 'rgba(255,255,255,.08)')
+         + ';--m-text:' + (s['--text'] || '#ffffff')
+         + ';--m-subtext:' + (s['--subtext'] || 'rgba(255,255,255,.62)');
+  }
+
+  function el(tag, cls, text){
+    var e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(text) e.textContent = text;
+    return e;
+  }
+
+  function draw(){
+    var grid = $('grid');
+    grid.innerHTML = '';
+    if(!THEMES) return;
+    THEMES.themes.forEach(function(def){
+      if(!def || !def.name) return;
+      var card = el('div', 'card' + (def.name === selected ? ' sel' : ''));
+      card.setAttribute('data-name', def.name);
+
+      var mock = el('div', 'mock');
+      mock.setAttribute('style', mockStyle(def));
+      var mh = el('div', 'mhead'); mh.appendChild(el('i')); mh.appendChild(el('i'));
+      var mc = el('div', 'mcard'); mc.appendChild(el('div', 'mart'));
+      var ml = el('div', 'mlines'); ml.appendChild(el('i')); ml.appendChild(el('i'));
+      mc.appendChild(ml); mock.appendChild(mh); mock.appendChild(mc);
+      card.appendChild(mock);
+
+      var meta = el('div', 'meta');
+      meta.appendChild(el('span', 'name', def.label || def.name));
+      if(def.name === THEMES.active) meta.appendChild(el('span', 'tag on', 'Active'));
+      meta.appendChild(el('span', 'tag', def.builtin ? 'Built-in' : 'Yours'));
+      card.appendChild(meta);
+
+      var btns = el('div', 'cardbtns');
+      function btn(txt, cls, fn){
+        var b = el('button', 'small' + (cls ? ' ' + cls : ''), txt);
+        b.type = 'button';
+        b.addEventListener('click', function(ev){ ev.stopPropagation(); fn(); });
+        btns.appendChild(b);
+      }
+      if(def.name !== THEMES.active) btn('Apply', 'primary', function(){ apply(def.name); });
+      btn('Make a copy', '', function(){ duplicate(def); });
+      if(!def.builtin){
+        btn('Edit', '', function(){ edit(def); });
+        btn('Export', '', function(){ exportDef(def); });
+        btn('Delete', 'danger', function(){ removeDef(def); });
+      }
+      card.appendChild(btns);
+
+      card.addEventListener('click', function(){ selectCard(def); });
+      grid.appendChild(card);
+    });
+  }
+
+  function selectCard(def){
+    selected = def.name;
+    $('prevSub').textContent = (def.label || def.name)
+      + (def.name === THEMES.active ? ' (active)' : '');
+    paintPreview(def.source || {});
+    draw();
+  }
+
+  function refresh(keepSel){
+    if(!window.NPO) return;
+    NPO.themes(function(j){
+      if(!j) return;
+      THEMES = j;
+      if(!keepSel || !NPO.findTheme(j, selected)) selected = j.active;
+      draw();
+      var def = NPO.findTheme(j, selected);
+      if(def) selectCard(def);
+    });
+  }
+
+  /* ---- actions ----------------------------------------------------------------- */
+
+  function msg(kind, text){
+    var m = $('edMsg'); m.className = 'msg on ' + kind; m.textContent = text;
+  }
+  function clearMsg(){ $('edMsg').className = 'msg'; }
+
+  function apply(name){
+    fetch('/prefs/set?key=theme&value=' + encodeURIComponent(name), {cache:'no-store'})
+      .then(function(){
+        // The dashboard shell (if we are embedded in it) recolours on its own
+        // clock; nudge our own page immediately so Apply feels instant.
+        try {
+          localStorage.setItem('nowplaying.theme', name);
+          var def = NPO.findTheme(THEMES, name) || { name: name };
+          localStorage.setItem('nowplaying.themeCss', NPO.cssFor(def, 'dashboard'));
+          NPO.applyThemeDef(def, 'dashboard', document);
+          try { if(window.parent !== window) NPO.applyThemeDef(def, 'dashboard', window.parent.document); } catch(e){}
+        } catch(e){}
+        refresh(true);
+      })
+      .catch(function(){});
+  }
+
+  function openEditor(title, def, fixedName){
+    editing = { fixedName: fixedName || null };
+    $('edTitle').textContent = title;
+    $('edLabel').value = def.label || '';
+    fillFields(SRC_FIELDS, 's:', def.source);
+    fillFields(DASH_FIELDS, 'd:', def.dashboard);
+    clearMsg();
+    $('editor').className = 'panel editor on';
+    editChanged();
+    $('editor').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function duplicate(def){
+    openEditor('Copy of ' + (def.label || def.name),
+      { label: (def.label || def.name) + ' copy', source: def.source, dashboard: def.dashboard },
+      null);
+  }
+  function edit(def){
+    openEditor('Edit ' + (def.label || def.name), def, def.name);
+  }
+
+  $('newBtn').addEventListener('click', function(){
+    openEditor('New theme', { label: '' }, null);
+  });
+  $('cancelBtn').addEventListener('click', function(){
+    $('editor').className = 'panel editor';
+    editing = null;
+    var def = NPO.findTheme(THEMES, selected);
+    if(def) selectCard(def);
+  });
+
+  $('saveBtn').addEventListener('click', function(){
+    var def = editorDef();
+    fetch('/themes/save?def=' + encodeURIComponent(JSON.stringify(def)), {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(!j.ok){ msg('bad', j.error || 'could not save'); return; }
+        msg('ok', 'Saved. OBS sources pick a changed theme up within about five seconds.');
+        selected = def.name;
+        refresh(true);
+      })
+      .catch(function(){ msg('bad', 'could not reach the app'); });
+  });
+
+  function removeDef(def){
+    if(!confirm('Delete the theme "' + (def.label || def.name) + '"? The file is removed for good.')) return;
+    var wasActive = THEMES && THEMES.active === def.name;
+    fetch('/themes/delete?name=' + encodeURIComponent(def.name), {cache:'no-store'})
+      .then(function(){
+        if(selected === def.name) selected = null;
+        // The server already fell back to the default when the deleted theme
+        // was the active one; repaint this page the same way rather than
+        // sitting in a palette that no longer exists until someone reloads.
+        if(wasActive) apply('shockblade');
+        else refresh(false);
+      })
+      .catch(function(){});
+  }
+
+  function exportDef(def){
+    var payload = { name: def.name, label: def.label, swatch: def.swatch,
+                    dashboard: def.dashboard, source: def.source };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = def.name + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+  }
+
+  $('importBtn').addEventListener('click', function(){ $('importFile').click(); });
+  $('importFile').addEventListener('change', function(){
+    var f = this.files && this.files[0];
+    this.value = '';
+    if(!f) return;
+    var rd = new FileReader();
+    rd.onload = function(){
+      var def;
+      try { def = JSON.parse(rd.result); } catch(e){ def = null; }
+      if(!def || !def.name){ alert('That file is not a theme.'); return; }
+      fetch('/themes/save?def=' + encodeURIComponent(JSON.stringify(def)), {cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if(!j.ok){ alert(j.error || 'Could not import that theme.'); return; }
+          selected = String(def.name);
+          refresh(true);
+        })
+        .catch(function(){ alert('Could not reach the app.'); });
+    };
+    rd.readAsText(f);
+  });
+
+  refresh(false);
+})();
+</script>
+</body>
+</html>

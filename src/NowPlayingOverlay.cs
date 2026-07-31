@@ -1285,6 +1285,35 @@ namespace NowPlaying {
             SendResource(ns, "shared.js", "application/javascript; charset=utf-8");
           } else if (route == "/themes") {
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(ThemesJson()));
+          } else if (route == "/themes-page" || route == "/themes-page/") {
+            SendResource(ns, "themes.html");
+          } else if (route == "/themes/save") {
+            // Writes a file to disk, so the same cross-site rules as the setup
+            // routes: only our own pages get to call it.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            string terr;
+            bool tok = SaveUserTheme(QueryParam(path, "def") ?? "", out terr);
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
+              "{\"ok\":" + (tok ? "true" : "false") + ",\"error\":" + Q(terr) + "}"));
+          } else if (route == "/themes/delete") {
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            string derr;
+            bool dok = DeleteUserTheme(QueryParam(path, "name") ?? "", out derr);
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
+              "{\"ok\":" + (dok ? "true" : "false") + ",\"error\":" + Q(derr) + "}"));
+          } else if (route == "/presets") {
+            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(PresetsJson()));
+          } else if (route == "/presets/save") {
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            string perr;
+            bool pok = PresetSave(QueryParam(path, "name") ?? "", QueryParam(path, "url") ?? "",
+                                  QueryParam(path, "page") ?? "", out perr);
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
+              "{\"ok\":" + (pok ? "true" : "false") + ",\"error\":" + Q(perr) + "}"));
+          } else if (route == "/presets/delete") {
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            PresetDelete(QueryParam(path, "name") ?? "");
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
           } else if (route == "/app" || route == "/app/") {
             SendResource(ns, "app.html");
           } else if (route == "/bot-page" || route == "/bot-page/") {
@@ -1641,6 +1670,205 @@ namespace NowPlaying {
 
       sb.Append("]}");
       return sb.ToString();
+    }
+
+    // A user theme arrives as one JSON blob in a query parameter. Nothing from
+    // it is written verbatim: every field is pulled out, validated, and put
+    // into a fresh object, so the file on disk only ever contains the shape
+    // the rest of the app expects. The name doubles as the filename, which is
+    // why its pattern has no dots or slashes to traverse with.
+    static readonly System.Text.RegularExpressions.Regex ThemeNameRe =
+      new System.Text.RegularExpressions.Regex("^[a-z0-9][a-z0-9-]{0,31}$");
+    static readonly System.Text.RegularExpressions.Regex VarNameRe =
+      new System.Text.RegularExpressions.Regex("^--[A-Za-z0-9_-]{1,40}$");
+    static readonly System.Text.RegularExpressions.Regex SwatchRe =
+      new System.Text.RegularExpressions.Regex("^#[0-9a-fA-F]{3,8}$");
+
+    static Dictionary<string, object> CleanVarMap(object raw) {
+      var outMap = new Dictionary<string, object>();
+      var d = raw as Dictionary<string, object>;
+      if (d == null) return outMap;
+      foreach (var kv in d) {
+        if (outMap.Count >= 40) break;
+        if (!VarNameRe.IsMatch(kv.Key)) continue;
+        string v = Convert.ToString(kv.Value) ?? "";
+        if (v.Length == 0 || v.Length > 80) continue;
+        if (v.IndexOfAny(new[] { ';', '{', '}', '<', '>' }) >= 0) continue;
+        outMap[kv.Key] = v;
+      }
+      return outMap;
+    }
+
+    static bool SaveUserTheme(string defJson, out string error) {
+      error = "";
+      Dictionary<string, object> d;
+      try {
+        d = new JavaScriptSerializer().DeserializeObject(defJson) as Dictionary<string, object>;
+      } catch { d = null; }
+      if (d == null) { error = "that is not a theme"; return false; }
+
+      object nmObj;
+      string name = d.TryGetValue("name", out nmObj) ? Convert.ToString(nmObj) : null;
+      if (name == null || !ThemeNameRe.IsMatch(name)) {
+        error = "theme names are 1-32 characters: lowercase letters, digits and dashes";
+        return false;
+      }
+      if (name == "shockblade" || name == "shadow") {
+        error = "that name belongs to a built-in theme";
+        return false;
+      }
+
+      string label = "";
+      object lbObj;
+      if (d.TryGetValue("label", out lbObj)) label = (Convert.ToString(lbObj) ?? "").Trim();
+      label = label.Replace("\r", " ").Replace("\n", " ");
+      if (label.Length > 40) label = label.Substring(0, 40);
+      if (label.Length == 0) label = name;
+
+      var swatch = new List<object>();
+      object swObj;
+      var swArr = d.TryGetValue("swatch", out swObj) ? swObj as object[] : null;
+      if (swArr != null) {
+        foreach (var s in swArr) {
+          if (swatch.Count >= 2) break;
+          string c = Convert.ToString(s) ?? "";
+          if (SwatchRe.IsMatch(c)) swatch.Add(c);
+        }
+      }
+
+      object dashObj, srcObj;
+      d.TryGetValue("dashboard", out dashObj);
+      d.TryGetValue("source", out srcObj);
+
+      var clean = new Dictionary<string, object>();
+      clean["name"] = name;
+      clean["label"] = label;
+      clean["swatch"] = swatch;
+      clean["dashboard"] = CleanVarMap(dashObj);
+      clean["source"] = CleanVarMap(srcObj);
+
+      try {
+        string dir = ThemesDir();
+        string file = Path.Combine(dir, name + ".json");
+        // A cap, not a quota: this exists so a looping script cannot fill the
+        // disk with theme files, and 50 is far past any real collection.
+        if (!File.Exists(file) && Directory.GetFiles(dir, "*.json").Length >= 50) {
+          error = "theme folder is full (50) - delete one first";
+          return false;
+        }
+        File.WriteAllText(file, new JavaScriptSerializer().Serialize(clean));
+        return true;
+      } catch (Exception ex) {
+        AppLog.Write("theme save failed: " + ex.Message);
+        error = "could not write the theme file";
+        return false;
+      }
+    }
+
+    static bool DeleteUserTheme(string name, out string error) {
+      error = "";
+      if (!ThemeNameRe.IsMatch(name)) { error = "no such theme"; return false; }
+      if (name == "shockblade" || name == "shadow") { error = "built-in themes cannot be deleted"; return false; }
+      try {
+        string file = Path.Combine(ThemesDir(), name + ".json");
+        if (File.Exists(file)) File.Delete(file);
+        // Nothing should stay pointed at a palette that no longer exists.
+        string active;
+        lock (_prefsLock) { Prefs().TryGetValue("theme", out active); }
+        if (string.Equals(active, name, StringComparison.OrdinalIgnoreCase))
+          SetPref("theme", "shockblade");
+        return true;
+      } catch (Exception ex) {
+        AppLog.Write("theme delete failed: " + ex.Message);
+        error = "could not delete the theme file";
+        return false;
+      }
+    }
+
+    // ---- saved looks -----------------------------------------------------------
+    // A preset is a customized source URL saved under a name, so a look someone
+    // dialled in does not live only in an OBS source nobody can find again.
+    // Stored as a JSON list in %APPDATA%, same as everything else the app owns.
+
+    static readonly object _presetsLock = new object();
+
+    static string PresetsPath() {
+      string dir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NowPlayingOverlay");
+      Directory.CreateDirectory(dir);
+      return Path.Combine(dir, "presets.json");
+    }
+
+    static List<Dictionary<string, object>> LoadPresets() {
+      var list = new List<Dictionary<string, object>>();
+      try {
+        string p = PresetsPath();
+        if (!File.Exists(p)) return list;
+        var arr = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(p)) as object[];
+        if (arr == null) return list;
+        foreach (var o in arr) {
+          var d = o as Dictionary<string, object>;
+          if (d != null) list.Add(d);
+        }
+      } catch { }                     // an unreadable file means an empty list, not a crash
+      return list;
+    }
+
+    static string PresetsJson() {
+      lock (_presetsLock) {
+        return "{\"presets\":" + new JavaScriptSerializer().Serialize(LoadPresets()) + "}";
+      }
+    }
+
+    static bool PresetSave(string name, string url, string page, out string error) {
+      error = "";
+      name = (name ?? "").Trim().Replace("\r", " ").Replace("\n", " ");
+      if (name.Length == 0) { error = "give the look a name"; return false; }
+      if (name.Length > 40) name = name.Substring(0, 40);
+      // Only URLs that point at this app get stored: a preset list must never
+      // become a place where somebody parks an arbitrary link.
+      bool ours = url.StartsWith("http://127.0.0.1:" + _port + "/", StringComparison.OrdinalIgnoreCase)
+               || url.StartsWith("http://localhost:" + _port + "/", StringComparison.OrdinalIgnoreCase);
+      if (!ours || url.Length > 2000) { error = "that is not one of this app's URLs"; return false; }
+      page = (page ?? "").Trim();
+      if (page.Length > 16) page = page.Substring(0, 16);
+
+      lock (_presetsLock) {
+        var list = LoadPresets();
+        list.RemoveAll(delegate(Dictionary<string, object> d) {
+          object n; return d.TryGetValue("name", out n)
+            && string.Equals(Convert.ToString(n), name, StringComparison.OrdinalIgnoreCase);
+        });
+        if (list.Count >= 100) { error = "preset list is full (100) - delete some first"; return false; }
+        var entry = new Dictionary<string, object>();
+        entry["name"] = name;
+        entry["url"] = url;
+        entry["page"] = page;
+        entry["saved"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+        list.Insert(0, entry);        // newest first, which is also the one just saved
+        try {
+          File.WriteAllText(PresetsPath(), new JavaScriptSerializer().Serialize(list));
+          return true;
+        } catch (Exception ex) {
+          AppLog.Write("preset save failed: " + ex.Message);
+          error = "could not write the presets file";
+          return false;
+        }
+      }
+    }
+
+    static void PresetDelete(string name) {
+      if (string.IsNullOrEmpty(name)) return;
+      lock (_presetsLock) {
+        var list = LoadPresets();
+        list.RemoveAll(delegate(Dictionary<string, object> d) {
+          object n; return d.TryGetValue("name", out n)
+            && string.Equals(Convert.ToString(n), name, StringComparison.OrdinalIgnoreCase);
+        });
+        try { File.WriteAllText(PresetsPath(), new JavaScriptSerializer().Serialize(list)); }
+        catch (Exception ex) { AppLog.Write("preset delete failed: " + ex.Message); }
+      }
     }
 
     // Almost everything served here is live state that must never be cached, so
