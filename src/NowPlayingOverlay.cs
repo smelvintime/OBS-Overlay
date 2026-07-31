@@ -498,16 +498,13 @@ namespace NowPlaying {
       _relaunchArgs = keepArgs.ToArray();
       if (_relaunchCount > 0) AppLog.Write("this is relaunch #" + _relaunchCount + " after a crash");
 
-      // No first-run installer, deliberately. Two attempts at one lived here:
-      // the first copied the exe to a folder the user chose and launched it,
-      // the second only opened Explorer but still created shortcuts through
-      // WScript.Shell. Both were deleted on download as
-      // Trojan:Win32/Wacatac.C!ml, while a build with the file excluded from
-      // the compile entirely was clean - same URL, same reputation, one
-      // variable. Self-copying and late-bound shell automation are what
-      // droppers do, and an unsigned binary cannot do them and look like
-      // anything else. The advice moved to setup.html and the README, where it
-      // costs nothing in the binary. Worth restoring if this is ever signed.
+      // No first-run installer, deliberately - do not add one. Self-copying
+      // the exe and creating shortcuts through late-bound shell automation are
+      // exactly what dropper malware does, and an unsigned binary cannot do
+      // either and look like anything else to antivirus heuristics. The
+      // "put this file somewhere permanent" advice lives in setup.html and the
+      // README instead, where it costs nothing in the binary. An installer
+      // only becomes safe to consider if this project ever code-signs.
 
       // A crashed instance's socket is not always released the instant the
       // process dies - an auto-relaunch (below) can spawn fast enough to hit

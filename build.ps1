@@ -12,9 +12,8 @@
 
 param(
   [string]$OutDir = "$PSScriptRoot\dist",
-  # Product version stamped into the file's Windows metadata. Bump it when
-  # cutting a release tag so the two agree.
-  [string]$ProductVersion = '0.9.0'
+  # Product version stamped into the file's Windows metadata.
+  [string]$ProductVersion = '1.0.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,7 +29,9 @@ $srcLog  = "$PSScriptRoot\src\AppLog.cs"
 $srcChat = "$PSScriptRoot\src\TwitchChat.cs"
 $srcCmds = "$PSScriptRoot\src\BotCommands.cs"
 $srcDiag = "$PSScriptRoot\src\Diagnostics.cs"
-# No Installer.cs: see README - self-copy and WScript.Shell tripped Defender
+# Deliberately no installer source: self-copying and shortcut-writing are
+# exactly the patterns antivirus heuristics distrust, so the app stays a
+# single file the user places wherever they want it.
 $overlay = "$PSScriptRoot\overlay.html"
 $layouts = "$PSScriptRoot\layouts.html"
 $control = "$PSScriptRoot\control.html"

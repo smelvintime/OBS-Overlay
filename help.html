@@ -92,19 +92,14 @@
     <div class="phead"><h2>3. Twitch alerts and follower boxes</h2>
       <span class="sub">Optional &mdash; the song overlay works without any of this.</span></div>
     <div class="body">
-      <p>Put a <code>twitch-config.json</code> next to the app with your <code>channel</code>,
-        <code>clientId</code> and <code>apiToken</code>. Copy
-        <code>twitch-config.example.json</code> as a starting point.</p>
-      <p>The token needs <code>moderator:read:followers</code>, and
-        <code>channel:read:subscriptions</code> as well if you want subscriber alerts. Generate it
-        while logged in as <strong>the channel owner</strong> &mdash; follower events are read as
-        the broadcaster, so a token from any other account will not work.</p>
-      <div class="tip warn">The <code>clientId</code> must be the client the token was issued to.
-        A mismatch is the single most common setup mistake and Twitch rejects everything with an
-        unhelpful error.</div>
-      <p class="muted">Restart the app after editing the file. The Customize tab shows the live
-        connection state and counts events as they arrive, so you can confirm it works without
-        waiting for a real follower.</p>
+      <p>Open <a href="/setup" target="_blank">the setup page</a> &mdash; it walks you through
+        creating the Twitch app, has a <strong>Connect with Twitch</strong> button that handles
+        sign-in for you, and ends with test buttons and the OBS URLs. No tokens to paste, and
+        the connection renews itself.</p>
+      <p class="muted">Sign in as <strong>the channel owner</strong> when Twitch asks &mdash;
+        follower events are read as the broadcaster, so any other account will not work. The
+        Customize tab shows the live connection state and counts events as they arrive, so you
+        can confirm it works without waiting for a real follower.</p>
     </div>
   </div>
 

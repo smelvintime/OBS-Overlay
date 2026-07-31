@@ -13,7 +13,7 @@
   "pausedTemplate": "Paused: {title} - {artist}",
   "notPlayingMessage": "Nothing playing right now.",
 
-  "_comment_api": "Below is for the follower/sub alerts and boxes, read by NowPlayingOverlay.exe. This is a SEPARATE token from the chat one above. Only moderator:read:followers is required; add channel:read:subscriptions as well if you also want subscriber alerts. The clientId MUST be the client the token was issued to, or Twitch rejects every request. clientSecret and refreshToken are OPTIONAL - add both and the app renews apiToken on its own before it expires, rewriting this file automatically, instead of you regenerating it by hand every few hours. Leave them blank to keep the old manual-regenerate behaviour.",
+  "_comment_api": "Below is for the follower/sub alerts and boxes, read by NowPlayingOverlay.exe. This is a SEPARATE token from the chat one above. Only moderator:read:followers is required; add channel:read:subscriptions as well if you also want subscriber alerts. The clientId MUST be the client the token was issued to, or Twitch rejects every request. clientSecret and refreshToken are OPTIONAL - add both and the app renews apiToken on its own before it expires, rewriting this file automatically, instead of you regenerating it by hand every few hours. Leave them blank if you would rather regenerate the token by hand when it expires.",
   "clientId": "PASTE_YOUR_CLIENT_ID_HERE",
   "clientSecret": "",
   "apiToken": "PASTE_YOUR_API_TOKEN_HERE",
