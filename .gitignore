@@ -7,3 +7,9 @@ twitch-config.json
 # Throwaway builds run from the repo root during testing, so they can find
 # twitch-config.json without disturbing dist/ or a running instance.
 scratch-*.exe
+
+# Build output. Deliberately NOT committed: a repository containing an .exe
+# means the source ZIP and every git clone carry a binary, which antivirus can
+# block or quarantine - taking the source download down with it. Binaries belong
+# on the Releases page; build.ps1 makes one in seconds.
+dist/

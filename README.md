@@ -10,8 +10,15 @@ side at all.
 ### ⬇️ [Download the latest release](https://github.com/smelvintime/OBS-Overlay/releases/latest)
 
 One file: `NowPlayingOverlay.exe`. Every overlay page is built into it, so there is
-nothing else to download and nothing to unzip. You do **not** need to clone this
-repository to use the overlay — that's only for building it yourself.
+nothing else to download and nothing to unzip.
+
+**If antivirus blocks the download**, build it yourself instead — it takes seconds and
+needs nothing installed. Download this repository as a ZIP (green **Code** button →
+*Download ZIP*, source only, no executable in it), unzip it, and double-click
+**`Build.bat`**. The program appears in `dist\`. A file you compiled never came from
+the internet, so nothing flags it. See
+[Antivirus and SmartScreen warnings](#antivirus-and-smartscreen-warnings) for why this
+happens.
 
 ## Quick start
 
@@ -158,6 +165,8 @@ Use the `.exe` — that is the project now.
 
 ## Building the .exe yourself
 
+Double-click **`Build.bat`**, or from a terminal:
+
 ```
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
@@ -165,10 +174,10 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 Compiles with the C# compiler included in the .NET Framework on every Windows machine —
 no Visual Studio, no .NET SDK, no downloads. Output goes to `dist\`.
 
-`dist\NowPlayingOverlay.exe` is committed so the repository always builds to something
-runnable, but it is a **development build** — for normal use take the one attached to
-the [latest release](https://github.com/smelvintime/OBS-Overlay/releases/latest), which
-is a known, tagged version.
+The built `.exe` is **not** committed to this repository, on purpose: a repository
+containing an executable means the source ZIP and every `git clone` carry a binary,
+which antivirus can block — taking the source download down with it. Binaries live on
+the [Releases](https://github.com/smelvintime/OBS-Overlay/releases) page instead.
 
 ## Layouts
 
