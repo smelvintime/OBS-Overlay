@@ -1,28 +1,30 @@
 # Now Playing — Stream Overlay
 
-A self-hosted alternative to Songplz. Shows the song you're currently listening to on your stream.
+A now-playing music overlay for OBS, with Twitch follower and subscriber alerts,
+goal boxes and a `!song` chat bot. **One file, no install, nothing to configure by hand.**
 
-Works with **Spotify, Apple Music, iTunes, Tidal, and browser players** — with **no API keys, no OAuth, no account linking**. Whatever is playing on this PC is what shows up.
+Works with **Spotify, Apple Music, iTunes, Tidal and browser players** — whatever is
+playing on this PC is what shows up, with no API keys or account linking for the music
+side at all.
 
-Nothing to install.
+### ⬇️ [Download the latest release](https://github.com/smelvintime/OBS-Overlay/releases/latest)
 
-## Quick start (recommended: the app)
+One file: `NowPlayingOverlay.exe`. Every overlay page is built into it, so there is
+nothing else to download and nothing to unzip. You do **not** need to clone this
+repository to use the overlay — that's only for building it yourself.
 
-1. Download **`dist/NowPlayingOverlay.exe`** and double-click it. The first time,
-   it asks where you'd like to keep it and offers a desktop/Start-menu shortcut —
-   so it doesn't end up lost in your Downloads folder, or deleted the next time you
-   clear that out. Pick a folder (the suggested one needs no admin rights), and it
-   copies itself there, brings any Twitch settings along and starts up from its new
-   home. **You only need that one file** — every overlay page lives inside it.
-   After that no window appears: it runs quietly in the **system tray**
-   (bottom-right, next to the clock).
-2. In OBS: **Sources → + → Browser**
-3. Set **URL** to:
-   ```
-   http://127.0.0.1:8787/
-   ```
-4. Set **Width** `600`, **Height** `200`
-5. Leave **"Shutdown source when not visible"** unchecked so it keeps updating.
+## Quick start
+
+1. **Run it.** The first time, it asks where you'd like to keep it and offers a
+   desktop/Start-menu shortcut, so it doesn't end up lost in Downloads. It copies
+   itself there and starts from its new home. After that no window appears: it lives
+   in the **system tray** (bottom-right, next to the clock).
+2. **Set up Twitch** (optional) — a setup page opens on first run and walks you
+   through it, including a **Connect with Twitch** button that handles sign-in for
+   you. No terminal, no tokens to paste, and it renews itself afterwards. Skip this
+   and the music overlay still works.
+3. **In OBS**: **Sources → + → Browser**, set the URL to `http://127.0.0.1:8787/`,
+   size `600 × 200`, and leave *"Shutdown source when not visible"* unchecked.
 
 That's it — play a song and the card appears. It updates automatically as tracks change.
 
@@ -32,7 +34,7 @@ right-click the tray icon → **Open dashboard…**). The individual pages it's 
 (`/customize`, `/layouts`, `/control`) still work as direct links too, if you'd rather
 bookmark one tab on its own.
 
-It's a single 40 KB file. Nothing to install, no PowerShell, no runtime download: it
+It's a single ~390 KB file. Nothing to install, no PowerShell, no runtime download: it
 uses the .NET Framework already present on every Windows 10/11 machine, and the overlay
 pages are embedded inside the executable.
 
@@ -129,6 +131,11 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 Compiles with the C# compiler included in the .NET Framework on every Windows machine —
 no Visual Studio, no .NET SDK, no downloads. Output goes to `dist\`.
+
+`dist\NowPlayingOverlay.exe` is committed so the repository always builds to something
+runnable, but it is a **development build** — for normal use take the one attached to
+the [latest release](https://github.com/smelvintime/OBS-Overlay/releases/latest), which
+is a known, tagged version.
 
 ## Layouts
 
@@ -666,3 +673,8 @@ would be awful. Close iTunes and the overlay simply ignores it.
   phone won't appear.
 - If the card doesn't appear, confirm the launcher window is still open, and check
   `http://127.0.0.1:8787/np` in a browser to see what the server is reading.
+
+## License
+
+[MIT](LICENSE) — free to use, modify and redistribute, including commercially.
+Provided as-is, with no warranty.
