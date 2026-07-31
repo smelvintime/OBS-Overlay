@@ -8,8 +8,14 @@ Nothing to install.
 
 ## Quick start (recommended: the app)
 
-1. Download **`dist/NowPlayingOverlay.exe`** and double-click it. No window appears —
-   it runs quietly in the **system tray** (bottom-right, next to the clock).
+1. Download **`dist/NowPlayingOverlay.exe`** and double-click it. The first time,
+   it asks where you'd like to keep it and offers a desktop/Start-menu shortcut —
+   so it doesn't end up lost in your Downloads folder, or deleted the next time you
+   clear that out. Pick a folder (the suggested one needs no admin rights), and it
+   copies itself there, brings any Twitch settings along and starts up from its new
+   home. **You only need that one file** — every overlay page lives inside it.
+   After that no window appears: it runs quietly in the **system tray**
+   (bottom-right, next to the clock).
 2. In OBS: **Sources → + → Browser**
 3. Set **URL** to:
    ```

@@ -27,6 +27,7 @@ $srcLog  = "$PSScriptRoot\src\AppLog.cs"
 $srcChat = "$PSScriptRoot\src\TwitchChat.cs"
 $srcCmds = "$PSScriptRoot\src\BotCommands.cs"
 $srcDiag = "$PSScriptRoot\src\Diagnostics.cs"
+$srcInst = "$PSScriptRoot\src\Installer.cs"
 $overlay = "$PSScriptRoot\overlay.html"
 $layouts = "$PSScriptRoot\layouts.html"
 $control = "$PSScriptRoot\control.html"
@@ -46,7 +47,7 @@ if (-not (Test-Path $sysRt))   { $missing += "System.Runtime facade: $sysRt" }
 foreach ($n in 'Windows.Media.winmd','Windows.Foundation.winmd','Windows.Storage.winmd') {
   if (-not (Test-Path (Join-Path $winmd $n))) { $missing += "WinRT metadata: $n" }
 }
-foreach ($f in $src,$srcAudio,$srcTwitch,$srcLog,$srcChat,$srcCmds,$srcDiag,$overlay,$layouts,$control,$custom,$alerts,$stats,$app,$botPage,$helpPage,$setup) {
+foreach ($f in $src,$srcAudio,$srcTwitch,$srcLog,$srcChat,$srcCmds,$srcDiag,$srcInst,$overlay,$layouts,$control,$custom,$alerts,$stats,$app,$botPage,$helpPage,$setup) {
   if (-not (Test-Path $f)) { $missing += "source file: $f" }
 }
 if ($missing.Count) {
@@ -115,6 +116,7 @@ $cscArgs = @(
   $srcChat
   $srcCmds
   $srcDiag
+  $srcInst
   $srcStamp
 )
 

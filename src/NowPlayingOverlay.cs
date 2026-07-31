@@ -220,6 +220,10 @@ namespace NowPlaying {
       } catch { return false; }
     }
 
+    // The installer offers "start when I sign in" at install time, before the
+    // tray exists to own that switch.
+    internal static bool SetStartupPublic(bool on) { return SetStartup(on); }
+
     static bool SetStartup(bool on) {
       try {
         using (var k = Registry.CurrentUser.CreateSubKey(RunKeyPath)) {
@@ -492,6 +496,12 @@ namespace NowPlaying {
       if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
       _relaunchArgs = keepArgs.ToArray();
       if (_relaunchCount > 0) AppLog.Write("this is relaunch #" + _relaunchCount + " after a crash");
+
+      // Offer to install on the very first run, before the port is bound: the
+      // copy this hands over to has to be able to take that port. Skipped
+      // entirely for a relaunch after a crash - the question has been answered
+      // once already, and a crash loop must not turn into a dialog loop.
+      if (_relaunchCount == 0 && Installer.MaybeOffer()) return 0;
 
       // A crashed instance's socket is not always released the instant the
       // process dies - an auto-relaunch (below) can spawn fast enough to hit
