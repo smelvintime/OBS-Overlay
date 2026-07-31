@@ -476,6 +476,14 @@ namespace NowPlaying {
         string one = raw.Trim();
         if (one.Length == 0) continue;
         if (sent == 5) break;
+        // Paced, not rapid-fire: Twitch's edge silently swallows back-to-back
+        // messages from an ordinary account - the first line lands and the
+        // rest just never appear, no NOTICE, nothing. Same filter that mutes
+        // an account past the rate limit, and the reason every chat bot
+        // library paces its outgoing queue (tmi.js ships at 600ms). Sleeping
+        // on the read loop is fine at this scale: five lines hold it for two
+        // seconds against a PING cadence of five minutes.
+        if (sent > 0) Thread.Sleep(600);
         wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(one));
         _lastSent = one;
         _sent++;
