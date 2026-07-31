@@ -219,7 +219,14 @@ namespace NowPlaying {
           tcp = new TcpClient();
           tcp.Connect("irc.chat.twitch.tv", 6697);
           ssl = new SslStream(tcp.GetStream(), false);
-          ssl.AuthenticateAsClient("irc.chat.twitch.tv");
+          // TLS 1.2 named explicitly. The parameterless overload negotiates
+          // with SslStream's legacy defaults (TLS 1.0) on machines that lack
+          // the .NET strong-crypto registry keys, and Twitch kills that
+          // handshake immediately - which surfaces as "connection forcibly
+          // closed by the remote host" right after connect, or an SSPI
+          // failure, on some PCs while others connect fine.
+          ssl.AuthenticateAsClient("irc.chat.twitch.tv", null,
+            System.Security.Authentication.SslProtocols.Tls12, false);
           ssl.ReadTimeout = 6000;
 
           var enc = new UTF8Encoding(false);
