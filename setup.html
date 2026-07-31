@@ -66,6 +66,14 @@
   .live.on{display:block}
   .live iframe{width:100%;height:190px;border:0;display:block}
   .foot{color:var(--dim);font-size:12.5px;margin-top:26px}
+
+  /* The finish. Centred and quiet-bordered rather than another numbered step,
+     because it is the way out of the wizard, not more of it. */
+  .done-cta{margin-top:22px;padding:24px 22px;text-align:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px}
+  .done-cta h2{margin:0 0 6px;font-size:18px}
+  .done-cta p{margin:0 auto 18px;max-width:460px;color:var(--dim);font-size:13.5px}
+  .btn.big{padding:13px 30px;font-size:15px;border-radius:11px}
 </style>
 </head>
 <body>
@@ -158,6 +166,18 @@
         <span class="chip"><span class="u">http://127.0.0.1:8787/stats</span> <button type="button">Copy</button></span>
         <span class="hint" style="margin:0">the customizer shows the exact size</span></div>
     </div>
+  </div>
+
+  <!-- Finish. The wizard gets someone to working alerts; everything after this
+       - restyling, themes, layouts, the chat bot - lives in the dashboard, so
+       the last thing on the page should be the door to it rather than a
+       footnote. -->
+  <div class="done-cta">
+    <h2>That's everything</h2>
+    <p>Alerts, goal boxes and the music overlay are ready. The dashboard is where
+      you restyle them, compare layouts and set up the chat bot &mdash; you can
+      come back here any time from the tray icon.</p>
+    <a class="btn big" href="/app">Open the dashboard</a>
   </div>
 
   <p class="foot">Not using Twitch? <a href="#" id="skip">Skip this</a> &mdash; the music overlay
