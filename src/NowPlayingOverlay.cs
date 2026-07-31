@@ -23,6 +23,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using System.Web.Script.Serialization;
 using Windows.Foundation;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
@@ -1280,6 +1281,10 @@ namespace NowPlaying {
             });
             t.IsBackground = true;
             t.Start();
+          } else if (route == "/shared.js") {
+            SendResource(ns, "shared.js", "application/javascript; charset=utf-8");
+          } else if (route == "/themes") {
+            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(ThemesJson()));
           } else if (route == "/app" || route == "/app/") {
             SendResource(ns, "app.html");
           } else if (route == "/bot-page" || route == "/bot-page/") {
@@ -1550,6 +1555,10 @@ namespace NowPlaying {
     }
 
     static void SendResource(NetworkStream ns, string name) {
+      SendResource(ns, name, "text/html; charset=utf-8");
+    }
+
+    static void SendResource(NetworkStream ns, string name, string contentType) {
       var asm = Assembly.GetExecutingAssembly();
       using (var s = asm.GetManifestResourceStream(name)) {
         if (s == null) {
@@ -1558,9 +1567,80 @@ namespace NowPlaying {
         }
         using (var ms = new MemoryStream()) {
           s.CopyTo(ms);
-          Send(ns, 200, "text/html; charset=utf-8", ms.ToArray());
+          Send(ns, 200, contentType, ms.ToArray());
         }
       }
+    }
+
+    static string ResourceText(string name) {
+      var asm = Assembly.GetExecutingAssembly();
+      using (var s = asm.GetManifestResourceStream(name)) {
+        if (s == null) return null;
+        using (var r = new StreamReader(s, Encoding.UTF8)) return r.ReadToEnd();
+      }
+    }
+
+    // ---- themes as data --------------------------------------------------------
+    // A theme is a JSON map of CSS variables (see themes\shadow.json), applied by
+    // shared.js. The built-ins are compiled into the binary; anything a user makes
+    // or downloads goes in %APPDATA%\NowPlayingOverlay\themes and shows up here on
+    // the next request - no restart, because /themes is read fresh every time and
+    // the source pages re-ask every 5 seconds anyway.
+
+    internal static string ThemesDir() {
+      string dir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NowPlayingOverlay", "themes");
+      Directory.CreateDirectory(dir);
+      return dir;
+    }
+
+    static readonly string[] BuiltinThemes = { "theme-shockblade.json", "theme-shadow.json" };
+
+    static string ThemesJson() {
+      string active;
+      lock (_prefsLock) { Prefs().TryGetValue("theme", out active); }
+      if (string.IsNullOrEmpty(active)) active = "shockblade";
+
+      var sb = new StringBuilder();
+      sb.Append("{\"active\":").Append(Q(active)).Append(",\"themes\":[");
+      var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+      bool first = true;
+
+      foreach (var res in BuiltinThemes) {
+        string raw = ResourceText(res);
+        if (raw == null) continue;
+        if (!first) sb.Append(',');
+        first = false;
+        sb.Append(raw.Trim());
+        try {
+          var d = new JavaScriptSerializer().DeserializeObject(raw) as Dictionary<string, object>;
+          object nm;
+          if (d != null && d.TryGetValue("name", out nm) && nm is string) seen.Add((string)nm);
+        } catch { }
+      }
+
+      try {
+        foreach (var f in Directory.GetFiles(ThemesDir(), "*.json")) {
+          try {
+            var ser = new JavaScriptSerializer();
+            var d = ser.DeserializeObject(File.ReadAllText(f)) as Dictionary<string, object>;
+            if (d == null) continue;
+            object nm;
+            if (!d.TryGetValue("name", out nm) || !(nm is string) || ((string)nm).Length == 0) continue;
+            if (!seen.Add((string)nm)) continue;   // a user file cannot shadow a built-in
+            d["builtin"] = false;
+            if (!first) sb.Append(',');
+            first = false;
+            // Re-serialised rather than pasted raw, so a hand-edited file that
+            // parses cannot smuggle anything structural into the array.
+            sb.Append(ser.Serialize(d));
+          } catch { }                              // one bad file must not hide the rest
+        }
+      } catch { }
+
+      sb.Append("]}");
+      return sb.ToString();
     }
 
     // Almost everything served here is live state that must never be cached, so

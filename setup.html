@@ -11,7 +11,7 @@
     --fg:#EAF2FF; --dim:#8A9BC0; --accent:#9BD4F5; --on-accent:#04121F;
     --ok:#39d98a; --bad:#ff7a7a; --input:#0A0F1A;
   }
-  :root[data-theme="shadow"]{ --accent:#e5383b; --on-accent:#1a0507 }
+  /* Other palettes come from /themes as data - shared.js applies them. */
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.55}
@@ -75,6 +75,8 @@
   .done-cta p{margin:0 auto 18px;max-width:460px;color:var(--dim);font-size:13.5px}
   .btn.big{padding:13px 30px;font-size:15px;border-radius:11px}
 </style>
+<script src="/shared.js"></script>
+<script>if(window.NPO) NPO.themeBoot('dashboard');</script>
 </head>
 <body>
 <div class="w">
@@ -191,11 +193,8 @@
   function show(el, kind, text){ el.className = 'msg on ' + kind; el.textContent = text; }
   function hide(el){ el.className = 'msg'; }
 
-  // Theme follows the app-wide preference like every other page.
-  fetch('/prefs',{cache:'no-store'}).then(function(r){return r.json();}).then(function(p){
-    if(p && p.theme && p.theme !== 'shockblade')
-      document.documentElement.setAttribute('data-theme', p.theme);
-  }).catch(function(){});
+  // Theme follows the app-wide preference like every other page, via the
+  // shared.js boot in <head>.
 
   function copyBtn(btn, text){
     btn.addEventListener('click', function(){

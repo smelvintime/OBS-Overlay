@@ -9,15 +9,7 @@
          --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F;
          --input:#0A0F1A; --ghost:#1B2438; --ghost-h:#24304A;
          --track:#2A3550; --hair:#171F31; --code:#BFE6FA; }
-  /* Shadow: base Zed rather than Shockblade - near-black with a crimson edge.
-     Same variable names, so every rule below is written once and both palettes
-     drive it. Switched from the dashboard header and remembered per browser. */
-  :root[data-theme="shadow"]{
-    --bg:#0A0708; --panel:#161012; --panel2:#120D0F; --line:#33191E;
-    --fg:#F6EEEE; --dim:#B08A90; --accent:#E5383B; --trim:#8A1F26;
-    --on-accent:#1A0507;
-    --input:#0B0709; --ghost:#241417; --ghost-h:#33191E;
-    --track:#3A1F24; --hair:#201114; --code:#F2C3C6; }
+  /* Other palettes come from /themes as data - shared.js applies them. */
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;
@@ -37,15 +29,15 @@
   .themes button{width:22px;height:22px;padding:0;border-radius:50%;cursor:pointer;
     border:2px solid transparent}
   .themes button[aria-pressed=true]{border-color:var(--fg)}
-  .themes .t-shockblade{background:linear-gradient(135deg,#9BD4F5,#1E2740)}
-  .themes .t-shadow{background:linear-gradient(135deg,#E5383B,#1A0507)}
+  /* Swatch colours are set inline per button, straight from each theme's data. */
 
   .content{flex:1 1 auto;position:relative;min-height:0}
   iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:var(--bg);
     display:none}
   iframe.on{display:block}
 </style>
-<script>try{var t=localStorage.getItem('nowplaying.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+<script src="/shared.js"></script>
+<script>if(window.NPO) NPO.themeBoot('dashboard');</script>
 </head>
 <body>
 <header>
@@ -127,33 +119,44 @@
   });
 
   // ---- theme ----------------------------------------------------------------
-  // Each embedded page reads the same localStorage key on load, so switching is
-  // a write plus a reload of the frames rather than any cross-frame messaging.
-  var THEMES = [['shockblade','Shockblade - ice blue'], ['shadow','Shadow - black and red']];
-  var themesEl = document.getElementById('themes');
-
-  function paintTheme(root, name){
-    if(name === 'shockblade') root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', name);
-  }
-
+  // Themes are data served by /themes (see shared.js). The buttons are built
+  // from that list, so a theme dropped into the themes folder shows up in this
+  // header without anyone editing this page.
+  //
   // Reloading the frames was the wrong tool twice over. Assigning src to its own
   // current value is a no-op, and location.reload() on a same-origin frame turns
   // out not to fire a load at all in some embedders - in both cases the shell
   // recoloured while every panel inside it stayed on the old palette, which is
-  // what "the theme changes nothing" looks like from the outside.
-  //
-  // The frames are same-origin, so the attribute can just be set on each of them
+  // what "the theme changes nothing" looks like from the outside. The frames are
+  // same-origin, so shared.js can just write the palette into each of them
   // directly. No reload, no flash, and edits in progress in the customizer are
   // not thrown away to change a colour.
+  //
   // localStorage is kept only as the instant answer that avoids a flash of the
-  // wrong palette before the fetch lands. The app is the real store: it is the
-  // only one an OBS browser source can read, and the only one that does not
-  // disagree between localhost and 127.0.0.1, which are separate origins with
-  // separate storage.
+  // wrong palette before the fetch lands (shared.js reads it in themeBoot). The
+  // app is the real store: it is the only one an OBS browser source can read,
+  // and the only one that does not disagree between localhost and 127.0.0.1,
+  // which are separate origins with separate storage.
+  var themesEl = document.getElementById('themes');
+  var themeList = null;              // the /themes answer, kept for painting frames
+
+  function defFor(name){
+    return (window.NPO && NPO.findTheme(themeList, name)) || { name: name };
+  }
+
+  function paintFrame(f, name){
+    try { if(f && f.contentDocument && window.NPO) NPO.applyThemeDef(defFor(name), 'dashboard', f.contentDocument); }
+    catch(e){}
+  }
+
   function applyTheme(name, propagate, save){
-    paintTheme(document.documentElement, name);
-    try { localStorage.setItem('nowplaying.theme', name); } catch(e){}
+    if(window.NPO) NPO.applyThemeDef(defFor(name), 'dashboard', document);
+    try {
+      localStorage.setItem('nowplaying.theme', name);
+      // Keep the flash-guard cache in step, or the next load would briefly
+      // paint the palette this click just left behind.
+      if(window.NPO) localStorage.setItem('nowplaying.themeCss', NPO.cssFor(defFor(name), 'dashboard'));
+    } catch(e){}
     if(save !== false){
       try {
         fetch('/prefs/set?key=theme&value=' + encodeURIComponent(name), {cache:'no-store'})
@@ -165,34 +168,46 @@
     if(propagate) TABS.forEach(function(t){ paintFrame(frames[t[0]], name); });
   }
 
-  function paintFrame(f, name){
-    try { if(f && f.contentDocument) paintTheme(f.contentDocument.documentElement, name); }
-    catch(e){}
-  }
-
   function currentTheme(){
     try { return localStorage.getItem('nowplaying.theme') || 'shockblade'; }
     catch(e){ return 'shockblade'; }
   }
 
-  THEMES.forEach(function(t){
-    var b = document.createElement('button');
-    b.type = 'button'; b.className = 't-' + t[0]; b.title = t[1];
-    b.setAttribute('data-t', t[0]);
-    b.addEventListener('click', function(){ applyTheme(t[0], true); });
-    themesEl.appendChild(b);
+  // Swatches come from theme data, so only plain colour values get through -
+  // anything fancier is somebody's hand-edited file trying to be clever.
+  function swatchColor(c){
+    return (typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : null;
+  }
+
+  function buildButtons(){
+    themesEl.innerHTML = '';
+    ((themeList && themeList.themes) || []).forEach(function(def){
+      if(!def || !def.name) return;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.title = def.label || def.name;
+      b.setAttribute('data-t', def.name);
+      var sw = def.swatch || [];
+      var c1 = swatchColor(sw[0]), c2 = swatchColor(sw[1]);
+      b.style.background = (c1 && c2) ? 'linear-gradient(135deg,' + c1 + ',' + c2 + ')'
+                         : (c1 || 'var(--panel)');
+      b.addEventListener('click', function(){ applyTheme(def.name, true); });
+      themesEl.appendChild(b);
+    });
+    [].forEach.call(themesEl.children, function(b){
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-t') === currentTheme())); });
+  }
+
+  if(window.NPO) NPO.themes(function(j){
+    if(!j) return;                   // no answer, no buttons; themeBoot already painted the cache
+    themeList = j;
+    buildButtons();
+    // Take the app's answer, which is the one every other page and every OBS
+    // source is also reading. save:false so simply opening the dashboard on a
+    // second machine cannot overwrite the shared choice with this browser's
+    // stale local copy.
+    applyTheme(j.active || currentTheme(), true, false);
   });
-
-  applyTheme(currentTheme(), false, false);   // instant, from local storage
-
-  // Then take the app's answer, which is the one every other page and every OBS
-  // source is also reading. save:false so simply opening the dashboard on a
-  // second machine cannot overwrite the shared choice with this browser's stale
-  // local copy.
-  fetch('/prefs',{cache:'no-store'})
-    .then(function(r){ return r.json(); })
-    .then(function(p){ if(p && p.theme && p.theme !== currentTheme()) applyTheme(p.theme, true, false); })
-    .catch(function(){});
 
   select(location.hash.slice(1) || TABS[0][0], false);
 })();

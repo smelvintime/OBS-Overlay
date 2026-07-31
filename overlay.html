@@ -35,16 +35,9 @@
     --text:#fff;
     --subtext:rgba(255,255,255,.62);
   }
-  /* Shadow - base Zed rather than Shockblade. Same variable names, so every rule
-     below is written once and both palettes drive it. An explicit ?accent= still
-     overrides this, because the customizer sets that per source. */
-  :root[data-theme="shadow"]{
-    --accent:#e5383b;
-    --card-bg:rgba(14,7,9,.86);
-    --card-border:rgba(229,56,59,.20);
-    --text:#f6eeee;
-    --subtext:rgba(246,238,238,.62);
-  }
+  /* Palettes other than this default come from /themes as data - shared.js
+     writes them into a <style> tag. An explicit ?accent= still overrides any
+     theme, because the customizer pins that per source with an inline style. */
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
@@ -236,33 +229,11 @@
     backdrop-filter:none;-webkit-backdrop-filter:none}
   body.theme-solid .backdrop{display:none}
 </style>
+<script src="/shared.js"></script>
 <script>
-/* The theme is kept by the app, not by this browser. An OBS browser source is its
-   own profile that never opens the dashboard, so a theme held in localStorage
-   left the thing actually on stream stuck on the default palette permanently -
-   which is exactly what "changing the theme does nothing" looked like from the
-   outside. Asking again on a timer rather than once means switching theme in the
-   dashboard reaches a source already live in OBS without touching OBS. These are
-   short requests that close immediately, not a held stream.
-   An explicit ?theme= wins, so one source can be pinned to a look on purpose. */
-(function(){
-  var root = document.documentElement;
-  function paint(name){
-    if(!name || name === 'shockblade') root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', name);
-  }
-  var forced = null;
-  try { forced = new URLSearchParams(location.search).get('theme'); } catch(e){}
-  if(forced){ paint(forced); return; }
-  var last;
-  (function poll(){
-    fetch('/prefs',{cache:'no-store'})
-      .then(function(r){ return r.json(); })
-      .then(function(p){ if(p && p.theme !== last){ last = p.theme; paint(p.theme); } })
-      .catch(function(){})     // a theme we could not read must never stop the overlay
-      .finally(function(){ setTimeout(poll, 5000); });
-  })();
-})();
+/* Why a source page polls for its theme, and why the palette arrives as data
+   rather than CSS baked in here: see shared.js, which owns both stories now. */
+if(window.NPO) NPO.themeBoot('source');
 </script>
 </head>
 <body>
@@ -778,35 +749,19 @@
     }
   }
 
-  if(eqMode==='live' && (window.WebSocket || window.EventSource)){
+  if(eqMode==='live' && window.NPO){
+    // WebSocket-first with SSE fallback lives in shared.js, along with the
+    // six-connection story that forced it.
     var quietFrames=0;
-    var onSpectrum = function(ev){
-      var d;
-      try { d = JSON.parse(ev.data); } catch(e){ return; }
-      if(!d || !d.bands){ return; }
+    NPO.stream('/spectrum', function(d){
+      if(!d.bands){ return; }
       // If audio capture is unavailable, fall back to the canned animation
       // rather than showing a row of dead bars.
       if(!d.active){ if(++quietFrames>90) setLive(false); return; }
       quietFrames=0;
       setLive(true);
       applyBands(d.bands);
-    };
-    if(window.WebSocket){
-      // A WebSocket does not count against the browser's six-connection cap
-      // per address, unlike the SSE stream it replaces. OBS loads every
-      // browser source into one Chromium, so with several overlay widgets the
-      // six slots must stay free for /np and album art or the card freezes.
-      (function connect(){
-        var ws = new WebSocket('ws://' + location.host + '/spectrum');
-        ws.onmessage = onSpectrum;
-        // Unlike EventSource, a WebSocket does not retry on its own.
-        ws.onclose = function(){ setLive(false); setTimeout(connect, 2000); };
-      })();
-    } else {
-      var es = new EventSource('/spectrum');
-      es.onmessage = onSpectrum;
-      es.onerror = function(){ setLive(false); };   // EventSource retries on its own
-    }
+    }, { retryMs: 2000, onDown: function(){ setLive(false); } });
   }
 
   function tick(){

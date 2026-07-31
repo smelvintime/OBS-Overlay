@@ -1,0 +1,8 @@
+{
+  "name": "shockblade",
+  "label": "Shockblade",
+  "builtin": true,
+  "swatch": ["#9BD4F5", "#1E2740"],
+  "dashboard": {},
+  "source": {}
+}

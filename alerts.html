@@ -61,20 +61,10 @@
        reads as a fat comma. */
     --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='2.7' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)'%3E%3Ccircle cx='12' cy='12' r='4.3'/%3E%3Cpath d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(120 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(240 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3C/g%3E%3C/svg%3E");
   }
-  /* Shadow - base Zed rather than Shockblade. Same variable names, so every rule
-     below is written once and both palettes drive it. Sub and gift keep their own
-     hues: telling a follow from a gift at a glance matters more than a single
-     colour, and both still read as red-side here. */
-  :root[data-theme="shadow"]{
-    --accent:#e5383b;
-    --follow:#e5383b;
-    --sub:#b0446b;
-    --gift:#f07a3c;
-    --card-bg:rgba(14,7,9,.88);
-    --card-border:rgba(229,56,59,.22);
-    --text:#f6eeee;
-    --subtext:rgba(246,238,238,.66);
-  }
+  /* Palettes other than this default come from /themes as data - shared.js
+     writes them into a <style> tag. A theme may override the per-event hues
+     (--follow/--sub/--gift) too: telling a follow from a gift at a glance
+     matters more than a single colour, so themes keep them distinct. */
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
@@ -327,27 +317,11 @@
   body.st-none .alert,
   body.st-none .alert .shuriken{transition:none}
 </style>
+<script src="/shared.js"></script>
 <script>
-/* Shared theme, read from the app rather than this browser - see overlay.html for
+/* Shared theme, read from the app rather than this browser - see shared.js for
    why an OBS source cannot use localStorage for this. ?theme= pins one source. */
-(function(){
-  var root = document.documentElement;
-  function paint(name){
-    if(!name || name === 'shockblade') root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', name);
-  }
-  var forced = null;
-  try { forced = new URLSearchParams(location.search).get('theme'); } catch(e){}
-  if(forced){ paint(forced); return; }
-  var last;
-  (function poll(){
-    fetch('/prefs',{cache:'no-store'})
-      .then(function(r){ return r.json(); })
-      .then(function(p){ if(p && p.theme !== last){ last = p.theme; paint(p.theme); } })
-      .catch(function(){})
-      .finally(function(){ setTimeout(poll, 5000); });
-  })();
-})();
+if(window.NPO) NPO.themeBoot('source');
 </script>
 </head>
 <body>
@@ -571,29 +545,12 @@
       enqueue(samples[di++ % samples.length]);
       setTimeout(loop, (hold + 1.2) * 1000);
     })();
-  } else if(window.WebSocket){
-    // WebSocket rather than SSE so the stream stays out of the browser's
-    // six-connection pool for this address - see overlay.html. An alerts page
-    // with no connection stays invisible rather than announce the problem
-    // over the stream, so reconnect quietly forever.
-    (function connect(){
-      var ws = new WebSocket('ws://' + location.host + '/twitch/events');
-      ws.onmessage = function(ev){
-        var d;
-        try { d = JSON.parse(ev.data); } catch(e){ return; }
-        enqueue(d);
-      };
-      ws.onclose = function(){ setTimeout(connect, 3000); };
-    })();
-  } else if(window.EventSource){
-    var es = new EventSource('/twitch/events');
-    es.onmessage = function(ev){
-      var d;
-      try { d = JSON.parse(ev.data); } catch(e){ return; }
-      enqueue(d);
-    };
-    // EventSource reconnects on its own.
-    es.onerror = function(){};
+  } else if(window.NPO){
+    // WebSocket-first with SSE fallback lives in shared.js - see there for the
+    // six-connection story. An alerts page with no connection stays invisible
+    // rather than announce the problem over the stream, so it reconnects
+    // quietly forever.
+    NPO.stream('/twitch/events', enqueue, { retryMs: 3000 });
   }
 
   // Lets the customize page fire a preview without a round trip to Twitch.

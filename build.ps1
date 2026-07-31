@@ -41,6 +41,9 @@ $custom  = "$PSScriptRoot\customize.html"
 $alerts  = "$PSScriptRoot\alerts.html"
 $stats   = "$PSScriptRoot\stats.html"
 $setup   = "$PSScriptRoot\setup.html"
+$shared  = "$PSScriptRoot\shared.js"
+$themeSb = "$PSScriptRoot\themes\shockblade.json"
+$themeSh = "$PSScriptRoot\themes\shadow.json"
 $outExe  = Join-Path $OutDir 'NowPlayingOverlay.exe'
 
 # Fail with a useful message rather than a compiler error further down.
@@ -125,6 +128,10 @@ $cscArgs = @(
   "/resource:$botPage,bot.html"
   "/resource:$helpPage,help.html"
   "/resource:$setup,setup.html"
+  "/resource:$shared,shared.js"
+  # Built-in themes ride along as data; user themes live in %APPDATA%.
+  "/resource:$themeSb,theme-shockblade.json"
+  "/resource:$themeSh,theme-shadow.json"
   # System.Web.Extensions (JavaScriptSerializer, used to read Twitch JSON) is
   # already in csc.rsp, so referencing it here would be a duplicate-import error.
   $src

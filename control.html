@@ -7,15 +7,7 @@
 <style>
   :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
          --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F; --warn:#e8b339; }
-  /* Shadow: base Zed rather than Shockblade - near-black with a crimson edge.
-     Same variable names, so every rule below is written once and both palettes
-     drive it. Switched from the dashboard header and remembered per browser. */
-  :root[data-theme="shadow"]{
-    --bg:#0A0708; --panel:#161012; --panel2:#120D0F; --line:#33191E;
-    --fg:#F6EEEE; --dim:#B08A90; --accent:#E5383B; --trim:#8A1F26;
-    --on-accent:#1A0507;
-    --input:#0B0709; --ghost:#241417; --ghost-h:#33191E;
-    --track:#3A1F24; --hair:#201114; --code:#F2C3C6; }
+  /* Other palettes come from /themes as data - shared.js applies them. */
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
@@ -70,7 +62,8 @@
   body.embed header{display:none}
   body.embed .wrap{padding-top:20px}
 </style>
-<script>try{var t=localStorage.getItem('nowplaying.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+<script src="/shared.js"></script>
+<script>if(window.NPO) NPO.themeBoot('dashboard');</script>
 </head>
 <body>
 <header>

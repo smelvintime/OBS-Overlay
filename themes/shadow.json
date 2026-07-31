@@ -1,0 +1,33 @@
+{
+  "name": "shadow",
+  "label": "Shadow",
+  "builtin": true,
+  "swatch": ["#E5383B", "#1A0507"],
+  "dashboard": {
+    "--bg": "#0A0708",
+    "--panel": "#161012",
+    "--panel2": "#120D0F",
+    "--line": "#33191E",
+    "--fg": "#F6EEEE",
+    "--dim": "#B08A90",
+    "--accent": "#E5383B",
+    "--trim": "#8A1F26",
+    "--on-accent": "#1A0507",
+    "--input": "#0B0709",
+    "--ghost": "#241417",
+    "--ghost-h": "#33191E",
+    "--track": "#3A1F24",
+    "--hair": "#201114",
+    "--code": "#F2C3C6"
+  },
+  "source": {
+    "--accent": "#e5383b",
+    "--follow": "#e5383b",
+    "--sub": "#b0446b",
+    "--gift": "#f07a3c",
+    "--card-bg": "rgba(14,7,9,.88)",
+    "--card-border": "rgba(229,56,59,.22)",
+    "--text": "#f6eeee",
+    "--subtext": "rgba(246,238,238,.62)"
+  }
+}
