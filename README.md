@@ -111,17 +111,15 @@ right-click it and choose **Refresh**. Leaving that setting **off** avoids the g
 entirely: the same page just sits there quietly retrying, exactly as described above.
 **"Refresh browser when scene becomes active"** is fine to leave on either way.
 
-## Alternative: run from source
+## The old PowerShell version
 
-The PowerShell version needs no build step and is easier to audit or tweak:
+An earlier version of this project was a pair of PowerShell scripts run from `.bat`
+files. They have been retired to [`legacy/`](legacy/) and are kept for reference only:
+they have no Twitch alerts, no goal boxes, no setup wizard, no tray icon and no live
+equalizer, and they are not maintained. [`legacy/README.md`](legacy/README.md) lists
+the differences in full.
 
-1. Double-click **`Start-Overlay.bat`**
-2. Same OBS steps as above.
-
-Both serve the identical overlay and support all the same source/layout options. The
-`.exe` additionally has the tray icon, start-with-Windows, and the **live equaliser** —
-the PowerShell version keeps a console window open and falls back to the animated bars.
-For running quietly in the background, use the `.exe`.
+Use the `.exe` — that is the project now.
 
 ## Building the .exe yourself
 
@@ -245,8 +243,9 @@ so the new one arrives as soon as it can.
 
 ## Using a different port
 
-If port 8787 is taken, edit `Start-Overlay.bat` and change `-Port 8787`, then use the
-matching port in the OBS URL.
+If port 8787 is taken, start the app with `NowPlayingOverlay.exe -port 8788`, then use
+the matching port in the OBS URLs. A non-default port is remembered by **Start with
+Windows**, so autostart keeps using it too.
 
 ## API (for chat bots / other tools)
 
@@ -286,9 +285,10 @@ Lets viewers type `!song` in chat and get the current track as a reply.
    - A third-party generator like `twitchtokengenerator.com` — quickest, but that site
      sees a token that can post as you. Prefer an official route if you can.
 
-2. **Run `Start-TwitchBot.bat` once.** It creates `twitch-config.json` and exits.
+2. **Open `twitch-config.json`** next to the app — the setup wizard creates it, or copy
+   `twitch-config.example.json` if you skipped that.
 
-3. **Open `twitch-config.json` and fill it in yourself:**
+3. **Fill in the chat bot's half:**
    ```json
    {
      "channel": "your_channel",
@@ -299,9 +299,11 @@ Lets viewers type `!song` in chat and get the current track as a reply.
    The token must keep the `oauth:` prefix. You can use your own account as the bot,
    or a separate account if you want a distinct bot name in chat.
 
-4. **Run `Start-TwitchBot.bat` again.** It prints `logged in as ...` when connected.
+4. **Restart the app, then switch the bot on** in the dashboard's **Chat bot** tab
+   (<http://127.0.0.1:8787/app#bot>). That page shows whether it connected, lists the
+   commands and lets you add your own.
 
-Keep both windows open while streaming: `Start-Overlay.bat` and `Start-TwitchBot.bat`.
+The bot runs inside the app — there is no second window to keep open.
 
 ### Bot options (`twitch-config.json`)
 
@@ -344,8 +346,7 @@ positioned independently:
 | **Alerts** | `/alerts` | Fires when someone follows, subscribes, resubscribes or gifts. Invisible between events, so it can cover the whole canvas. |
 | **Followers & subs** | `/stats` | Two boxes stacked on top of each other, each alternating between who was most recent and a progress bar to the next goal. |
 
-Both need `NowPlayingOverlay.exe` — `server.ps1` serves the pages but does not talk
-to Twitch, so under it they stay empty.
+Both need `NowPlayingOverlay.exe`; the retired PowerShell version cannot serve them.
 
 ### Setup
 
