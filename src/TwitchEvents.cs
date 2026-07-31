@@ -166,7 +166,11 @@ namespace NowPlaying {
       sb.Append("\"hasRefresh\":").Append(_refreshToken.Length > 0 ? "true" : "false").Append(',');
       sb.Append("\"needsRestart\":").Append(_needsRestart ? "true" : "false").Append(',');
       sb.Append("\"redirectUri\":").Append(Q(RedirectUri(port))).Append(',');
-      sb.Append("\"configPath\":").Append(Q(FindConfigPath() ?? ""));
+      // Only the file name, never the path. The full path carries the Windows
+      // account name, and the wizard only needs to say "it is saved next to the
+      // app" - /diag is the place that shows the real location, to someone who
+      // has already opened it deliberately.
+      sb.Append("\"configFile\":").Append(Q(FindConfigPath() == null ? "" : "twitch-config.json"));
       sb.Append('}');
       return sb.ToString();
     }

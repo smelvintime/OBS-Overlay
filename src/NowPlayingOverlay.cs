@@ -1195,15 +1195,24 @@ namespace NowPlaying {
           } else if (route == "/setup" || route == "/setup/") {
             SendResource(ns, "setup.html");
           } else if (route == "/setup/state") {
-            Send(ns, 200, "application/json; charset=utf-8",
-                 Encoding.UTF8.GetBytes(TwitchEvents.SetupStateJson(_port)));
+            // Same-origin only: this reports whether Twitch is configured and
+            // where the config lives, which is recon for the attack the guard
+            // above exists to stop, and is nobody else's business regardless.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(TwitchEvents.SetupStateJson(_port)));
           } else if (route == "/setup/save") {
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             string err;
             TwitchEvents.SetupSave(QueryParam(path, "channel"), QueryParam(path, "clientId"),
                                    QueryParam(path, "clientSecret"), out err);
-            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
               "{\"ok\":" + (err.Length == 0 ? "true" : "false") + ",\"error\":" + Q(err) + "}"));
           } else if (route == "/oauth/start") {
+            // A cross-site navigation here would send the user to consent for
+            // whichever Twitch app the config currently names - the second half
+            // of the config-clobber chain. Only our own wizard may start it.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             if (!TwitchEvents.OAuthReady)
               SendRedirect(ns, "/setup?oautherr=" + Uri.EscapeDataString(
                 "save the Client ID and Secret first"));
@@ -1223,10 +1232,14 @@ namespace NowPlaying {
                                   : "/setup?oautherr=" + Uri.EscapeDataString(oerr));
             }
           } else if (route == "/setup/skip") {
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             TwitchEvents.SetupSkip();
-            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
           } else if (route == "/setup/restart") {
-            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
+            // The one that would hurt most: a page looping this would keep a
+            // live stream's overlays restarting for as long as the tab is open.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
             // Reply first, then hand over: the fresh copy binds the port as
             // soon as this one lets it go, and every page already retries.
             var t = new Thread(() => {
@@ -1529,6 +1542,53 @@ namespace NowPlaying {
       Send(ns, code, contentType, body, null);
     }
 
+    // ---- cross-site request guard --------------------------------------------
+    // This server has no authentication, by design: it is loopback-only and OBS
+    // browser sources cannot present credentials. That was harmless while every
+    // route was read-mostly. The setup routes are not - they write credentials
+    // into a file and restart the process - and "no authentication" means any
+    // web page the user happens to be visiting can reach them. A single <img
+    // src="http://127.0.0.1:8787/setup/restart"> on any site would kill a live
+    // stream, on repeat, with no interaction beyond loading the page.
+    //
+    // Sec-Fetch-Site is what actually distinguishes those requests: browsers set
+    // it themselves and a page cannot forge it. same-origin is our own wizard
+    // calling us; none is the user typing the address or the tray opening it.
+    // Anything else - cross-site, same-site - is another origin driving the
+    // request and has no business here.
+    //
+    // Requests with no Sec-Fetch-Site at all (curl, PowerShell, an old browser)
+    // are allowed through unless they carry a Referer from somewhere else, so
+    // scripting the app locally still works while a stale browser's cross-site
+    // request is still caught by its Referer.
+    static string HeaderValue(string req, string name) {
+      foreach (var line in req.Split(new[] { "\r\n" }, StringSplitOptions.None)) {
+        if (line.Length == 0) break;                 // end of headers
+        int c = line.IndexOf(':');
+        if (c <= 0) continue;
+        if (line.Substring(0, c).Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+          return line.Substring(c + 1).Trim();
+      }
+      return null;
+    }
+
+    static bool SameOriginRequest(string req) {
+      string site = HeaderValue(req, "Sec-Fetch-Site");
+      if (site != null)
+        return site.Equals("same-origin", StringComparison.OrdinalIgnoreCase)
+            || site.Equals("none", StringComparison.OrdinalIgnoreCase);
+      string referer = HeaderValue(req, "Referer");
+      if (referer == null) return true;              // not a browser
+      return referer.StartsWith("http://127.0.0.1:" + _port, StringComparison.OrdinalIgnoreCase)
+          || referer.StartsWith("http://localhost:" + _port, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // 403 for a route that only this app's own pages may drive.
+    static void SendForbidden(NetworkStream ns) {
+      Send(ns, 403, "text/plain",
+           Encoding.UTF8.GetBytes("This address can only be used from the app's own pages."));
+    }
+
     // Plain 302. The OAuth flow needs to bounce the user's browser out to
     // Twitch and back, and the callback bounces on to /setup so the wizard is
     // the single place that renders outcomes.
@@ -1537,6 +1597,23 @@ namespace NowPlaying {
         "HTTP/1.1 302 Found\r\nLocation: " + url + "\r\n"
         + "Content-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
       ns.Write(head, 0, head.Length);
+      ns.Flush();
+    }
+
+    // No Access-Control-Allow-Origin. The overlay routes carry it because OBS
+    // browser sources and the dashboard's frames legitimately read them from
+    // another origin; the setup routes never need that, and the wildcard would
+    // otherwise let any site read setup state cross-origin.
+    static void SendPrivate(NetworkStream ns, int code, string contentType, byte[] body) {
+      var sb = new StringBuilder();
+      sb.Append("HTTP/1.1 ").Append(code).Append(code == 200 ? " OK" : " Error").Append("\r\n");
+      sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
+      sb.Append("Content-Length: ").Append(body == null ? 0 : body.Length).Append("\r\n");
+      sb.Append("Cache-Control: no-cache, no-store, must-revalidate\r\n");
+      sb.Append("Connection: close\r\n\r\n");
+      var head = Encoding.ASCII.GetBytes(sb.ToString());
+      ns.Write(head, 0, head.Length);
+      if (body != null && body.Length > 0) ns.Write(body, 0, body.Length);
       ns.Flush();
     }
 
