@@ -1,20 +1,26 @@
-// First-run "where should this live?" step.
+// First-run "this shouldn't live in Downloads" nudge.
 //
-// The exe is self-contained - every page is an embedded resource - so
-// installing it is genuinely just "put this one file somewhere sensible and
-// make it findable". There is no MSI, no admin prompt and nothing written
-// outside the user's own profile unless they choose a path themselves.
+// The problem is real: people download a program, run it from Downloads, and
+// later clear that folder out - taking the thing OBS points at with it. The
+// obvious fix is for the app to copy itself somewhere permanent, and that is
+// what this file used to do.
 //
-// It exists because downloading a program and running it from the Downloads
-// folder is the normal thing for a person to do, and then the folder gets
-// cleaned out, or the file is one of forty things called something similar,
-// and the overlay OBS points at is gone. Asking once, on the very first run,
-// turns that into a deliberate choice.
+// It cannot. An unsigned executable that writes another executable to disk and
+// registers it for startup is, to a machine-learning malware classifier, a
+// dropper - there is no way to look different while doing the same thing.
+// Defender flagged our release as Trojan:Win32/Wacatac.C!ml and deleted it on
+// sight. Removing the self-copy code from the binary entirely is what cleared
+// it; nothing subtler worked, because the verdict comes from the code being
+// present, not from it running.
 //
-// Deliberately not an installer in the traditional sense: no uninstaller entry,
-// no registry beyond the startup key the tray already owns, no services. The
-// whole thing is a file copy plus two shortcuts, and uninstalling is deleting
-// the folder.
+// So the app no longer moves itself. It offers to set the destination up and
+// opens both folders so the move is one drag in Explorer - Windows' own file
+// operation, performed by the user, which no classifier objects to. Once the
+// app is somewhere permanent it offers shortcuts and startup instead, both of
+// which are ordinary .lnk and registry writes that were never the problem.
+//
+// If this project ever gets a code-signing certificate, the automatic version
+// is worth restoring; see git history for it.
 
 using System;
 using System.Drawing;
@@ -26,9 +32,7 @@ namespace NowPlaying {
 
   static class Installer {
 
-    // One line: the path the user picked. Its presence is also the "we have
-    // asked, never ask again" flag - being nagged by a program you have already
-    // told what to do is worse than the problem this solves.
+    // Records that the question has been asked, so nobody is nagged twice.
     static string MarkerPath() {
       string dir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -41,9 +45,9 @@ namespace NowPlaying {
       return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
     }
 
-    // Working from a clone rather than a download: the exe sits in dist\ with
-    // the sources beside or above it. Offering to "install" there would be
-    // nonsense, and would fire on every developer's first run.
+    // Working from a clone: the exe sits in dist\ with the sources around it.
+    // Suggesting a move there would be nonsense and would fire for every
+    // developer on their first build.
     static bool IsDevTree() {
       try {
         string dir = ExeDir();
@@ -57,125 +61,206 @@ namespace NowPlaying {
       return false;
     }
 
+    // Only nag about the folders people actually clear out. Anywhere else is a
+    // deliberate choice and none of our business.
+    static bool InTransientFolder() {
+      try {
+        string here = Path.GetFullPath(ExeDir()).TrimEnd('\\');
+        string[] transient = {
+          Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
+          Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+          Path.GetTempPath()
+        };
+        foreach (var t in transient) {
+          if (string.IsNullOrEmpty(t)) continue;
+          string root = Path.GetFullPath(t).TrimEnd('\\');
+          // The folder itself or anything inside it. Unzipping into
+          // Downloads\overlay\ is the same problem as sitting in Downloads,
+          // and an exact match would miss every one of those.
+          if (here.Equals(root, StringComparison.OrdinalIgnoreCase)
+              || here.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase))
+            return true;
+        }
+      } catch { }
+      return false;
+    }
+
     static string DefaultTarget() {
-      // Per-user Programs: the modern home for an app that needs no admin
-      // rights. Program Files would demand elevation for a file copy.
+      // Per-user Programs: where an app that needs no admin rights belongs.
       return Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Programs", "NowPlayingOverlay");
     }
 
     /// <summary>
-    /// Offers to install on the very first run. Always returns false - this
-    /// process carries on running whatever the answer - but the return value is
-    /// kept so the caller can stop if that ever changes.
+    /// Runs at most once, on first launch. Always returns false - this process
+    /// keeps running whatever the answer - but the signature is kept so the
+    /// caller can stop if that ever changes again.
     /// </summary>
     public static bool MaybeOffer() {
       try {
-        if (File.Exists(MarkerPath())) {
-          // Already answered once. If the file has since been moved, follow it
-          // rather than asking again - they clearly know where they want it.
-          try { File.WriteAllText(MarkerPath(), Assembly.GetExecutingAssembly().Location); } catch { }
-          return false;
-        }
+        if (File.Exists(MarkerPath())) return false;
         if (IsDevTree()) return false;
 
-        string target;
-        bool desktop, startMenu, autostart;
-        if (!Ask(out target, out desktop, out startMenu, out autostart)) {
-          // "Not now" is a real answer: remember it so the question does not
-          // come back every launch, and carry on from where the file already is.
-          try { File.WriteAllText(MarkerPath(), Assembly.GetExecutingAssembly().Location); } catch { }
-          return false;
-        }
+        // Somewhere permanent already: skip the move talk and just offer the
+        // conveniences, which is all most people wanted anyway.
+        if (!InTransientFolder()) { OfferShortcuts(); return false; }
 
-        string destExe = DoInstall(target, desktop, startMenu, autostart);
-        if (destExe == null) return false;       // already in the chosen place
-
-        // Deliberately does NOT launch the copy and exit. "Write an executable
-        // somewhere else, run it, and terminate yourself" is the dropper
-        // sequence every heuristic engine is trained on, and an unsigned binary
-        // doing it on first run is a large part of why this app gets flagged.
-        // Carrying on in this process reaches the same place: the copy is what
-        // the shortcuts and the startup entry point at, so from the next launch
-        // onward the installed one is the one that runs.
-        MessageBox.Show(
-          "Installed to:\r\n" + target + "\r\n\r\n"
-          + "This window's copy keeps running for now. From next time - the "
-          + "shortcut, or signing in to Windows - it starts from its new home, "
-          + "and you can delete the file you downloaded.",
-          "Now Playing Overlay", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        return false;
-      } catch (Exception ex) {
-        AppLog.Write("install offer failed (continuing where we are): " + ex.Message);
-        MessageBox.Show(
-          "Could not install to that folder:\r\n\r\n" + ex.Message
-          + "\r\n\r\nThe overlay will keep running from where it is.",
-          "Now Playing Overlay", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        AskToMove();
         try { File.WriteAllText(MarkerPath(), Assembly.GetExecutingAssembly().Location); } catch { }
         return false;
+      } catch (Exception ex) {
+        AppLog.Write("first-run prompt failed (continuing): " + ex.Message);
+        try { File.WriteAllText(MarkerPath(), "failed"); } catch { }
+        return false;
       }
     }
 
-    /// <summary>
-    /// The install itself, with no UI of its own so it can be exercised without
-    /// a dialog in the way. Returns the installed exe path, or null when the
-    /// file is already living at the chosen destination.
-    /// </summary>
-    static string DoInstall(string target, bool desktop, bool startMenu, bool autostart) {
+    // ---------------------------------------------------------------- the move
+    static void AskToMove() {
+      string target = DefaultTarget();
       string src = Assembly.GetExecutingAssembly().Location;
-      string destExe = Path.Combine(target, Path.GetFileName(src));
 
-      if (string.Equals(Path.GetFullPath(src), Path.GetFullPath(destExe),
-                        StringComparison.OrdinalIgnoreCase)) {
-        File.WriteAllText(MarkerPath(), src);
-        Shortcuts(destExe, desktop, startMenu);
-        if (autostart) Program.SetStartupPublic(true);
-        return null;
-      }
+      var f = new Form {
+        Text = "Move Now Playing Overlay somewhere permanent",
+        FormBorderStyle = FormBorderStyle.FixedDialog,
+        StartPosition = FormStartPosition.CenterScreen,
+        MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = true,
+        ClientSize = new Size(520, 250),
+        Font = new Font("Segoe UI", 9F)
+      };
 
-      Directory.CreateDirectory(target);
-      File.Copy(src, destExe, true);
+      var head = new Label {
+        Text = "You're running this from " + FriendlyFolderName() + ".",
+        Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+        Location = new Point(16, 14), Size = new Size(488, 24)
+      };
+      var blurb = new Label {
+        Text = "That folder gets cleared out, and if this file disappears your OBS overlays "
+             + "go blank. It's one self-contained file, so moving it is all it takes - nothing "
+             + "else needs to come along.\r\n\r\n"
+             + "The button below creates the folder and opens both windows, so you can drag "
+             + "the file across. Then run it from its new home.",
+        Location = new Point(16, 42), Size = new Size(488, 92),
+        ForeColor = Color.FromArgb(80, 80, 80)
+      };
+      var pathLbl = new Label {
+        Text = "Suggested: " + target,
+        Location = new Point(16, 140), Size = new Size(488, 20),
+        ForeColor = Color.FromArgb(50, 50, 50)
+      };
 
-      // Carry the Twitch credentials across, so someone who set the app up
-      // before installing it does not have to do it twice. Never overwrite a
-      // config already at the destination.
+      var pick = new Button { Text = "Choose a different folder...", Location = new Point(16, 166),
+                              Size = new Size(178, 26) };
+      pick.Click += (s, e) => {
+        using (var d = new FolderBrowserDialog()) {
+          d.Description = "Where should Now Playing Overlay live?";
+          d.SelectedPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+          if (d.ShowDialog(f) == DialogResult.OK) {
+            target = Path.Combine(d.SelectedPath, "NowPlayingOverlay");
+            pathLbl.Text = "Suggested: " + target;
+          }
+        }
+      };
+
+      var go = new Button { Text = "Open both folders", Location = new Point(286, 206),
+                            Size = new Size(128, 28), DialogResult = DialogResult.OK };
+      var later = new Button { Text = "Not now", Location = new Point(422, 206),
+                               Size = new Size(82, 28), DialogResult = DialogResult.Cancel };
+      f.AcceptButton = go; f.CancelButton = later;
+      f.Controls.AddRange(new Control[] { head, blurb, pathLbl, pick, go, later });
+
+      bool move = f.ShowDialog() == DialogResult.OK;
+      f.Dispose();
+      if (!move) return;
+
       try {
-        string cfg = Path.Combine(Path.GetDirectoryName(src), "twitch-config.json");
-        string destCfg = Path.Combine(target, "twitch-config.json");
-        if (File.Exists(cfg) && !File.Exists(destCfg)) File.Copy(cfg, destCfg);
-      } catch { }
-
-      Shortcuts(destExe, desktop, startMenu);
-      AppLog.Write("installed to " + destExe);
-      File.WriteAllText(MarkerPath(), destExe);
-
-      // The startup key records an absolute path, so it has to be written
-      // pointing at the installed copy, not the one running this.
-      if (autostart) {
-        try {
-          Microsoft.Win32.Registry.SetValue(
-            @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run",
-            "NowPlayingOverlay", "\"" + destExe + "\"");
-        } catch { }
+        Directory.CreateDirectory(target);
+        // The destination, then the source with the file already selected, so
+        // the drag is between two windows that are both already open. Windows
+        // performs the copy; this app never writes an executable anywhere.
+        System.Diagnostics.Process.Start("explorer.exe", "\"" + target + "\"");
+        System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + src + "\"");
+        AppLog.Write("first run: opened " + target + " for a manual move");
+      } catch (Exception ex) {
+        MessageBox.Show("Could not open that folder:\r\n\r\n" + ex.Message,
+                        "Now Playing Overlay", MessageBoxButtons.OK, MessageBoxIcon.Warning);
       }
-      return destExe;
     }
 
-    // A .lnk needs the shell's own object to create; WScript.Shell is present on
-    // every Windows and is reachable late-bound, so this needs no COM reference
-    // and cannot break the build on a machine that lacks it.
+    static string FriendlyFolderName() {
+      try {
+        string here = Path.GetFullPath(ExeDir()).TrimEnd('\\');
+        if (here.Equals(Path.GetFullPath(Path.Combine(
+              Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")).TrimEnd('\\'),
+              StringComparison.OrdinalIgnoreCase)) return "your Downloads folder";
+        if (here.Equals(Path.GetFullPath(
+              Environment.GetFolderPath(Environment.SpecialFolder.Desktop)).TrimEnd('\\'),
+              StringComparison.OrdinalIgnoreCase)) return "your Desktop";
+        return "a temporary folder";
+      } catch { return "a temporary folder"; }
+    }
+
+    // ----------------------------------------------------------- conveniences
+    // Offered once the app is somewhere it will stay. A .lnk and an HKCU Run
+    // value are what every installer writes; neither is what got us flagged.
+    static void OfferShortcuts() {
+      string exe = Assembly.GetExecutingAssembly().Location;
+
+      var f = new Form {
+        Text = "Now Playing Overlay",
+        FormBorderStyle = FormBorderStyle.FixedDialog,
+        StartPosition = FormStartPosition.CenterScreen,
+        MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = true,
+        ClientSize = new Size(470, 196),
+        Font = new Font("Segoe UI", 9F)
+      };
+      var head = new Label {
+        Text = "Shortcuts?",
+        Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+        Location = new Point(16, 14), Size = new Size(438, 24)
+      };
+      var blurb = new Label {
+        Text = "It runs in the system tray with no window, so a shortcut is the easiest way "
+             + "to start it again later.",
+        Location = new Point(16, 40), Size = new Size(438, 36),
+        ForeColor = Color.FromArgb(80, 80, 80)
+      };
+      var cbDesktop = new CheckBox { Text = "Put a shortcut on my desktop", Checked = true,
+                                     Location = new Point(16, 82), Size = new Size(438, 22) };
+      var cbStart = new CheckBox { Text = "Add it to the Start menu", Checked = true,
+                                   Location = new Point(16, 106), Size = new Size(438, 22) };
+      var cbAuto = new CheckBox { Text = "Start automatically when I sign in to Windows",
+                                  Checked = false, Location = new Point(16, 130), Size = new Size(438, 22) };
+      var ok = new Button { Text = "Done", Location = new Point(280, 156), Size = new Size(80, 28),
+                            DialogResult = DialogResult.OK };
+      var skip = new Button { Text = "No thanks", Location = new Point(368, 156), Size = new Size(86, 28),
+                              DialogResult = DialogResult.Cancel };
+      f.AcceptButton = ok; f.CancelButton = skip;
+      f.Controls.AddRange(new Control[] { head, blurb, cbDesktop, cbStart, cbAuto, ok, skip });
+
+      bool apply = f.ShowDialog() == DialogResult.OK;
+      bool d1 = cbDesktop.Checked, s1 = cbStart.Checked, a1 = cbAuto.Checked;
+      f.Dispose();
+      try { File.WriteAllText(MarkerPath(), exe); } catch { }
+      if (!apply) return;
+
+      Shortcuts(exe, d1, s1);
+      if (a1) Program.SetStartupPublic(true);
+    }
+
+    // WScript.Shell is on every Windows and reachable late-bound, so this needs
+    // no COM reference and cannot break the build.
     static void Shortcuts(string exePath, bool desktop, bool startMenu) {
       if (!desktop && !startMenu) return;
       try {
         Type t = Type.GetTypeFromProgID("WScript.Shell");
         if (t == null) return;
         dynamic shell = Activator.CreateInstance(t);
-        if (desktop) {
+        if (desktop)
           Make(shell, exePath, Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
             "Now Playing Overlay.lnk"));
-        }
         if (startMenu) {
           string dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Now Playing Overlay");
@@ -195,73 +280,6 @@ namespace NowPlaying {
         sc.Description = "Now Playing overlay for OBS";
         sc.Save();
       } catch { }
-    }
-
-    // ------------------------------------------------------------------ dialog
-    // Hand-built rather than a bare FolderBrowserDialog: the folder is only half
-    // the question, and a picker with no explanation appearing out of nowhere on
-    // first launch reads as the program having gone wrong.
-    static bool Ask(out string target, out bool desktop, out bool startMenu, out bool autostart) {
-      target = DefaultTarget();
-      desktop = true; startMenu = true; autostart = false;
-
-      var f = new Form {
-        Text = "Install Now Playing Overlay",
-        FormBorderStyle = FormBorderStyle.FixedDialog,
-        StartPosition = FormStartPosition.CenterScreen,
-        MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = true,
-        ClientSize = new Size(500, 258),
-        Font = new Font("Segoe UI", 9F)
-      };
-
-      var head = new Label {
-        Text = "Where should the overlay live?",
-        Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-        Location = new Point(16, 14), Size = new Size(468, 24)
-      };
-      var blurb = new Label {
-        Text = "This is one self-contained file - the overlay pages are inside it, so "
-             + "nothing else needs to be copied. Putting it somewhere permanent means "
-             + "clearing out your Downloads folder later cannot break OBS.",
-        Location = new Point(16, 40), Size = new Size(468, 46),
-        ForeColor = Color.FromArgb(90, 90, 90)
-      };
-
-      var box = new TextBox { Text = target, Location = new Point(16, 94), Size = new Size(378, 23) };
-      var browse = new Button { Text = "Browse...", Location = new Point(402, 93), Size = new Size(82, 25) };
-      browse.Click += (s, e) => {
-        using (var d = new FolderBrowserDialog()) {
-          d.Description = "Choose a folder for Now Playing Overlay";
-          d.SelectedPath = Directory.Exists(box.Text) ? box.Text
-                         : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-          if (d.ShowDialog(f) == DialogResult.OK)
-            box.Text = Path.Combine(d.SelectedPath, "NowPlayingOverlay");
-        }
-      };
-
-      var cbDesktop = new CheckBox { Text = "Put a shortcut on my desktop", Checked = true,
-                                     Location = new Point(16, 128), Size = new Size(468, 22) };
-      var cbStart = new CheckBox { Text = "Add it to the Start menu", Checked = true,
-                                   Location = new Point(16, 152), Size = new Size(468, 22) };
-      var cbAuto = new CheckBox { Text = "Start automatically when I sign in to Windows",
-                                  Checked = false, Location = new Point(16, 176), Size = new Size(468, 22) };
-
-      var ok = new Button { Text = "Install", Location = new Point(298, 214), Size = new Size(96, 28),
-                            DialogResult = DialogResult.OK };
-      var skip = new Button { Text = "Not now", Location = new Point(402, 214), Size = new Size(82, 28),
-                              DialogResult = DialogResult.Cancel };
-      // "Not now" leaves it where it is - a real choice, not a way to trap
-      // someone in a dialog they did not ask for.
-      f.AcceptButton = ok; f.CancelButton = skip;
-
-      f.Controls.AddRange(new Control[] { head, blurb, box, browse, cbDesktop, cbStart, cbAuto, ok, skip });
-
-      bool go = f.ShowDialog() == DialogResult.OK;
-      target = (box.Text ?? "").Trim();
-      desktop = cbDesktop.Checked; startMenu = cbStart.Checked; autostart = cbAuto.Checked;
-      f.Dispose();
-      if (!go || target.Length == 0) return false;
-      return true;
     }
   }
 }
