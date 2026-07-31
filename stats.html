@@ -961,9 +961,8 @@
 
     // The poll is only every 5s and the totals it reads lag Twitch by up to a
     // minute, so events drive the visible change and the poll corrects drift.
-    if(window.EventSource){
-      var es = new EventSource('/twitch/events');
-      es.onmessage = function(ev){
+    if(window.WebSocket || window.EventSource){
+      var onTwitchEvent = function(ev){
         var d;
         try { d = JSON.parse(ev.data); } catch(e){ return; }
         if(d.kind === 'follow'){
@@ -985,7 +984,20 @@
         // the new one by the time anybody sees it.
         enqueueTakeover(d);
       };
-      es.onerror = function(){};
+      if(window.WebSocket){
+        // WebSocket rather than SSE so the stream stays out of the browser's
+        // six-connection pool for this address - see overlay.html.
+        (function connect(){
+          var ws = new WebSocket('ws://' + location.host + '/twitch/events');
+          ws.onmessage = onTwitchEvent;
+          // Unlike EventSource, a WebSocket does not retry on its own.
+          ws.onclose = function(){ setTimeout(connect, 3000); };
+        })();
+      } else {
+        var es = new EventSource('/twitch/events');
+        es.onmessage = onTwitchEvent;
+        es.onerror = function(){};
+      }
     }
   }
 

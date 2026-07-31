@@ -758,10 +758,9 @@
     }
   }
 
-  if(eqMode==='live' && window.EventSource){
+  if(eqMode==='live' && (window.WebSocket || window.EventSource)){
     var quietFrames=0;
-    var es = new EventSource('/spectrum');
-    es.onmessage = function(ev){
+    var onSpectrum = function(ev){
       var d;
       try { d = JSON.parse(ev.data); } catch(e){ return; }
       if(!d || !d.bands){ return; }
@@ -772,7 +771,22 @@
       setLive(true);
       applyBands(d.bands);
     };
-    es.onerror = function(){ setLive(false); };   // EventSource retries on its own
+    if(window.WebSocket){
+      // A WebSocket does not count against the browser's six-connection cap
+      // per address, unlike the SSE stream it replaces. OBS loads every
+      // browser source into one Chromium, so with several overlay widgets the
+      // six slots must stay free for /np and album art or the card freezes.
+      (function connect(){
+        var ws = new WebSocket('ws://' + location.host + '/spectrum');
+        ws.onmessage = onSpectrum;
+        // Unlike EventSource, a WebSocket does not retry on its own.
+        ws.onclose = function(){ setLive(false); setTimeout(connect, 2000); };
+      })();
+    } else {
+      var es = new EventSource('/spectrum');
+      es.onmessage = onSpectrum;
+      es.onerror = function(){ setLive(false); };   // EventSource retries on its own
+    }
   }
 
   function tick(){

@@ -1097,12 +1097,14 @@ namespace NowPlaying {
               Diagnostics.Html(_port, _mode, _pinApp, IsElevated(), detail, running,
                                snap, TwitchEvents.FindConfigPath())));
           } else if (route == "/spectrum") {
-            StreamSpectrum(ns);          // long-lived; returns on disconnect
+            if (IsWebSocket(req)) WsStreamSpectrum(ns, req);
+            else StreamSpectrum(ns);     // long-lived; returns on disconnect
           } else if (route == "/twitch") {
             Send(ns, 200, "application/json; charset=utf-8",
                  Encoding.UTF8.GetBytes(TwitchEvents.StatusJson()));
           } else if (route == "/twitch/events") {
-            StreamTwitch(ns);            // long-lived; returns on disconnect
+            if (IsWebSocket(req)) WsStreamTwitch(ns, req);
+            else StreamTwitch(ns);       // long-lived; returns on disconnect
           } else if (route == "/twitch/test") {
             string kind = QueryParam(path, "type") ?? "follow";
             string who = QueryParam(path, "user") ?? "";
@@ -1283,6 +1285,136 @@ namespace NowPlaying {
             var ping = Encoding.ASCII.GetBytes(": ping\n\n");
             ns.Write(ping, 0, ping.Length);
             ns.Flush();
+            sincePing = 0;
+          }
+          Thread.Sleep(250);
+        }
+      } catch {
+        // client went away; nothing to do
+      } finally {
+        Interlocked.Decrement(ref _twitchClients);
+      }
+    }
+
+    // WebSocket variants of the two streams above. OBS loads every browser
+    // source into one Chromium instance, which allows six plain HTTP
+    // connections per address - and each SSE stream holds one for its whole
+    // life. Six overlay sources therefore starve /np and /art behind streams
+    // that never finish: the card freezes in OBS while a normal browser (with
+    // its own six) stays fine. WebSockets live in a separate, far larger
+    // Chromium pool, so the streams move there and the six slots stay free
+    // for the short requests. The SSE paths remain for pages from an older
+    // exe that are still open mid-upgrade.
+    static bool IsWebSocket(string req) {
+      return req.IndexOf("upgrade: websocket", StringComparison.OrdinalIgnoreCase) >= 0
+          && req.IndexOf("sec-websocket-key", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    static bool WsHandshake(NetworkStream ns, string req) {
+      string key = null;
+      foreach (var line in req.Split(new[] { "\r\n" }, StringSplitOptions.None)) {
+        int c = line.IndexOf(':');
+        if (c > 0 && line.Substring(0, c).Trim()
+              .Equals("Sec-WebSocket-Key", StringComparison.OrdinalIgnoreCase)) {
+          key = line.Substring(c + 1).Trim();
+          break;
+        }
+      }
+      if (key == null) {
+        Send(ns, 400, "text/plain", Encoding.UTF8.GetBytes("bad websocket request"));
+        return false;
+      }
+      string accept;
+      using (var sha1 = System.Security.Cryptography.SHA1.Create())
+        accept = Convert.ToBase64String(sha1.ComputeHash(
+          Encoding.ASCII.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));
+      var head = Encoding.ASCII.GetBytes(
+        "HTTP/1.1 101 Switching Protocols\r\n" +
+        "Upgrade: websocket\r\n" +
+        "Connection: Upgrade\r\n" +
+        "Sec-WebSocket-Accept: " + accept + "\r\n\r\n");
+      ns.Write(head, 0, head.Length);
+      ns.Flush();
+      return true;
+    }
+
+    static void WsSendFrame(NetworkStream ns, byte opcode, byte[] data) {
+      byte[] head;
+      if (data.Length < 126) {
+        head = new byte[] { (byte)(0x80 | opcode), (byte)data.Length };
+      } else if (data.Length < 65536) {
+        head = new byte[] { (byte)(0x80 | opcode), 126,
+                            (byte)(data.Length >> 8), (byte)data.Length };
+      } else {
+        head = new byte[10];
+        head[0] = (byte)(0x80 | opcode); head[1] = 127;
+        long l = data.Length;
+        for (int i = 0; i < 8; i++) head[9 - i] = (byte)(l >> (8 * i));
+      }
+      ns.Write(head, 0, head.Length);
+      ns.Write(data, 0, data.Length);
+      ns.Flush();
+    }
+
+    static void WsSendText(NetworkStream ns, string text) {
+      WsSendFrame(ns, 0x1, Encoding.UTF8.GetBytes(text));
+    }
+
+    // The server never acts on anything the page sends, but bytes still arrive
+    // (pong replies to our pings, a close frame on teardown) and unread data
+    // would slowly fill the socket buffer. Discard them; a zero-byte read
+    // means the peer is gone, and throwing hands control to the loop's catch.
+    static void WsDrain(NetworkStream ns, byte[] scratch) {
+      while (ns.DataAvailable) {
+        if (ns.Read(scratch, 0, scratch.Length) <= 0)
+          throw new System.IO.IOException("websocket peer closed");
+      }
+    }
+
+    static void WsStreamSpectrum(NetworkStream ns, string req) {
+      if (Interlocked.Increment(ref _spectrumClients) > MaxSpectrumClients) {
+        Interlocked.Decrement(ref _spectrumClients);
+        Send(ns, 503, "text/plain", Encoding.UTF8.GetBytes("too many spectrum clients"));
+        return;
+      }
+      try {
+        if (!WsHandshake(ns, req)) return;
+        var scratch = new byte[512];
+        while (true) {
+          WsDrain(ns, scratch);
+          WsSendText(ns, SpectrumJson());     // throws when the source closes
+          Thread.Sleep(33);                   // ~30fps
+        }
+      } catch {
+        // client went away; nothing to do
+      } finally {
+        Interlocked.Decrement(ref _spectrumClients);
+      }
+    }
+
+    static void WsStreamTwitch(NetworkStream ns, string req) {
+      if (Interlocked.Increment(ref _twitchClients) > MaxTwitchClients) {
+        Interlocked.Decrement(ref _twitchClients);
+        Send(ns, 503, "text/plain", Encoding.UTF8.GetBytes("too many alert clients"));
+        return;
+      }
+      try {
+        if (!WsHandshake(ns, req)) return;
+        var scratch = new byte[512];
+        long seen = TwitchEvents.CurrentSeq;
+        int sincePing = 0;
+        while (true) {
+          WsDrain(ns, scratch);
+          long now;
+          var pending = TwitchEvents.Since(seen, out now);
+          seen = now;
+          if (pending.Length > 0) {
+            foreach (var p in pending) WsSendText(ns, p);
+            sincePing = 0;
+          } else if (++sincePing >= 40) {
+            // Same dead-socket probe as the SSE loop, as a ping control frame:
+            // the page never sees it, but writing it throws once the tab is gone.
+            WsSendFrame(ns, 0x9, new byte[0]);
             sincePing = 0;
           }
           Thread.Sleep(250);

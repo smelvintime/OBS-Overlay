@@ -555,6 +555,20 @@
       enqueue(samples[di++ % samples.length]);
       setTimeout(loop, (hold + 1.2) * 1000);
     })();
+  } else if(window.WebSocket){
+    // WebSocket rather than SSE so the stream stays out of the browser's
+    // six-connection pool for this address - see overlay.html. An alerts page
+    // with no connection stays invisible rather than announce the problem
+    // over the stream, so reconnect quietly forever.
+    (function connect(){
+      var ws = new WebSocket('ws://' + location.host + '/twitch/events');
+      ws.onmessage = function(ev){
+        var d;
+        try { d = JSON.parse(ev.data); } catch(e){ return; }
+        enqueue(d);
+      };
+      ws.onclose = function(){ setTimeout(connect, 3000); };
+    })();
   } else if(window.EventSource){
     var es = new EventSource('/twitch/events');
     es.onmessage = function(ev){
@@ -562,8 +576,7 @@
       try { d = JSON.parse(ev.data); } catch(e){ return; }
       enqueue(d);
     };
-    // EventSource reconnects on its own, and an alerts page with no connection
-    // should stay invisible rather than announce the problem over the stream.
+    // EventSource reconnects on its own.
     es.onerror = function(){};
   }
 

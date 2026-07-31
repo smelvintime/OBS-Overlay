@@ -212,6 +212,7 @@ namespace NowPlaying {
       sb.Append("['clip-path',has('clip-path','polygon(0 0,1px 0,0 1px)')?'yes':'NO - blade frames will not cut'],");
       sb.Append("['CSS mask',(has('mask-image','none')||has('-webkit-mask-image','none'))?'yes':'NO - the shuriken will not draw'],");
       sb.Append("['backdrop blur',has('backdrop-filter','blur(1px)')?'yes':'no - frosted panels fall back to flat'],");
+      sb.Append("['WebSocket',('WebSocket' in window)?'yes':'no - streams fall back to SSE'],");
       sb.Append("['EventSource',('EventSource' in window)?'yes':'NO - alerts cannot stream'],");
       sb.Append("['ResizeObserver',('ResizeObserver' in window)?'yes':'no - size readout unavailable']];");
       sb.Append("var h='';for(var i=0;i<checks.length;i++){h+='<tr><th>'+checks[i][0]+'</th><td>'+");

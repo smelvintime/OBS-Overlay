@@ -83,7 +83,7 @@ about it — OBS will just find the overlay whenever you stream.
 
 Every page here already retries forever on its own — the now-playing overlay refetches
 every 1.5s, the dashboard's Twitch banner and source picker poll every few seconds, and
-the alert/stats pages use `EventSource`, which reconnects by itself. None of them ever
+the alert/stats/equalizer streams reconnect on their own a few seconds after a drop. None of them ever
 give up. So the moment the exe is back, whatever OBS already has open picks the overlay
 back up **with nothing clicked in OBS** — same source, same URL, no refresh needed.
 
@@ -234,7 +234,7 @@ matching port in the OBS URL.
 |---|---|
 | `GET /np` | JSON: `{playing, title, artist, album, app, source, id, hasArt}` |
 | `GET /art` | Current album art image bytes (`204` if none) |
-| `GET /spectrum` | Server-sent event stream of live frequency bands, ~30fps (.exe only) |
+| `GET /spectrum` | Live frequency bands, ~30fps: WebSocket upgrade or SSE stream (.exe only) |
 | `GET /spectrum.json` | One-shot spectrum snapshot, handy for debugging (.exe only) |
 | `GET /sources` | Diagnostic: what each provider sees, which one won, current pin |
 | `GET /setsource?mode=prefer\|only\|auto&app=<name>` | Change which player is followed |
@@ -242,7 +242,7 @@ matching port in the OBS URL.
 | `GET /alerts` | Twitch follow/sub alert source (.exe only for live data) |
 | `GET /stats` | Twitch follower and subscriber boxes (.exe only for live data) |
 | `GET /twitch` | JSON: connection status, follower/sub totals, goals, most recent of each |
-| `GET /twitch/events` | Server-sent event stream of follows and subs (.exe only) |
+| `GET /twitch/events` | Follows and subs: WebSocket upgrade or SSE stream (.exe only) |
 | `GET /twitch/test?type=follow\|sub\|resub\|gift&user=<name>` | Fire a fake alert, for styling without waiting for a real one |
 | `GET /layouts` | Side-by-side layout previews |
 | `GET /customize` | Full customizer with a live preview |
