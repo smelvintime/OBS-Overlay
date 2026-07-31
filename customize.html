@@ -259,7 +259,7 @@
       defaults:{
         layout:'card', accent:'9bd4f5', theme:'glass', align:'left', valign:'bottom',
         scale:1, radius:18, opacity:100, transition:'slide', eq:'live', bars:5,
-        speed:60, showAlbum:0, showArt:1, hideWhenPaused:0
+        speed:60, mqspeed:30, showAlbum:0, showArt:1, hideWhenPaused:0
       },
       size:function(st){ return SIZES[st.layout]; },
       actions:[['Replay song change', function(win){
@@ -296,6 +296,11 @@
           { key:'showArt', label:'', type:'toggle', text:'Show album art' },
           { key:'showAlbum', label:'', type:'toggle', text:'Show the album name' },
           { key:'hideWhenPaused', label:'', type:'toggle', text:'Hide completely while paused' }
+        ]},
+        { title:'Title scroll', only:'!ticker', controls:[
+          { key:'mqspeed', label:'Speed', type:'range', min:10, max:150, step:5, unit:' px/s',
+            note:'How fast a title that does not fit its box slides back and forth. '
+               + 'Applies to Card, Big and Minimal; the ticker has its own speed.' }
         ]},
         { title:'Ticker', only:'ticker', controls:[
           { key:'speed', label:'Speed', type:'range', min:20, max:200, step:5, unit:' px/s' }
@@ -364,6 +369,13 @@
     stats: {
       label:'Followers & subs', path:'/stats', store:'nowplaying.customize.stats',
       sizeToContent:true,
+      // The stack's footprint is intrinsic (fixed box widths), so the canvas can
+      // safely grow to whatever the page reports: two boxes side by side or a
+      // widened twin blade would otherwise be clipped by the nominal 360x240.
+      // Deliberately NOT set on the overlay target - the ticker sizes itself TO
+      // the viewport, and growing the viewport to fit the content would chase
+      // its own tail upward forever.
+      growToContent:true,
       blurb:'Two boxes stacked on top of each other, each one alternating between who was most recent '
           + 'and how close the count is to the next goal. Add it as its own OBS '
           + '<strong>Browser Source</strong> so it can be positioned away from the now-playing card.',
@@ -551,8 +563,14 @@
     if(ev.origin !== location.origin) return;
     var d = ev.data;
     if(d && d.type === 'nowplaying:content-size' && ev.source === frame.contentWindow){
+      var prev = contentSize;
       contentSize = {w:d.w, h:d.h};
       renderSizehint();
+      // A footprint change can mean the canvas itself needs to grow (side by
+      // side boxes, a widened blade), so repaint - but only on a real change,
+      // not the sub-pixel jitter a cross-fade can report.
+      if(T.growToContent && (!prev || Math.abs(prev.w - d.w) > 2 || Math.abs(prev.h - d.h) > 2))
+        paint();
     }
   });
 
@@ -682,9 +700,19 @@
   });
 
   function paint(){
-    var size = T.size(state);
+    var nominal = T.size(state);
+    var size = nominal;
+    // Grow the preview to the content's real footprint when the target allows
+    // it. 48 is the source page's own stage padding (24 a side), so the grown
+    // canvas keeps the same breathing room the fixed sizes already include.
+    // The "OBS source" label stays on the nominal number - the size hint below
+    // the preview already tells the user what to actually type into OBS.
+    if(T.growToContent && contentSize){
+      size = { w: Math.max(nominal.w, contentSize.w + 48),
+               h: Math.max(nominal.h, contentSize.h + 48) };
+    }
     var k = fitFrame(size);
-    dimsEl.textContent = 'OBS source  ' + size.w + ' × ' + size.h + '   ·   '
+    dimsEl.textContent = 'OBS source  ' + nominal.w + ' × ' + nominal.h + '   ·   '
       + (k < 1 ? 'preview at ' + Math.round(k * 100) + '%'
                : cropped ? 'actual size, cropped' : 'actual size');
     zoomEl.style.display = fitK < 1 ? '' : 'none';
@@ -701,7 +729,11 @@
     // Settings that only apply to one layout are greyed out rather than hidden,
     // so the page doesn't reflow every time you switch.
     [].forEach.call(document.querySelectorAll('.group[data-only]'), function(g){
-      var on = g.getAttribute('data-only') === state[T.onlyKey];
+      // A leading ! inverts the match: only:'!ticker' means every layout
+      // except the ticker, which is what the title-scroll group needs.
+      var want = g.getAttribute('data-only');
+      var on = want.charAt(0) === '!' ? want.slice(1) !== state[T.onlyKey]
+                                      : want === state[T.onlyKey];
       g.classList.toggle('dim', !on);
       [].forEach.call(g.querySelectorAll('input,button'), function(c){ c.disabled = !on; });
     });

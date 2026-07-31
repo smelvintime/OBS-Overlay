@@ -178,14 +178,17 @@
     position:relative;margin:0;padding:7px 24px;
     background:var(--card-bg);
     box-shadow:inset 46px 0 32px -30px var(--c)}
-  /* A blade is long. Without a floor the slab shrinks to fit a short word and
-     reads as a pennant instead, so both get a minimum reach and the lower one
-     stays shorter than the upper - a matched pair, not two of the same.
+  /* The slabs span the box, not their own text. Sized to content with fixed
+     minimums, the ?width= knob moved the invisible box while the visible
+     blades never changed length - the one thing a "width" slider must do.
+     The upper blade takes the full box width and the lower stays a step
+     shorter, so the matched-pair look survives at every width; the floors
+     only catch a box narrowed below anything readable.
      Both start at the same left edge: the old 24px offset on the lower slab
      read as a mistake against a rectangular scene rather than as a crossed
      pair, which is what the differing lengths are already doing. */
-  body.frame-twin .label{min-width:200px}
-  body.frame-twin .value{margin-top:0;min-width:168px}
+  body.frame-twin .label{min-width:140px;width:100%;box-sizing:border-box}
+  body.frame-twin .value{margin-top:0;min-width:120px;width:86%;box-sizing:border-box}
   /* 4px is the real thickness of the lit edge. Slanted, it needs a 22px box to
      lean the parallelogram across - see the slant block below. */
   body.frame-twin .label::after,

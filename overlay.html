@@ -14,6 +14,8 @@
      ?scale=1.0                        size multiplier
      ?radius=18                        corner radius px
      ?speed=60                         ticker scroll px/sec       (default 60)
+     ?mqspeed=30                       marquee px/sec for an overflowing title
+                                       on card/big/minimal        (default 30)
      ?opacity=100                      overlay opacity 10-100     (default 100)
      ?transition=slide|drop|fade|none  how a new song arrives     (default slide)
      ?showAlbum=0|1                    show album line
@@ -457,6 +459,12 @@
                  album:'Sample Album', app:'preview', source:'preview',
                  id:'preview-sample', hasArt:false };
   var speed = Math.max(10, parseFloat(q.get('speed')||'60'));   // px/sec for ticker
+  // Marquee travel speed for the other layouts. The old fixed formula moved a
+  // barely-overflowing title so slowly it read as broken - twenty pixels of
+  // travel spread over six seconds is standing still on a stream.
+  var mqspeed = parseFloat(q.get('mqspeed')||'30');
+  if(!(mqspeed >= 5)) mqspeed = 30;
+  if(mqspeed > 200) mqspeed = 200;
 
   var wrap=document.getElementById('wrap'), img=document.getElementById('art'),
       fb=document.getElementById('fallback'), titleEl=document.getElementById('title'),
@@ -523,13 +531,25 @@
     titleEl.classList.remove('marquee');
     scroller.style.removeProperty('--dist');
     scroller.style.removeProperty('--dur');
-    var over = scroller.scrollWidth - titleEl.clientWidth;
+    // Measured on the block-level title, NOT the scroller span: scrollWidth on
+    // an inline element is 0 by spec, so the old scroller measurement made
+    // this number negative for every title ever shown and the marquee never
+    // once engaged - long titles just clipped. The title is the scroller's
+    // only content, so its own overflow IS the text overflow.
+    var over = titleEl.scrollWidth - titleEl.clientWidth;
     if(over > 4){
       scroller.style.setProperty('--dist', over+'px');
-      scroller.style.setProperty('--dur', Math.max(6, over/30 + 4)+'s');
+      // Duration comes from the distance and the ?mqspeed= knob; the +3 keeps
+      // a dwell at each end so the ends of the title can actually be read
+      // before it turns around.
+      scroller.style.setProperty('--dur', Math.max(4, over/mqspeed + 3)+'s');
       titleEl.classList.add('marquee');
     }
   }
+  // Fonts can finish after the first measurement, and a title measured in the
+  // fallback font is a title measured wrong - re-check once they settle.
+  if(document.fonts && document.fonts.ready)
+    document.fonts.ready.then(function(){ fitMarquee(); });
 
   // ---- ticker conveyor -------------------------------------------------
   // A CSS keyframe loop has to restart when the track changes, which chops the

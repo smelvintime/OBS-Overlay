@@ -523,6 +523,28 @@ namespace NowPlaying {
       }
       AppLog.Write("listening on port " + _port);
 
+      // Self-heal "Start with Windows". The Run key stores an absolute path,
+      // and every ordinary way this app gets updated - a fresh folder from a
+      // zip, a moved repo, dist\ replaced wholesale - leaves that path
+      // pointing at an exe that no longer exists. Windows then just skips the
+      // entry at login, and autostart silently stops working with nothing to
+      // see anywhere. If the switch is on, re-point the entry at the copy that
+      // is actually running. Done only after the port is bound, so a doomed
+      // second instance can never steal the entry from the one that owns it.
+      try {
+        if (StartupEnabled()) {
+          string want = "\"" + ExePath() + "\"";
+          if (_port != 8787) want += " -port " + _port;
+          string have = null;
+          using (var k = Registry.CurrentUser.OpenSubKey(RunKeyPath))
+            if (k != null) have = k.GetValue(RunValueName) as string;
+          if (!string.Equals(have, want, StringComparison.OrdinalIgnoreCase)) {
+            if (SetStartup(true))
+              AppLog.Write("startup entry re-pointed at this exe (was: " + (have ?? "missing") + ")");
+          }
+        }
+      } catch { }
+
       // Every streaming handler below holds a ThreadPool worker for as long as its
       // client stays connected: StreamSpectrum and StreamTwitch both sit in a loop
       // until the socket dies, so they are occupied threads rather than busy ones.

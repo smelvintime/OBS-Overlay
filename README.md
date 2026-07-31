@@ -175,6 +175,7 @@ http://127.0.0.1:8787/?layout=big&accent=fa2d48&showAlbum=1
 | `scale` | e.g. `1.25` | `1` | Overall size multiplier |
 | `radius` | px, e.g. `24` | `18` | Corner roundness |
 | `speed` | px/sec, e.g. `90` | `60` | Ticker scroll speed |
+| `mqspeed` | px/sec, `5`–`200` | `30` | How fast an overflowing title scrolls back and forth (card, big, minimal) |
 | `opacity` | `10`–`100` | `100` | Overall overlay opacity, in percent |
 | `transition` | `slide`, `drop`, `fade`, `none` | `slide` | How a new song arrives |
 | `eq` | `live`, `anim`, `off` | `live` | Equalizer: real audio, a canned loop, or hidden |
@@ -193,6 +194,12 @@ Some combinations worth trying:
 - Only visible while actually playing — `?hideWhenPaused=1`
 - Sits back behind gameplay — `?layout=minimal&opacity=65`
 - Colour follows the album art — `?layout=big&accent=auto`
+
+> **Long titles:** a title that doesn't fit its box scrolls back and forth
+> automatically (`mqspeed` sets how fast). This only works when the page itself
+> knows the text is clipped — if you **crop or scale down the source in OBS**
+> instead of sizing the Browser Source to match, the page believes everything
+> fits and nothing scrolls. Size the source right and let `scale=` do the shrinking.
 
 ### Accent from the album art
 
