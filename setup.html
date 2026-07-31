@@ -295,16 +295,33 @@
     })();
   }
 
+  // Only the very first click has to wait for the strip to load and open its
+  // stream; after that the connection is already there and firing immediately
+  // is right. This used to read `frame.src ? 700 : 0` one line after assigning
+  // frame.src, so it was always true and every single test sat through 700ms
+  // for nothing - and the condition was inverted anyway, since a fresh frame
+  // is the one that needs the wait.
+  var liveReady = false;
+  function send(kind){
+    fetch('/twitch/test?type=' + kind + '&user=SetupTest', {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(){ show($('msg3'), 'ok', 'Sent - watch the strip above. Real ones behave exactly like this.'); })
+      .catch(function(){ show($('msg3'), 'bad', 'could not reach the app'); });
+  }
   function fire(kind){
     $('live').className = 'live on';
-    if(!$('liveFrame').src) $('liveFrame').src = '/alerts';
-    // Give a fresh iframe a moment to connect before the event flies.
-    setTimeout(function(){
-      fetch('/twitch/test?type=' + kind + '&user=SetupTest', {cache:'no-store'})
-        .then(function(r){ return r.json(); })
-        .then(function(j){ show($('msg3'), 'ok', 'Sent - watch the strip above. Real ones behave exactly like this.'); })
-        .catch(function(){ show($('msg3'), 'bad', 'could not reach the app'); });
-    }, $('liveFrame').src ? 700 : 0);
+    if(liveReady){ send(kind); return; }
+    if(!$('liveFrame').src){
+      $('liveFrame').onload = function(){
+        liveReady = true;
+        // The page is up; its stream takes a moment more to open.
+        setTimeout(function(){ send(kind); }, 250);
+      };
+      $('liveFrame').src = '/alerts';
+    } else {
+      // Loaded on an earlier click but the load handler has not run yet.
+      setTimeout(function(){ liveReady = true; send(kind); }, 250);
+    }
   }
   $('testFollow').addEventListener('click', function(){ fire('follow'); });
   $('testSub').addEventListener('click', function(){ fire('sub'); });

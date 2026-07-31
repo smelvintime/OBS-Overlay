@@ -497,6 +497,22 @@
       playNext();
       return;
     }
+    // A test fired from the setup page or the customizer cuts straight in.
+    // Real events queue because losing one is unacceptable, but a test is
+    // someone clicking a button to see what a sub looks like - making them
+    // watch the follow they clicked a second ago play out first is just a
+    // wait, and the second click plainly meant "show me this one instead".
+    if(a.test){
+      clearTimeout(exitTimer); clearTimeout(offTimer); clearTimeout(gapTimer);
+      queue.length = 0;
+      showing = false;
+      // Drop the outgoing card immediately rather than letting it retreat:
+      // the point is that the new one starts now.
+      card.classList.remove('in','out');
+      queue.push(a);
+      playNext();
+      return;
+    }
     // A gift bomb plus a raid can flood this; past a point the backlog is
     // stale anyway and holding it just delays live events further.
     if(queue.length >= 20) queue.shift();

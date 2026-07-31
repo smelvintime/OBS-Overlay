@@ -817,6 +817,17 @@
     // stranger result than staying quiet.
     if(!box.want || !box.live) return;
     if(!takeoverText(a)) return;
+    // Same rule the alerts page uses: a test cuts in rather than queueing.
+    // Clicking "test sub" while the test follow is still holding means show me
+    // the sub now, not in six seconds.
+    if(a.test){
+      clearToTimers();
+      toQueue.length = 0;
+      toQueue.push([box, a]);
+      toActive = false;
+      playTakeover();
+      return;
+    }
     if(toQueue.length >= 10) toQueue.shift();
     toQueue.push([box, a]);
     if(!toActive) playTakeover();
