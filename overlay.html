@@ -587,10 +587,12 @@
   }
 
   var tickerLast = 0;
-  function tickerStep(ts){
-    requestAnimationFrame(tickerStep);
-    var dt = tickerLast ? (ts - tickerLast)/1000 : 0;
-    tickerLast = ts;
+  function tickerAdvance(now){
+    var dt = tickerLast ? (now - tickerLast)/1000 : 0;
+    // rAF and the interval below can both land in the same frame; whichever
+    // arrives first wins it and the other is a no-op, so motion never doubles.
+    if(tickerLast && dt < 0.008) return;
+    tickerLast = now;
     if(dt > 0.1) dt = 0.1;                 // tab was backgrounded; don't jump
     if(!tickerStopped) tickerOffset += speed * dt;
     while(tickerItems.length && tickerOffset >= tickerItems[0].w){
@@ -601,7 +603,21 @@
     tickerFill();
     tickerTrack.style.transform = 'translateX(' + (-tickerOffset).toFixed(1) + 'px)';
   }
-  if(layout==='ticker') requestAnimationFrame(tickerStep);
+  function tickerStep(ts){
+    requestAnimationFrame(tickerStep);
+    tickerAdvance(ts || performance.now());
+  }
+  if(layout==='ticker'){
+    requestAnimationFrame(tickerStep);
+    // The conveyor was the one animation in the codebase driven by rAF alone.
+    // An OBS browser source that isn't compositing (hardware acceleration off,
+    // or a GPU in a bad state) never fires rAF, and the ticker sat frozen on
+    // the same song forever while a normal browser looked perfect. The
+    // interval is the same net every class flip already uses; when rAF is
+    // alive it loses the per-frame race above and costs nothing, and when rAF
+    // is dead it carries the whole conveyor at ~30fps on its own.
+    setInterval(function(){ tickerAdvance(performance.now()); }, 33);
+  }
 
   function esc(s){ return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -620,6 +636,10 @@
     if(layout==='ticker') tickerSet(np);
     rendered = true;
     requestAnimationFrame(fitMarquee);
+    // Same non-compositing net as everywhere else: without rAF a long title
+    // would never be measured and simply clip instead of scrolling. Running
+    // twice is harmless - fitMarquee starts by resetting its own state.
+    setTimeout(fitMarquee, 60);
   }
 
   // A track change swaps the contents in place. The old one leaves first, then
