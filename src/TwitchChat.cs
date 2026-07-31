@@ -96,7 +96,9 @@ namespace NowPlaying {
         _status = "disabled";
         _detail = "";
       } catch (Exception e) {
-        _status = "error"; _detail = "could not read twitch-config.json: " + e.Message;
+        // Same leak as TwitchEvents.LoadConfig: the raw parse-error message
+        // carries the whole file, tokens included, onto diagnostic surfaces.
+        _status = "error"; _detail = "could not read twitch-config.json: " + TwitchEvents.SafeParseError(e);
       }
     }
 

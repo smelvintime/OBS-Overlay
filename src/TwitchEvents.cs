@@ -209,8 +209,27 @@ namespace NowPlaying {
           _status = "off"; _detail = "apiToken is not set in twitch-config.json"; return;
         }
       } catch (Exception e) {
-        _status = "error"; _detail = "could not read twitch-config.json: " + e.Message;
+        _status = "error"; _detail = "could not read twitch-config.json: " + SafeParseError(e);
       }
+    }
+
+    // JavaScriptSerializer's parse-error message embeds the ENTIRE input string
+    // after the position marker - which for this file means the client secret,
+    // API token and refresh token, verbatim, surfaced on /diag and /twitch and
+    // then pasted into a chat or an email the moment someone asks for help
+    // (which is literally what the /diag copy block is for). Keep the useful
+    // half - what was wrong and where - and drop everything after the first
+    // brace or line break, which is where the raw file starts.
+    internal static string SafeParseError(Exception e) {
+      string m = e.Message ?? "";
+      int cut = m.IndexOf('{');
+      if (cut < 0) cut = m.IndexOf('\n');
+      if (cut >= 0) m = m.Substring(0, cut);
+      m = m.Trim();
+      if (m.Length > 200) m = m.Substring(0, 200);
+      if (m.Length == 0) m = e.GetType().Name;
+      return m + " (the file's contents are not shown here because they contain tokens - "
+           + "open it in a text editor and look near the position number above, usually a missing comma)";
     }
 
     static string Str(Dictionary<string, object> d, string key) {
