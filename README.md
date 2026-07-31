@@ -29,7 +29,10 @@ the music side at all.
 2. **Unzip it** anywhere.
 3. **Double-click `Build.bat`.** Windows already has everything it needs; a few
    seconds later `NowPlayingOverlay.exe` is in the `dist\` folder.
-4. **Move that file somewhere permanent and run it.**
+4. **Move that file somewhere permanent and run it.** Permanent matters: your
+   settings are saved in a file next to the exe, so running it from a new folder
+   looks like a first run. To update later, build the new version and copy the
+   new exe over the old one in place — settings carry over untouched.
 
 There is no ready-made download on purpose. An unsigned program from the internet
 gets flagged by antivirus reputation checks no matter what's in it; a file you

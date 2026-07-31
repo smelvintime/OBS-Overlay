@@ -239,6 +239,23 @@ Templates support `{title}`, `{artist}`, `{album}`, and `{app}`.
 - If the overlay server isn't running, it replies with a clear message rather than
   going silent.
 
+### If the bot seems deaf or mute
+
+Three things trip up nearly every fresh bot account, and none of them are bugs:
+
+- **Verify the bot account's email first.** Twitch silently drops every message
+  from an unverified account — the bot believes it sent the reply, chat never sees
+  it. When Twitch drops a message it usually says why in a server notice, which the
+  Chat bot tab shows on its banner, but a brand-new account should just verify its
+  email before anything else.
+- **Test commands from a different account.** The bot ignores messages from its own
+  account (that's the anti-loop protection), so typing `!song` while logged in as
+  the bot will never get an answer. Use your main account or ask a viewer.
+- **Changing the bot account's security settings signs the bot out.** Enabling
+  two-factor authentication (or changing the password) makes Twitch revoke the bot's
+  tokens — the tab will report an authentication failure. Nothing is broken: press
+  **Reconnect** on the Chat bot tab and it's back in one click.
+
 ## Setting it up by hand instead
 
 If you'd rather not use the wizard, everything it does can be done manually.
