@@ -66,10 +66,11 @@
        it; see the .label::before rule for why the row copes with any size. */
     --mark:18px;
     /* Three blades, matching alerts.html - see the long note there for why the
-       root points must sit on the hub circle and why the two edges have to meet
-       at a cusp rather than an arc. Keep the two in step: they are the same mark
-       and a viewer sees both at once on stream. */
-    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='2.7' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)'%3E%3Ccircle cx='12' cy='12' r='4.3'/%3E%3Cpath d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(120 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(240 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3C/g%3E%3C/svg%3E");
+       root points must sit on the hub circle, why the two edges have to meet
+       at a cusp rather than an arc, and why the group is mirrored. Keep the
+       two in step: they are the same mark and a viewer sees both at once on
+       stream. */
+    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='2.7' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)' transform='translate(24 0) scale(-1 1)'%3E%3Ccircle cx='12' cy='12' r='4.3'/%3E%3Cpath d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(120 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(240 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3C/g%3E%3C/svg%3E");
   }
   /* Palettes other than this default come from /themes as data - shared.js
      writes them into a <style> tag. */
@@ -271,14 +272,14 @@
   body.tr-slash.from-right .face{transform:translateX(140px)}
   body.tr-slash.from-right .face.leaving{transform:translateX(140px)}
   /* Only the blade and twin frames draw a mark, so the plain frame simply has
-     nothing here to turn. Positive angle on purpose: unwinding to zero spins
-     counter-clockwise, the way the tri-blade's edges curve - matches alerts. */
+     nothing here to turn. Negative angle: unwinding to zero spins clockwise,
+     the way the mirrored claws curve - matches alerts. */
   body.tr-slash .label::before{
-    transform:rotate(540deg);
+    transform:rotate(-540deg);
     transition:transform .9s cubic-bezier(.16,.86,.28,1)}
   body.tr-slash .face.on .label::before{transform:rotate(0deg)}
   body.tr-slash .face.leaving .label::before{
-    transform:rotate(540deg);
+    transform:rotate(-540deg);
     transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
 
   /* ---- takeover ------------------------------------------------------------
@@ -310,14 +311,14 @@
     transform:translateX(-140px);opacity:0;
     transition:transform .72s cubic-bezier(.5,0,.78,.6),opacity .5s ease .18s}
   /* The mark turns with it. Only the blade and twin frames draw one, so on the
-     plain frame this simply has nothing to act on. Positive for the same
-     counter-clockwise reason as tr-slash above. */
+     plain frame this simply has nothing to act on. Negative for the same
+     clockwise reason as tr-slash above. */
   body.takeover .face[data-face="alert"] .label::before{
-    transform:rotate(540deg);
+    transform:rotate(-540deg);
     transition:transform .9s cubic-bezier(.16,.86,.28,1)}
   body.takeover .face[data-face="alert"].on .label::before{transform:rotate(0deg)}
   body.takeover .face[data-face="alert"].leaving .label::before{
-    transform:rotate(540deg);
+    transform:rotate(-540deg);
     transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
 
   /* Never wrap. At a narrow ?width= with a big ?mark= there genuinely isn't

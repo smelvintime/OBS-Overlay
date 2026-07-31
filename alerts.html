@@ -60,8 +60,12 @@
        The two edges also both run the full length of the blade and converge on
        an 18-degree cusp. Join them with an arc instead and the blade becomes a
        circular sector, which reads as a fan; scoop only near the tip and it
-       reads as a fat comma. */
-    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='2.7' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)'%3E%3Ccircle cx='12' cy='12' r='4.3'/%3E%3Cpath d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(120 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(240 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3C/g%3E%3C/svg%3E");
+       reads as a fat comma.
+       The group is mirrored (translate + scale(-1 1)) so the claws curve
+       clockwise - the direction the slash spin turns. Doing it inside the SVG
+       keeps the CSS transform free for the spin. Keep stats.html's copy
+       identical. */
+    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='2.7' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)' transform='translate(24 0) scale(-1 1)'%3E%3Ccircle cx='12' cy='12' r='4.3'/%3E%3Cpath d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(120 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(240 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3C/g%3E%3C/svg%3E");
   }
   /* Palettes other than this default come from /themes as data - shared.js
      writes them into a <style> tag. A theme may override the per-event hues
@@ -288,13 +292,13 @@
      on a different point from the one it started on; half turns keep that
      property, whole turns bring the same blade back to the top. ?spins=
      overrides the turn count - see the script.
-     The angle is positive on purpose: unwinding from a positive angle to zero
-     rotates counter-clockwise, which is the way this tri-blade's edges curve.
-     Negative here spun it backwards. */
+     Unwinding from a negative angle to zero rotates clockwise, which is the
+     direction the mirrored claws curve - the artwork and the sign have to
+     agree, so if one ever flips, flip the other. */
   .icon .shuriken{transition:transform .9s cubic-bezier(.16,.86,.28,1)}
-  body.style-slash .alert.pre .shuriken{transform:rotate(var(--spin,540deg))}
+  body.style-slash .alert.pre .shuriken{transform:rotate(var(--spin,-540deg))}
   body.style-slash .alert.in  .shuriken{transform:rotate(0deg)}
-  body.style-slash .alert.out .shuriken{transform:rotate(var(--spin,540deg));
+  body.style-slash .alert.out .shuriken{transform:rotate(var(--spin,-540deg));
     transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
 
   .alert.in{opacity:var(--overlay-opacity)}
@@ -392,11 +396,11 @@ if(window.NPO) NPO.themeBoot('source');
   var holdMs = hold * 1000;
 
   // Slash spin, in turns. Converted to degrees here so the CSS deals in one
-  // number; kept positive so the spin stays counter-clockwise - the direction
-  // this tri-blade's edges curve.
+  // number; negative so the spin stays clockwise - the direction the mirrored
+  // claws curve.
   var spins = parseFloat(qs.get('spins'));
   if(isFinite(spins) && spins >= 0.5 && spins <= 6)
-    root.style.setProperty('--spin', (spins * 360) + 'deg');
+    root.style.setProperty('--spin', (spins * -360) + 'deg');
 
   // ---- rendering --------------------------------------------------------
   function tierName(t){
