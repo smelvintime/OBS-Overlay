@@ -254,6 +254,14 @@
       html = 'Ready to go &mdash; the bot will speak as <strong>' + esc(data.botUser)
            + '</strong>. Flip the switch above to connect.';
     }
+    // Twitch's own explanation for a dropped message ("requires a verified
+    // email", followers-only, rate limit) - the only clue when the bot says
+    // it replied but nothing showed up in chat.
+    if(data.lastNotice){
+      if(cls === 'ok') cls = 'warn';
+      html += (html ? '<br>' : '') + 'Twitch said at ' + esc(data.lastNoticeAt)
+            + ': “' + esc(data.lastNotice) + '”';
+    }
     if(oauthErr){ cls = 'bad'; html = esc(oauthErr) + (html ? '<br>' + html : ''); }
     bannerEl.className = 'banner' + (html ? ' on ' + cls : '');
     bannerEl.innerHTML = html;

@@ -39,6 +39,8 @@ namespace NowPlaying {
     static volatile string _status = "off";
     static volatile string _detail = "";
     static volatile string _connectedAt = "";
+    static volatile string _lastNotice = "";     // Twitch's last NOTICE, verbatim
+    static volatile string _lastNoticeAt = "";
     static volatile int _reconnects;
     static volatile int _sent;
 
@@ -297,6 +299,14 @@ namespace NowPlaying {
                 _stopFlag = true;
                 break;
 
+              case "NOTICE":
+                if (ev.Text.Length > 0) {
+                  _lastNotice = ev.Text;
+                  _lastNoticeAt = DateTime.Now.ToString("HH:mm:ss");
+                  AppLog.Write("chat: server notice: " + ev.Text);
+                }
+                break;
+
               case "RECONNECT":
                 AppLog.Write("chat: server asked us to reconnect");
                 goto reconnect;
@@ -370,6 +380,18 @@ namespace NowPlaying {
           e.Type = "AUTHFAIL";
           int c = line.IndexOf(':', 1);
           e.Text = c >= 0 ? line.Substring(c + 1) : "rejected";
+          return e;
+        }
+        // Every other NOTICE is Twitch explaining itself, and some of them are
+        // the only evidence of a message being dropped: "requires a verified
+        // email", followers-only mode, rate limits. Swallowing them turns
+        // "the bot replied but nothing appeared in chat" into a mystery.
+        // Matched by prefix, not IndexOf - a viewer typing the word NOTICE in
+        // a PRIVMSG must not be mistaken for the server speaking.
+        if (line.StartsWith(":tmi.twitch.tv NOTICE ", StringComparison.Ordinal)) {
+          e.Type = "NOTICE";
+          int nc = line.IndexOf(':', 1);
+          e.Text = nc >= 0 ? line.Substring(nc + 1) : "";
           return e;
         }
       }
@@ -539,6 +561,8 @@ namespace NowPlaying {
       sb.Append("\"connectedAt\":").Append(Qs(_connectedAt)).Append(',');
       sb.Append("\"reconnects\":").Append(_reconnects).Append(',');
       sb.Append("\"sent\":").Append(_sent).Append(',');
+      sb.Append("\"lastNotice\":").Append(Qs(_lastNotice)).Append(',');
+      sb.Append("\"lastNoticeAt\":").Append(Qs(_lastNoticeAt)).Append(',');
       sb.Append("\"scopeState\":").Append(Qs(_scopeState)).Append(',');
       sb.Append("\"scopeUser\":").Append(Qs(_scopeUser)).Append(',');
       sb.Append("\"scopeProblem\":").Append(Qs(ScopeProblem())).Append(',');
