@@ -245,17 +245,25 @@ namespace NowPlaying {
     }
 
     static string Render(Cmd cmd, TwitchChat.IrcEvent ev, string rest) {
+      string text;
       switch (cmd.Builtin) {
-        case "song":      return SongLine();
-        case "uptime":    return UptimeLine();
-        case "followage": return FollowAgeLine(ev);
-        case "shoutout":  return ShoutoutLine(rest);
-        case "commands":  return CommandsLine();
+        case "song":      text = SongLine(); break;
+        case "uptime":    text = UptimeLine(); break;
+        case "followage": text = FollowAgeLine(ev); break;
+        case "shoutout":  text = ShoutoutLine(rest); break;
+        case "commands":  text = CommandsLine(); break;
         default:
-          return cmd.Response
+          text = cmd.Response
             .Replace("{user}", ev.Nick)
             .Replace("{channel}", "");
+          break;
       }
+      // "\n" typed in the dashboard becomes a real newline, and the sender
+      // splits on those into separate chat messages - IRC has no multi-line
+      // message, so that is the only form a "newline" can take in chat.
+      // Done here rather than per-branch so the song templates from
+      // twitch-config.json get it too.
+      return text == null ? null : text.Replace("\\n", "\n");
     }
 
     // ------------------------------------------------------------- built-ins

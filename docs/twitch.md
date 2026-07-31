@@ -234,6 +234,9 @@ Templates support `{title}`, `{artist}`, `{album}`, and `{app}`.
 ### Bot behaviour
 
 - Ignores its own messages, so it can't loop.
+- `\n` typed in a command's reply text splits it into separate chat messages,
+  up to five - Twitch chat has no real line breaks, so several messages is what
+  a multi-line reply means there. The same works in the `!song` templates.
 - `!songrequest` and similar won't trigger it — only `!song` exactly, or `!song <args>`.
 - Reconnects automatically with backoff if the connection drops.
 - Twitch silently drops an identical repeated message within 30s, so repeat answers get

@@ -467,11 +467,21 @@ namespace NowPlaying {
       if (!BotCommands.TryRespond(ev, out reply, out matched)) return;
       if (string.IsNullOrEmpty(reply)) return;
 
-      string send = Dedup(reply);
-      wr.WriteLine("PRIVMSG #" + _channel + " :" + send);
-      _lastSent = reply;
-      _sent++;
-      Note(ev.Nick, matched, reply);
+      // A reply may be several chat messages: "\n" in the command text splits
+      // it. Capped at five - Twitch rate-limits at 20 messages per 30 seconds
+      // and temporarily mutes an account that sails past it, so a runaway
+      // paste must not turn one command into a flood.
+      int sent = 0;
+      foreach (string raw in reply.Split('\n')) {
+        string one = raw.Trim();
+        if (one.Length == 0) continue;
+        if (sent == 5) break;
+        wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(one));
+        _lastSent = one;
+        _sent++;
+        sent++;
+      }
+      if (sent > 0) Note(ev.Nick, matched, reply);
     }
 
     // ------------------------------------------------------------- token scopes

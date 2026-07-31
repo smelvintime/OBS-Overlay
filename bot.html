@@ -78,7 +78,10 @@
   .try input[type=text]{flex:1 1 220px;width:auto;font-family:Consolas,"Cascadia Mono",monospace}
   .tryout{padding:0 16px 14px;font-size:13px;line-height:1.5;color:var(--dim)}
   .tryout b{color:var(--fg)}
-  .tryout .said{color:var(--code);font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px}
+  /* pre-line: a reply split with \n really is several chat messages, and the
+     preview and the feed should show the split rather than flatten it. */
+  .tryout .said{color:var(--code);font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;
+    white-space:pre-line}
 
   .setupbody{padding:14px 16px;font-size:13.5px;line-height:1.6}
   .setupbody p{margin:0 0 12px}
@@ -91,7 +94,7 @@
   .feed div{padding:3px 0;border-bottom:1px solid var(--hair)}
   .feed div:last-child{border-bottom:0}
   .feed .who{color:var(--fg);font-weight:600}
-  .feed .txt{color:var(--code)}
+  .feed .txt{color:var(--code);white-space:pre-line}
   .empty{color:var(--dim);font-size:13px;padding:14px 16px}
 </style>
 <script src="/shared.js"></script>
@@ -163,7 +166,8 @@
   <div class="panel">
     <div class="phead">
       <h2>Commands</h2>
-      <span class="sub">Switch on the ones you want. Edit the text, then press Enter.</span>
+      <span class="sub">Switch on the ones you want. Edit the text, then press Enter.
+        Type <code>\n</code> where a reply should split into a separate chat message (up to 5).</span>
     </div>
     <table><thead><tr>
       <th style="width:1%">On</th><th>Command</th><th>Replies with</th>
