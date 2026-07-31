@@ -159,7 +159,23 @@ namespace NowPlaying {
 
     static void StartThread() {
       if (!Configured) { AppLog.Write("chat: cannot start, not configured - " + _detail); return; }
-      if (_thread != null && _thread.IsAlive) return;
+      var old = _thread;
+      if (old != null && old.IsAlive) {
+        if (!_stopFlag) return;              // already running and staying up
+        // A stop was requested moments ago and the old thread hasn't noticed
+        // yet - its read timeout is several seconds. Returning here is how a
+        // quick off-on flick used to end with the switch on and no thread at
+        // all; instead, wait out the old thread and then start, unless the
+        // user flicked off again in the meantime.
+        _status = "connecting";
+        var w = new Thread(() => {
+          try { old.Join(15000); } catch { }
+          if (_enabled) StartThread();
+        });
+        w.IsBackground = true;
+        w.Start();
+        return;
+      }
       _stopFlag = false;
       _status = "connecting";
       // Wrapped, because an unhandled exception on any thread takes the whole
