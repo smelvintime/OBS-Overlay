@@ -156,16 +156,6 @@ right-click it and choose **Refresh**. Leaving that setting **off** avoids the g
 entirely: the same page just sits there quietly retrying, exactly as described above.
 **"Refresh browser when scene becomes active"** is fine to leave on either way.
 
-## The old PowerShell version
-
-An earlier version of this project was a pair of PowerShell scripts run from `.bat`
-files. They have been retired to [`legacy/`](legacy/) and are kept for reference only:
-they have no Twitch alerts, no goal boxes, no setup wizard, no tray icon and no live
-equalizer, and they are not maintained. [`legacy/README.md`](legacy/README.md) lists
-the differences in full.
-
-Use the `.exe` — that is the project now.
-
 ## Building the .exe yourself
 
 Double-click **`Build.bat`**, or from a terminal:
