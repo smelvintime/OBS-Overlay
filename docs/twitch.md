@@ -182,26 +182,39 @@ without leaving fake names on someone's overlay.
 ## The `!song` chat bot
 
 Lets viewers type `!song` in chat and get the current track as a reply. The bot runs
-inside the app — no second window — and speaks as **its own Twitch account**, so it
-needs one extra token beyond what the wizard set up.
+inside the app — no second window — and speaks as **its own Twitch account** (or yours,
+if you prefer), so it has its own sign-in.
 
-1. **Get a chat token** with the `chat:read` and `chat:edit` scopes, logged in as the
-   account you want speaking in chat (your own works too). The official
-   [Twitch CLI](https://dev.twitch.tv/docs/cli/) route:
-   `twitch token -u -s "chat:read chat:edit"`
-2. **Open `twitch-config.json`** next to the app (the wizard created it) and fill in
-   the chat half:
-   ```json
-   {
-     "botUsername": "your_bot_or_own_username",
-     "oauthToken": "oauth:abcd1234..."
-   }
-   ```
-   The token must keep the `oauth:` prefix.
-3. **Restart the app, then switch the bot on** in the dashboard's **Chat bot** tab
-   (<http://127.0.0.1:8787/app#bot>). That page shows whether it connected, lists the
-   commands, lets you add your own, and names the exact missing scope if the token
-   is wrong.
+1. **Open the dashboard's Chat bot tab** (<http://127.0.0.1:8787/app#bot>) and press
+   **Set up the bot**. It signs in through the same Twitch app the main wizard
+   registered, so do that setup first if you haven't.
+2. **Sign in as the account the bot should speak as** when Twitch asks — a dedicated
+   bot account, or your own if you want replies to come from you. If Twitch shows
+   the wrong account, use its "Not you?" link first. The app learns the username
+   from Twitch itself and stores everything, including a refresh token, so the
+   bot's sign-in renews on its own from then on.
+3. **Switch the bot on** in the same tab. It shows whether it connected, lists the
+   commands, lets you add your own, and names the exact problem if something is
+   wrong.
+
+### Setting the bot up by hand instead
+
+A hand-made token still works. Get one with the `chat:read` and `chat:edit` scopes,
+logged in as the account you want speaking in chat — the official
+[Twitch CLI](https://dev.twitch.tv/docs/cli/) route is
+`twitch token -u -s "chat:read chat:edit"` — then fill in the chat half of
+`twitch-config.json` and restart the app:
+
+```json
+{
+  "botUsername": "your_bot_or_own_username",
+  "oauthToken": "oauth:abcd1234..."
+}
+```
+
+The token must keep the `oauth:` prefix. Note that hand-made tokens expire and don't
+renew themselves — the **Set up the bot** button stores a refresh token alongside, so
+that version heals itself when Twitch rotates it.
 
 ### Bot options (`twitch-config.json`)
 

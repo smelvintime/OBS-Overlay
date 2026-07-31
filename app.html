@@ -87,6 +87,19 @@
     frames[id]._btn = b;
   });
 
+  // The bot's OAuth flow bounces the whole tab out to Twitch and back to
+  // /app?botoauth=...#bot. The outcome belongs to the bot page, which lives in
+  // an iframe and cannot see this page's query string - so hand it down, then
+  // scrub the address bar so a later reload doesn't replay a stale banner.
+  var boot = new URLSearchParams(location.search);
+  if(boot.get('botoauth') || boot.get('botoautherr')){
+    if(boot.get('botoauth'))
+      frames.bot._url += '&botoauth=' + encodeURIComponent(boot.get('botoauth'));
+    if(boot.get('botoautherr'))
+      frames.bot._url += '&botoautherr=' + encodeURIComponent(boot.get('botoautherr'));
+    history.replaceState(null, '', location.pathname + location.hash);
+  }
+
   // A hidden iframe is not a free iframe. display:none stops it painting, but it
   // still loads, still runs its scripts, and still holds its network connections
   // - and a browser allows only six per origin over HTTP/1.1. The layouts tab

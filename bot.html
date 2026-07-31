@@ -80,6 +80,13 @@
   .tryout b{color:var(--fg)}
   .tryout .said{color:var(--code);font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px}
 
+  .setupbody{padding:14px 16px;font-size:13.5px;line-height:1.6}
+  .setupbody p{margin:0 0 12px}
+  .setupbody p:last-child{margin-bottom:0}
+  .setupbody .note{color:var(--dim);font-size:12.5px;margin:12px 0 0}
+  .setupbody button{padding:9px 18px;font-size:13px}
+  .setupbody a{font-weight:700}
+
   .feed{padding:4px 16px 14px;font-size:12.5px;line-height:1.6;color:var(--dim)}
   .feed div{padding:3px 0;border-bottom:1px solid var(--hair)}
   .feed div:last-child{border-bottom:0}
@@ -111,6 +118,29 @@
       <label class="toggle" title="Turn the bot on or off">
         <input type="checkbox" id="master" /><span class="track"></span>
       </label>
+    </div>
+  </div>
+
+  <!-- Shown only while the bot has no working credential. One button, the
+       same consent flow as the main Twitch setup, but asking for chat scopes
+       as whichever account should do the talking. -->
+  <div class="panel" id="setupPanel" style="display:none">
+    <div class="phead">
+      <h2 id="setupTitle">Set up the bot</h2>
+      <span class="sub">One click &mdash; it signs in through Twitch, nothing to paste.</span>
+    </div>
+    <div class="setupbody">
+      <p id="setupLead"></p>
+      <div id="setupConnect" style="display:none">
+        <button type="button" class="primary" id="setupGo">Set up the bot</button>
+        <p class="note">Twitch will ask <strong>which account</strong> to connect &mdash; sign in as
+          the account the bot should speak as. A separate bot account makes replies look like a
+          bot; your own account works too, if you want them to come from you. If Twitch shows the
+          wrong account, use its &ldquo;Not you?&rdquo; link first.
+          Prefer to set it up by hand? The old way still works &mdash; it&rsquo;s in the Twitch guide
+          in the docs folder.</p>
+      </div>
+      <p id="setupAlt" style="display:none"><a href="/setup" target="_top">Open the Twitch setup</a></p>
     </div>
   </div>
 
@@ -160,8 +190,13 @@
       masterEl = document.getElementById('master'), rowsEl = document.getElementById('rows'),
       feedEl = document.getElementById('feed');
 
-  if(new URLSearchParams(location.search).get('embed') === '1')
-    document.body.classList.add('embed');
+  var q0 = new URLSearchParams(location.search);
+  if(q0.get('embed') === '1') document.body.classList.add('embed');
+
+  // Outcome of an OAuth bounce, handed down by the /app shell. The error stays
+  // pinned to the banner for this page view - a decline or a failed exchange
+  // must not vanish under the next 3-second poll.
+  var oauthErr = q0.get('botoautherr') || '';
 
   function esc(s){ return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -203,8 +238,7 @@
     } else if(s === 'off'){
       var why = esc(data.detail || 'The bot is not configured yet');
       if(!/[.!?]$/.test(why)) why += '.';
-      html = why + ' Add <code>botUsername</code> and <code>oauthToken</code> for the bot '
-           + 'account to <code>twitch-config.json</code>, then restart.';
+      html = why + ' Use <strong>Set up the bot</strong> below.';
     } else if(s === 'bad-token'){
       cls = 'bad'; html = esc(data.detail);
     } else if(s === 'error'){
@@ -216,14 +250,58 @@
            + (data.scopeUser ? ', token verified' : '') + '.'
            + (data.reconnects ? ' Reconnected ' + data.reconnects + ' time(s) since start.' : '');
     } else if(s === 'disabled' && data.configured){
-      html = 'Ready to go &mdash; flip the switch above to connect.';
+      cls = 'ok';
+      html = 'Ready to go &mdash; the bot will speak as <strong>' + esc(data.botUser)
+           + '</strong>. Flip the switch above to connect.';
     }
+    if(oauthErr){ cls = 'bad'; html = esc(oauthErr) + (html ? '<br>' + html : ''); }
     bannerEl.className = 'banner' + (html ? ' on ' + cls : '');
     bannerEl.innerHTML = html;
 
+    renderSetup();
     if(!editing) renderRows();
     renderFeed();
   }
+
+  // ---- setup panel ---------------------------------------------------------
+  var setupPanel = document.getElementById('setupPanel'),
+      setupTitle = document.getElementById('setupTitle'),
+      setupLead = document.getElementById('setupLead'),
+      setupConnect = document.getElementById('setupConnect'),
+      setupGo = document.getElementById('setupGo'),
+      setupAlt = document.getElementById('setupAlt');
+  var setupState = null;   // /setup/state answer, fetched only while the panel shows
+
+  function needsSetup(){
+    return data && (data.status === 'off' || data.status === 'bad-token'
+                    || data.scopeState === 'bad');
+  }
+
+  function renderSetup(){
+    var need = needsSetup();
+    setupPanel.style.display = need ? '' : 'none';
+    if(!need) return;
+    // canOauth = the main wizard already saved the Twitch app the bot signs
+    // in through. Without it there is nothing to connect to yet.
+    var canOauth = !!(setupState && setupState.clientId && setupState.hasSecret);
+    var reconnect = !!(data.configured || data.botUser);
+    setupTitle.textContent = reconnect ? 'Reconnect the bot' : 'Set up the bot';
+    setupGo.textContent = reconnect ? 'Reconnect with Twitch' : 'Set up the bot';
+    setupConnect.style.display = canOauth ? '' : 'none';
+    setupAlt.style.display = canOauth ? 'none' : '';
+    setupLead.textContent = canOauth
+      ? 'The bot needs its own permission to read and post in chat. This opens Twitch’s '
+        + 'consent page; approve it there and you land straight back here with everything '
+        + 'stored. Nothing to paste, and the connection renews itself.'
+      : 'The bot signs in through the same Twitch app as the alerts, and that part hasn’t '
+        + 'been set up yet. Do the main Twitch setup first, then come back here.';
+  }
+
+  setupGo.addEventListener('click', function(){
+    // Top-level navigation on purpose: Twitch refuses to load inside a frame,
+    // and this page usually lives in the dashboard's iframe.
+    (window.top || window).location.href = '/oauth/bot/start';
+  });
 
   function renderRows(){
     var out = '';
@@ -314,7 +392,18 @@
   (function poll(){
     fetch('/bot',{cache:'no-store'})
       .then(function(r){ return r.json(); })
-      .then(function(d){ data = d; render(); })
+      .then(function(d){
+        data = d;
+        // The setup panel needs one extra fact - whether the main wizard has
+        // saved the Twitch app yet - which lives on /setup/state. Only asked
+        // for while the panel is actually going to show.
+        if(!needsSetup()){ render(); return; }
+        return fetch('/setup/state',{cache:'no-store'})
+          .then(function(r){ return r.json(); })
+          .then(function(ss){ setupState = ss; })
+          .catch(function(){})
+          .then(function(){ render(); });
+      })
       .catch(function(){})
       .finally(function(){ setTimeout(poll, 3000); });
   })();

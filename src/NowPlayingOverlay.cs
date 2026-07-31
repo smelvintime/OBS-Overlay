@@ -1244,16 +1244,38 @@ namespace NowPlaying {
                 "save the Client ID and Secret first"));
             else
               SendRedirect(ns, TwitchEvents.OAuthStartUrl(_port));
+          } else if (route == "/oauth/bot/start") {
+            // The chat bot's flow, started from the Chat bot tab. Same
+            // cross-site rule as /oauth/start, for the same reason.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            if (!TwitchEvents.OAuthReady)
+              SendRedirect(ns, "/app?botoautherr=" + Uri.EscapeDataString(
+                "run the main Twitch setup first - the bot signs in through the same Twitch app") + "#bot");
+            else
+              SendRedirect(ns, TwitchEvents.BotOAuthStartUrl(_port));
           } else if (route == "/oauth/callback") {
             // Twitch lands the user's browser here after the consent screen.
+            // Both flows share this URL (it must match the app registration to
+            // the letter); the state nonce says which one a callback belongs
+            // to, and each bounces back to the page it started from.
             string denied = QueryParam(path, "error");
+            string cbState = QueryParam(path, "state") ?? "";
+            bool forBot = TwitchEvents.IsBotOAuthState(cbState);
             if (denied != null && denied.Length > 0) {
-              SendRedirect(ns, "/setup?oautherr=" + Uri.EscapeDataString(
-                "you declined the authorization (" + denied + ")"));
+              string msg = "you declined the authorization (" + denied + ")";
+              SendRedirect(ns, forBot
+                ? "/app?botoautherr=" + Uri.EscapeDataString(msg) + "#bot"
+                : "/setup?oautherr=" + Uri.EscapeDataString(msg));
+            } else if (forBot) {
+              string berr;
+              bool bok = TwitchEvents.OAuthCompleteBot(_port, QueryParam(path, "code") ?? "",
+                                                       cbState, out berr);
+              SendRedirect(ns, bok ? "/app?botoauth=ok#bot"
+                                   : "/app?botoautherr=" + Uri.EscapeDataString(berr) + "#bot");
             } else {
               string oerr;
               bool ok = TwitchEvents.OAuthComplete(_port, QueryParam(path, "code") ?? "",
-                                                   QueryParam(path, "state") ?? "", out oerr);
+                                                   cbState, out oerr);
               SendRedirect(ns, ok ? "/setup?oauth=ok"
                                   : "/setup?oautherr=" + Uri.EscapeDataString(oerr));
             }

@@ -31,6 +31,7 @@ namespace NowPlaying {
     static string _channel = "";
     static string _botUser = "";
     static string _token = "";        // carries the oauth: prefix, unlike the Helix one
+    static string _botRefresh = "";   // written by the bot setup flow; empty for hand-made tokens
 
     // "off" until configured, then: disabled, connecting, live, bad-token, error.
     // disabled is distinct from off on purpose - "you switched it off" and "it
@@ -77,6 +78,7 @@ namespace NowPlaying {
         _channel = Cfg(cfg, "channel").Trim().TrimStart('#').ToLowerInvariant();
         _botUser = Cfg(cfg, "botUsername").Trim().ToLowerInvariant();
         _token = Cfg(cfg, "oauthToken").Trim();
+        _botRefresh = Cfg(cfg, "botRefreshToken").Trim();
 
         // Chat wants the oauth: prefix; the Helix token must not have it. Accept
         // either spelling here and normalise, because the two tokens sit next to
@@ -130,6 +132,31 @@ namespace NowPlaying {
     // comes back on by itself rather than needing a click after every restart.
     public static void RestoreEnabled(bool on) { _enabled = on; }
 
+    // Called from the bot OAuth callback after new credentials land in the
+    // config. The IRC thread reads its credentials once at connect, so a
+    // running bot has to be cycled; one that was never configured just loads
+    // and sits ready for the switch. The old thread can take a few seconds to
+    // notice the stop flag (its read timeout), so the wait happens off-thread
+    // rather than stalling the OAuth redirect.
+    public static void ReloadAfterSetup() {
+      var old = _thread;
+      if (old != null && old.IsAlive) {
+        _stopFlag = true;
+        var t = new Thread(() => {
+          try { old.Join(15000); } catch { }
+          LoadConfig();
+          CheckScopes();
+          if (_enabled && Configured) StartThread();
+        });
+        t.IsBackground = true;
+        t.Start();
+      } else {
+        LoadConfig();
+        CheckScopes();
+        if (_enabled && Configured) StartThread();
+      }
+    }
+
     static void StartThread() {
       if (!Configured) { AppLog.Write("chat: cannot start, not configured - " + _detail); return; }
       if (_thread != null && _thread.IsAlive) return;
@@ -154,6 +181,28 @@ namespace NowPlaying {
       _status = "disabled";
       _detail = "";
       _connectedAt = "";
+    }
+
+    // ---------------------------------------------------------- token refresh
+    // Chat tokens minted by the setup flow expire in hours, exactly like the
+    // Helix one in TwitchEvents. A live IRC connection survives past expiry -
+    // Twitch only checks PASS at login - so the moment this matters is the
+    // next (re)connect, which is where AUTHFAIL lands. Hand-made tokens have
+    // no refresh half and keep today's behaviour: a clear bad-token message.
+    static readonly object _botRefreshLock = new object();
+    static int _authFails;
+
+    static bool TryRefreshBotToken() {
+      lock (_botRefreshLock) {
+        if (_botRefresh.Length == 0) return false;
+        string access, refresh;
+        if (!TwitchEvents.RefreshWithApp(_botRefresh, out access, out refresh)) return false;
+        _token = "oauth:" + access;
+        if (refresh.Length > 0) _botRefresh = refresh;
+        TwitchEvents.SaveBotTokens(access, _botRefresh);
+        AppLog.Write("chat: bot token refreshed automatically");
+        return true;
+      }
     }
 
     // ------------------------------------------------------------- connection
@@ -204,12 +253,20 @@ namespace NowPlaying {
                 _detail = "";
                 _connectedAt = DateTime.Now.ToString("HH:mm:ss");
                 backoff = 5;
+                _authFails = 0;
                 AppLog.Write("chat: logged in as " + _botUser);
                 break;
 
               case "AUTHFAIL":
-                // No amount of retrying fixes a rejected token, and hammering
-                // Twitch with a bad one is how an account gets rate limited.
+                // An expired token and a revoked one look identical from here.
+                // If the setup flow left a refresh token, spend it once and try
+                // the login again; a second rejection in a row means the
+                // credential is genuinely dead, and hammering Twitch with a bad
+                // one is how an account gets rate limited.
+                if (_authFails++ == 0 && TryRefreshBotToken()) {
+                  AppLog.Write("chat: login rejected, retrying with a freshly refreshed token");
+                  goto reconnect;
+                }
                 _status = "bad-token";
                 _detail = "Twitch rejected the bot login (" + ev.Text + "). The bot account's "
                         + "oauthToken needs chat:read and chat:edit, and tokens expire.";
@@ -358,28 +415,37 @@ namespace NowPlaying {
     public static void CheckScopes() {
       if (!Configured) return;
       var t = new Thread(() => {
-        try {
-          var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(
-            "https://id.twitch.tv/oauth2/validate");
-          req.Timeout = 10000;
-          // The validate endpoint wants "OAuth", not the "Bearer" Helix uses.
-          req.Headers["Authorization"] = "OAuth " + _token.Substring(6);
-          using (var resp = (System.Net.HttpWebResponse)req.GetResponse())
-          using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) {
-            string body = sr.ReadToEnd();
-            _scopeUser = TwitchEvents.SNavPublic(TwitchEvents.NavPublic(body), "login");
-            var arr = TwitchEvents.NavPublic(body, "scopes") as object[];
-            var list = new List<string>();
-            if (arr != null) foreach (var s in arr) list.Add(Convert.ToString(s));
-            _scopes = string.Join(",", list.ToArray());
-            _scopeState = "ok";
-            AppLog.Write("chat: token validates as \"" + _scopeUser + "\" with scopes [" + _scopes + "]");
-          }
-        } catch (System.Net.WebException we) {
-          var r = we.Response as System.Net.HttpWebResponse;
-          _scopeState = (r != null && (int)r.StatusCode == 401) ? "bad" : "error";
-          AppLog.Write("chat: token validation failed (" + _scopeState + ")");
-        } catch { _scopeState = "error"; }
+        // Two passes at most: if the first answer is 401 and a refresh token
+        // exists, an expired token is a non-event - renew it and ask again.
+        // That covers the common case of the app having been closed for days.
+        for (int attempt = 0; ; attempt++) {
+          try {
+            var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(
+              "https://id.twitch.tv/oauth2/validate");
+            req.Timeout = 10000;
+            // The validate endpoint wants "OAuth", not the "Bearer" Helix uses.
+            req.Headers["Authorization"] = "OAuth " + _token.Substring(6);
+            using (var resp = (System.Net.HttpWebResponse)req.GetResponse())
+            using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) {
+              string body = sr.ReadToEnd();
+              _scopeUser = TwitchEvents.SNavPublic(TwitchEvents.NavPublic(body), "login");
+              var arr = TwitchEvents.NavPublic(body, "scopes") as object[];
+              var list = new List<string>();
+              if (arr != null) foreach (var s in arr) list.Add(Convert.ToString(s));
+              _scopes = string.Join(",", list.ToArray());
+              _scopeState = "ok";
+              AppLog.Write("chat: token validates as \"" + _scopeUser + "\" with scopes [" + _scopes + "]");
+              return;
+            }
+          } catch (System.Net.WebException we) {
+            var r = we.Response as System.Net.HttpWebResponse;
+            bool unauthorized = r != null && (int)r.StatusCode == 401;
+            if (unauthorized && attempt == 0 && TryRefreshBotToken()) continue;
+            _scopeState = unauthorized ? "bad" : "error";
+            AppLog.Write("chat: token validation failed (" + _scopeState + ")");
+            return;
+          } catch { _scopeState = "error"; return; }
+        }
       });
       t.IsBackground = true;
       t.Start();
@@ -393,7 +459,7 @@ namespace NowPlaying {
     // What the dashboard needs to say something useful rather than "it didn't work".
     static string ScopeProblem() {
       if (_scopeState == "unchecked") return "";
-      if (_scopeState == "bad") return "Twitch rejected this token (401). It has expired or was revoked - generate a new one for " + _botUser + ".";
+      if (_scopeState == "bad") return "Twitch rejected this token (401). It has expired or was revoked - press the setup button below to reconnect as " + _botUser + ".";
       if (_scopeState == "error") return "";      // network trouble, not the token's fault
       var missing = new List<string>();
       if (!HasScope("chat:read")) missing.Add("chat:read");

@@ -1,9 +1,10 @@
 {
   "channel": "YOUR_TWITCH_CHANNEL",
 
-  "_comment_chat": "Below is for the !song chat bot (twitch-bot.ps1). Scopes: chat:read, chat:edit.",
+  "_comment_chat": "Below is for the !song chat bot. Easiest way: press 'Set up the bot' on the dashboard's Chat bot tab and this half fills itself in, including botRefreshToken so the sign-in renews on its own. By hand instead: a token with chat:read and chat:edit for the account the bot speaks as, keeping the oauth: prefix, and leave botRefreshToken blank.",
   "botUsername": "YOUR_BOT_OR_OWN_USERNAME",
   "oauthToken": "oauth:PASTE_YOUR_TOKEN_HERE",
+  "botRefreshToken": "",
 
   "command": "!song",
   "cooldownSeconds": 10,

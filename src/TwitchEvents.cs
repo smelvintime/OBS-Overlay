@@ -226,17 +226,35 @@ namespace NowPlaying {
 
     internal static bool OAuthReady { get { return _clientId.Length > 0 && _clientSecret.Length > 0; } }
 
-    // Exchanges the authorization code for a token pair, learns which account
-    // authorized (so a blank channel can be filled in from it), persists both,
-    // and either starts the feed (first-time setup) or asks for a restart.
-    internal static bool OAuthComplete(int port, string code, string state, out string error) {
-      error = "";
-      if (state != _oauthState || _oauthState.Length == 0) {
-        error = "this authorization did not come from this app's setup page (state mismatch) - start again from Setup";
-        return false;
-      }
-      _oauthState = "";
-      if (!OAuthReady) { error = "Client ID and Secret must be saved before connecting"; return false; }
+    // The bot's consent flow: same Twitch app, same callback URL (Twitch
+    // matches the redirect to the letter, so a second URL would mean everyone
+    // re-editing their app registration), but chat scopes and its own state
+    // nonce so the callback can tell the two flows apart. force_verify makes
+    // Twitch actually show the account screen instead of silently reusing the
+    // broadcaster's session - the whole point is signing in as the account the
+    // bot should speak as, which is usually not the one the browser holds.
+    static string _botOauthState = "";
+
+    internal static string BotOAuthStartUrl(int port) {
+      _botOauthState = Guid.NewGuid().ToString("N");
+      return "https://id.twitch.tv/oauth2/authorize"
+        + "?response_type=code"
+        + "&client_id=" + Uri.EscapeDataString(_clientId)
+        + "&redirect_uri=" + Uri.EscapeDataString(RedirectUri(port))
+        + "&scope=" + Uri.EscapeDataString("chat:read chat:edit")
+        + "&force_verify=true"
+        + "&state=" + _botOauthState;
+    }
+
+    internal static bool IsBotOAuthState(string state) {
+      return _botOauthState.Length > 0 && state == _botOauthState;
+    }
+
+    // Exchanges an authorization code for a token pair. Shared by both consent
+    // flows, which differ only in the scopes asked for and where the result
+    // is stored.
+    static bool ExchangeCode(int port, string code, out string access, out string refresh, out string error) {
+      access = ""; refresh = ""; error = "";
       try {
         string body = "grant_type=authorization_code"
           + "&code=" + Uri.EscapeDataString(code ?? "")
@@ -257,43 +275,9 @@ namespace NowPlaying {
           resp = sr.ReadToEnd();
 
         var root = _ser.DeserializeObject(resp);
-        string access = SNav(root, "access_token");
-        string refresh = SNav(root, "refresh_token");
+        access = SNav(root, "access_token");
+        refresh = SNav(root, "refresh_token");
         if (access.Length == 0) { error = "Twitch's reply carried no token"; return false; }
-
-        // Which account said yes. Fills a blank channel, and catches the
-        // classic mistake of authorizing as the wrong account.
-        string login = "";
-        try {
-          var vreq = (HttpWebRequest)WebRequest.Create("https://id.twitch.tv/oauth2/validate");
-          vreq.Timeout = 10000;
-          vreq.Headers["Authorization"] = "OAuth " + access;
-          vreq.UserAgent = "NowPlayingOverlay";
-          using (var vr = (HttpWebResponse)vreq.GetResponse())
-          using (var sr = new StreamReader(vr.GetResponseStream(), Encoding.UTF8))
-            login = SNav(_ser.DeserializeObject(sr.ReadToEnd()), "login");
-        } catch { }
-
-        string p = ConfigPathOrDefault();
-        Dictionary<string, object> cfg = File.Exists(p) ? ReadConfig(p) : new Dictionary<string, object>();
-        if (cfg == null) cfg = new Dictionary<string, object>();
-        cfg["apiToken"] = access;
-        cfg["refreshToken"] = refresh;
-        if (SNav2(cfg, "channel").Length == 0 && login.Length > 0) cfg["channel"] = login;
-        File.WriteAllText(p, WriteConfig(cfg));
-        _configPath = p;
-
-        bool wasRunning = _status != "off";
-        LoadConfig();
-        AppLog.Write("setup: OAuth connected as \"" + (login.Length > 0 ? login : "(unknown)")
-                   + "\", channel \"" + _channel + "\"");
-        if (wasRunning) {
-          // Threads already hold the old credentials; a restart is the clean
-          // way to apply the new ones everywhere at once.
-          _needsRestart = true;
-        } else {
-          Start();
-        }
         return true;
       } catch (WebException we) {
         string detail = "";
@@ -304,13 +288,115 @@ namespace NowPlaying {
         // The error body here is Twitch's own ("invalid client", "invalid
         // grant") and carries no secrets - it is safe and useful to show.
         error = "Twitch refused the exchange: " + we.Message + (detail.Length > 0 ? " - " + detail : "");
-        AppLog.Write("setup: OAuth exchange failed: " + error);
         return false;
       } catch (Exception ex) {
         error = "unexpected failure: " + ex.Message;
-        AppLog.Write("setup: OAuth exchange exception: " + ex);
         return false;
       }
+    }
+
+    // Which account said yes, straight from Twitch. Fills a blank channel,
+    // catches authorizing as the wrong account, and names the bot.
+    static string WhoAuthorized(string access) {
+      try {
+        var vreq = (HttpWebRequest)WebRequest.Create("https://id.twitch.tv/oauth2/validate");
+        vreq.Timeout = 10000;
+        vreq.Headers["Authorization"] = "OAuth " + access;
+        vreq.UserAgent = "NowPlayingOverlay";
+        using (var vr = (HttpWebResponse)vreq.GetResponse())
+        using (var sr = new StreamReader(vr.GetResponseStream(), Encoding.UTF8))
+          return SNav(_ser.DeserializeObject(sr.ReadToEnd()), "login");
+      } catch { return ""; }
+    }
+
+    // The broadcaster's callback half: learns which account authorized (so a
+    // blank channel can be filled in from it), persists the token pair, and
+    // either starts the feed (first-time setup) or asks for a restart.
+    internal static bool OAuthComplete(int port, string code, string state, out string error) {
+      error = "";
+      if (state != _oauthState || _oauthState.Length == 0) {
+        error = "this authorization did not come from this app's setup page (state mismatch) - start again from Setup";
+        return false;
+      }
+      _oauthState = "";
+      if (!OAuthReady) { error = "Client ID and Secret must be saved before connecting"; return false; }
+      string access, refresh;
+      if (!ExchangeCode(port, code, out access, out refresh, out error)) {
+        AppLog.Write("setup: OAuth exchange failed: " + error);
+        return false;
+      }
+      string login = WhoAuthorized(access);
+      try {
+        string p = ConfigPathOrDefault();
+        Dictionary<string, object> cfg = File.Exists(p) ? ReadConfig(p) : new Dictionary<string, object>();
+        if (cfg == null) cfg = new Dictionary<string, object>();
+        cfg["apiToken"] = access;
+        cfg["refreshToken"] = refresh;
+        if (SNav2(cfg, "channel").Length == 0 && login.Length > 0) cfg["channel"] = login;
+        File.WriteAllText(p, WriteConfig(cfg));
+        _configPath = p;
+      } catch (Exception ex) {
+        error = "could not write twitch-config.json: " + ex.Message;
+        AppLog.Write("setup: OAuth save failed: " + ex.Message);
+        return false;
+      }
+
+      bool wasRunning = _status != "off";
+      LoadConfig();
+      AppLog.Write("setup: OAuth connected as \"" + (login.Length > 0 ? login : "(unknown)")
+                 + "\", channel \"" + _channel + "\"");
+      if (wasRunning) {
+        // Threads already hold the old credentials; a restart is the clean
+        // way to apply the new ones everywhere at once.
+        _needsRestart = true;
+      } else {
+        Start();
+      }
+      return true;
+    }
+
+    // The bot's callback half. The account that authorized IS the bot's
+    // username - the one fact the manual setup made people type, and the one
+    // they most often got wrong (a token minted on the main account with the
+    // bot's name typed in the box, or the reverse). Chat is self-contained
+    // enough to cycle in place, so no restart is asked for.
+    internal static bool OAuthCompleteBot(int port, string code, string state, out string error) {
+      error = "";
+      if (state != _botOauthState || _botOauthState.Length == 0) {
+        error = "this authorization did not come from this app's bot setup (state mismatch) - start again from the Chat bot tab";
+        return false;
+      }
+      _botOauthState = "";
+      if (!OAuthReady) { error = "the Twitch app's Client ID and Secret must be saved first - run the main Twitch setup"; return false; }
+      string access, refresh;
+      if (!ExchangeCode(port, code, out access, out refresh, out error)) {
+        AppLog.Write("setup: bot OAuth exchange failed: " + error);
+        return false;
+      }
+      string login = WhoAuthorized(access);
+      if (login.Length == 0) {
+        // Without the login there is no NICK to connect with; better to say so
+        // now than to write a config that fails with a worse message later.
+        error = "Twitch accepted the connection but would not say which account authorized - try again";
+        return false;
+      }
+      try {
+        string p = ConfigPathOrDefault();
+        Dictionary<string, object> cfg = File.Exists(p) ? ReadConfig(p) : new Dictionary<string, object>();
+        if (cfg == null) cfg = new Dictionary<string, object>();
+        cfg["botUsername"] = login;
+        cfg["oauthToken"] = access;
+        cfg["botRefreshToken"] = refresh;
+        File.WriteAllText(p, WriteConfig(cfg));
+        _configPath = p;
+      } catch (Exception ex) {
+        error = "could not write twitch-config.json: " + ex.Message;
+        AppLog.Write("setup: bot OAuth save failed: " + ex.Message);
+        return false;
+      }
+      AppLog.Write("setup: bot OAuth connected as \"" + login + "\"");
+      TwitchChat.ReloadAfterSetup();
+      return true;
     }
 
     // "I don't use Twitch": write a minimal config so the file exists and the
@@ -568,9 +654,24 @@ namespace NowPlaying {
     // attempted fails outright with the account otherwise perfectly healthy.
     static bool TryRefreshToken() {
       if (!CanRefresh) return false;
+      string newAccess, newRefresh;
+      if (!RefreshWithApp(_refreshToken, out newAccess, out newRefresh)) return false;
+      _token = newAccess;
+      if (newRefresh.Length > 0) _refreshToken = newRefresh;
+      PersistRefreshedTokens();
+      AppLog.Write("twitch: access token refreshed automatically");
+      return true;
+    }
+
+    // The raw refresh call, shared with the chat bot's token in TwitchChat -
+    // both credentials come from the same Twitch app and expire on the same
+    // clock; only where the result lives differs.
+    internal static bool RefreshWithApp(string refreshToken, out string newAccess, out string newRefresh) {
+      newAccess = ""; newRefresh = "";
+      if (_clientSecret.Length == 0 || refreshToken.Length == 0) return false;
       try {
         string body = "grant_type=refresh_token"
-          + "&refresh_token=" + Uri.EscapeDataString(_refreshToken)
+          + "&refresh_token=" + Uri.EscapeDataString(refreshToken)
           + "&client_id=" + Uri.EscapeDataString(_clientId)
           + "&client_secret=" + Uri.EscapeDataString(_clientSecret);
         var req = (HttpWebRequest)WebRequest.Create("https://id.twitch.tv/oauth2/token");
@@ -587,16 +688,12 @@ namespace NowPlaying {
           resp = sr.ReadToEnd();
 
         var root = _ser.DeserializeObject(resp);
-        string newAccess = SNav(root, "access_token");
-        string newRefresh = SNav(root, "refresh_token");
+        newAccess = SNav(root, "access_token");
+        newRefresh = SNav(root, "refresh_token");
         if (newAccess.Length == 0) {
           AppLog.Write("twitch: refresh response carried no access_token");
           return false;
         }
-        _token = newAccess;
-        if (newRefresh.Length > 0) _refreshToken = newRefresh;
-        PersistRefreshedTokens();
-        AppLog.Write("twitch: access token refreshed automatically");
         return true;
       } catch (WebException we) {
         // A refresh token is one-time use; this fires if it was already spent
@@ -651,7 +748,7 @@ namespace NowPlaying {
     // comfortable to open and hand-edit after an automatic rewrite.
     static readonly string[] PreferredKeyOrder = {
       "channel",
-      "_comment_chat", "botUsername", "oauthToken", "command", "cooldownSeconds", "npUrl",
+      "_comment_chat", "botUsername", "oauthToken", "botRefreshToken", "command", "cooldownSeconds", "npUrl",
       "responseTemplate", "pausedTemplate", "notPlayingMessage",
       "_comment_api", "clientId", "clientSecret", "apiToken", "refreshToken",
       "_comment_goals", "followerGoal", "subGoal"
@@ -667,6 +764,24 @@ namespace NowPlaying {
         File.WriteAllText(_configPath, WriteConfig(cfg));
       } catch (Exception ex) {
         AppLog.Write("twitch: could not save refreshed token: " + ex.Message);
+      }
+    }
+
+    // TwitchChat's version of the same persistence. It lives here because this
+    // class owns the config file's path and format; the bare token goes in and
+    // LoadConfig's oauth:-normalisation puts the prefix back on the way out.
+    internal static void SaveBotTokens(string access, string refresh) {
+      string p = _configPath;
+      if (p == null) p = FindConfigPath();
+      if (p == null) return;
+      try {
+        var cfg = ReadConfig(p);
+        if (cfg == null) return;
+        cfg["oauthToken"] = access;
+        if (refresh.Length > 0) cfg["botRefreshToken"] = refresh;
+        File.WriteAllText(p, WriteConfig(cfg));
+      } catch (Exception ex) {
+        AppLog.Write("chat: could not save refreshed bot token: " + ex.Message);
       }
     }
 

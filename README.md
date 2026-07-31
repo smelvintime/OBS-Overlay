@@ -19,7 +19,8 @@ the music side at all.
   build your own in a visual editor, and trade them as small files
 - 🎛️ **A customizer** with live preview for every option, plus **saved looks**
   so a finished design is never lost in an OBS URL field again
-- 💬 **A `!song` chat bot** that answers viewers with the current track
+- 💬 **A `!song` chat bot** that answers viewers with the current track —
+  set up with one click, same as the alerts
 - 📦 **One ~400 KB exe.** Local only (`127.0.0.1`), nothing sent anywhere.
 
 ## Get it
@@ -70,7 +71,7 @@ icon → **Open dashboard…**):
 | **Customize** | Every look option with live preview, copy the URL, save looks |
 | **Saved looks** | Every look you saved, ready to copy back into OBS |
 | **Themes** | Apply, build, import and export whole-app colour themes |
-| **Chat bot** | Switch the `!song` bot on and manage its commands |
+| **Chat bot** | Set up the `!song` bot with one click, switch it on, manage its commands |
 | **How to use** | The same guidance, inside the app |
 
 ## Digging deeper
