@@ -416,7 +416,12 @@
           var def = NPO.findTheme(THEMES, name) || { name: name };
           localStorage.setItem('nowplaying.themeCss', NPO.cssFor(def, 'dashboard'));
           NPO.applyThemeDef(def, 'dashboard', document);
-          try { if(window.parent !== window) NPO.applyThemeDef(def, 'dashboard', window.parent.document); } catch(e){}
+          // Embedded in the dashboard: hand the change up so the shell's own
+          // swatch buttons and the other tabs move with us.
+          try {
+            if(window.parent !== window && window.parent.__npoThemeChanged)
+              window.parent.__npoThemeChanged(name);
+          } catch(e){}
         } catch(e){}
         refresh(true);
       })

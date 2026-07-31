@@ -204,6 +204,13 @@ the Twitch alerts, and the follower/subscriber boxes.
 Copy the URL from the bar at the bottom when it looks right. Your choices are
 remembered in that browser, and **Reset all** puts everything back.
 
+When a look is finished, press **Save look**, give it a name, and it lands in
+the **Saved looks** list just above the URL bar — with Copy, Open and Delete
+buttons. The list is kept by the app itself, not the browser, so a look you
+save today is still there next month, in any browser, ready to paste back
+into OBS. (An OBS source's URL field is technically also a place to store a
+URL, but nobody has ever found one there again.)
+
 Colour, opacity, size and corner roundness apply to the preview as you drag,
 without reloading it. The rest reload the preview frame, which takes a moment.
 
@@ -278,6 +285,45 @@ filling in behind the line already on screen. Nothing is ever cut off, and
 queued copies of the old track that haven't reached the screen yet are dropped
 so the new one arrives as soon as it can.
 
+## Themes
+
+A theme recolours **everything at once** — the dashboard pages and all three
+OBS sources — where the customizer options above style one source at a time.
+Two ship built in: **Shockblade** (the electric blue) and **Shadow**
+(near-black with a crimson edge). Open the **Themes** tab in the dashboard to
+see them all as cards.
+
+To switch: click a card, check the live preview, press **Apply**. Every OBS
+source picks the change up within about five seconds — you never touch OBS.
+
+### Making your own
+
+1. In the **Themes** tab, press **New theme** (or **Make a copy** on any card
+   to start from a look you like).
+2. Give it a name and pick colours. The top row is what OBS shows — accent,
+   alert colours, card and text. The bottom row is the dashboard itself.
+   Everything lands in the live preview as you pick.
+3. Press **Save theme**. It appears as a card marked **Yours**, and Apply
+   works on it like any other.
+
+You choose eight dashboard colours; the app derives the fiddly supporting
+shades (input fields, hover states, hairlines) from them so the result always
+looks deliberate.
+
+### Sharing themes
+
+**Export** on any of your cards downloads the theme as a small `.json` file —
+send it to anyone. They press **Import a theme file**, pick it, done. Themes
+are plain data: colour values only, checked by the app on the way in, so a
+theme file from a stranger can change colours and nothing else.
+
+Your themes live as files in `%APPDATA%\NowPlayingOverlay\themes`. Dropping a
+`.json` in there by hand works too — it shows up on the next visit to the
+Themes tab, no restart.
+
+One source can also be pinned to a theme on purpose, no matter what the app
+is set to, by adding `?theme=<name>` to its URL.
+
 ## Using a different port
 
 If port 8787 is taken, start the app with `NowPlayingOverlay.exe -port 8788`, then use
@@ -293,6 +339,8 @@ Windows**, so autostart keeps using it too.
 | `GET /spectrum` | Live frequency bands, ~30fps: WebSocket upgrade or SSE stream (.exe only) |
 | `GET /spectrum.json` | One-shot spectrum snapshot, handy for debugging (.exe only) |
 | `GET /sources` | Diagnostic: what each provider sees, which one won, current pin |
+| `GET /themes` | Every theme the app knows (built-in + yours) and which is active |
+| `GET /presets` | Your saved looks: `{presets:[{name, url, page, saved}]}` |
 | `GET /setsource?mode=prefer\|only\|auto&app=<name>` | Change which player is followed |
 | `GET /` | The overlay page itself |
 | `GET /alerts` | Twitch follow/sub alert source (.exe only for live data) |

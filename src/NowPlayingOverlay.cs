@@ -1302,7 +1302,9 @@ namespace NowPlaying {
             SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
               "{\"ok\":" + (dok ? "true" : "false") + ",\"error\":" + Q(derr) + "}"));
           } else if (route == "/presets") {
-            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(PresetsJson()));
+            // Private: nobody's saved-look list is another website's business,
+            // and only our own pages ever read it.
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(PresetsJson()));
           } else if (route == "/presets/save") {
             if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             string perr;

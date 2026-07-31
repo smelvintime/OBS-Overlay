@@ -146,6 +146,10 @@
   }
 
   function paintFrame(f, name){
+    // Until /themes has answered there is nothing real to paint, and painting
+    // the name alone would blank a palette the frame already gave itself -
+    // every embedded page runs its own themeBoot, so silence here is safe.
+    if(!themeList) return;
     try { if(f && f.contentDocument && window.NPO) NPO.applyThemeDef(defFor(name), 'dashboard', f.contentDocument); }
     catch(e){}
   }
@@ -198,6 +202,17 @@
     [].forEach.call(themesEl.children, function(b){
       b.setAttribute('aria-pressed', String(b.getAttribute('data-t') === currentTheme())); });
   }
+
+  // The Themes tab lives in one of these frames and applies themes itself;
+  // this hook lets it hand the change up so the shell's swatch highlight and
+  // every other frame move at the same moment, not on the next reload.
+  window.__npoThemeChanged = function(name){
+    if(window.NPO) NPO.themes(function(j){
+      if(j) themeList = j;
+      buildButtons();
+      applyTheme(name, true, false);   // the tab already saved it server-side
+    });
+  };
 
   if(window.NPO) NPO.themes(function(j){
     if(!j) return;                   // no answer, no buttons; themeBoot already painted the cache
