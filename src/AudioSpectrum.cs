@@ -200,8 +200,9 @@ namespace NowPlaying {
       if (bang >= 0 && bang < hint.Length - 1) hint = hint.Substring(bang + 1);
       if (hint.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         hint = hint.Substring(0, hint.Length - 4);
+      System.Diagnostics.Process[] procs = null;
       try {
-        var procs = System.Diagnostics.Process.GetProcessesByName(hint);
+        procs = System.Diagnostics.Process.GetProcessesByName(hint);
         if (procs.Length == 0) return 0;
         // Capture includes the target's whole process tree, so aim at the parent:
         // browsers and Spotify play audio from child processes.
@@ -214,6 +215,11 @@ namespace NowPlaying {
         }
         return best.Id;
       } catch { return 0; }
+      finally {
+        // Called once a second from the poller; each Process object holds an
+        // OS handle, and waiting on the GC to close them is a slow handle leak.
+        if (procs != null) foreach (var p in procs) { try { p.Dispose(); } catch { } }
+      }
     }
 
     // Analysis runs on a fixed clock rather than per request. Doing it per
@@ -246,11 +252,24 @@ namespace NowPlaying {
     // Reconnects on its own: switching output device, or unplugging headphones,
     // invalidates the client, and the overlay should recover without a restart.
     static void CaptureLoop() {
+      // Once per thread, not once per attempt - repeated init calls only
+      // stack up apartment ref counts that nothing ever undoes.
+      CoInitializeEx(IntPtr.Zero, 0 /*COINIT_MULTITHREADED*/);
+      int failSecs = 2;
       while (true) {
         try { CaptureOnce(); }
         catch (Exception ex) { _status = "error: " + ex.Message; }
+        bool wasCapturing = _running;
         _running = false;
-        Thread.Sleep(2000);
+        // A session that actually captured, or a deliberate target switch,
+        // deserves a quick retry. A session that never got going will almost
+        // certainly fail the same way next time, and re-activating WASAPI
+        // every two seconds forever churns the audio engine (and its driver)
+        // for nothing - back off instead, and snap back the moment a session
+        // works again so recovery after a device change stays fast.
+        if (wasCapturing || _restart) failSecs = 2;
+        else failSecs = Math.Min(failSecs * 2, 30);
+        Thread.Sleep(failSecs * 1000);
       }
     }
 
@@ -289,74 +308,86 @@ namespace NowPlaying {
     }
 
     static void CaptureOnce() {
-      CoInitializeEx(IntPtr.Zero, 0 /*COINIT_MULTITHREADED*/);
       _restart = false;
       int pid = _targetPid;
 
       IAudioClient client = null;
+      // Every COM object taken here is released in the one finally below.
+      // These are RCWs over live WASAPI objects: audio clients hold buffers
+      // and session state inside audiodg.exe, and leaving them to whatever
+      // GC eventually finalises them lets dead clients accumulate across
+      // reconnects on a process that can run for days.
+      object enObj = null, devObj = null, capObj = null, failedProcClient = null;
       WAVEFORMATEX fmt;
       IntPtr pFmt = IntPtr.Zero;
+      bool pFmtIsHGlobal = false;   // GetMixFormat allocates CoTaskMem instead
       IntPtr hEvent = IntPtr.Zero;
       bool perProcess = false;
 
-      if (pid != 0) client = ActivateProcessLoopback(pid);
-
-      if (client != null) {
-        perProcess = true;
-        // Process loopback makes us state the format; 16-bit PCM is always safe.
-        fmt = new WAVEFORMATEX {
-          wFormatTag = 1, nChannels = 2, nSamplesPerSec = 48000,
-          wBitsPerSample = 16, nBlockAlign = 4, nAvgBytesPerSec = 48000 * 4, cbSize = 0
-        };
-        pFmt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WAVEFORMATEX)));
-        Marshal.StructureToPtr(fmt, pFmt, false);
-        hEvent = CreateEventW(IntPtr.Zero, false, false, IntPtr.Zero);
-        int phr = client.Initialize(SHARED, LOOPBACK | EVENTCALLBACK, 10000000L, 0, pFmt, IntPtr.Zero);
-        if (phr != 0) {
-          _status = "process capture init failed 0x" + phr.ToString("x8");
-          client = null;                   // fall through to whole-device capture
-        } else {
-          client.SetEventHandle(hEvent);
-        }
-      }
-
-      if (client == null) {
-        perProcess = false;
-        var en = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
-        IMMDevice dev;
-        if (en.GetDefaultAudioEndpoint(0 /*eRender*/, 0 /*eConsole*/, out dev) != 0 || dev == null) {
-          _status = "no output device"; return;
-        }
-        Guid iidClient = typeof(IAudioClient).GUID;
-        object o;
-        if (dev.Activate(ref iidClient, 1 /*CLSCTX_INPROC_SERVER*/, IntPtr.Zero, out o) != 0) {
-          _status = "could not open audio client"; return;
-        }
-        client = (IAudioClient)o;
-        if (client.GetMixFormat(out pFmt) != 0) { _status = "no mix format"; return; }
-        fmt = (WAVEFORMATEX)Marshal.PtrToStructure(pFmt, typeof(WAVEFORMATEX));
-        int hr2 = client.Initialize(SHARED, LOOPBACK, 10000000L /*1s buffer*/, 0, pFmt, IntPtr.Zero);
-        if (hr2 != 0) { _status = "initialise failed 0x" + hr2.ToString("x8"); return; }
-      } else {
-        fmt = (WAVEFORMATEX)Marshal.PtrToStructure(pFmt, typeof(WAVEFORMATEX));
-      }
-
-      Guid iidCap = typeof(IAudioCaptureClient).GUID;
-      object oc;
-      if (client.GetService(ref iidCap, out oc) != 0) { _status = "no capture service"; return; }
-      var cap = (IAudioCaptureClient)oc;
-
-      lock (_lock) { _rate = fmt.nSamplesPerSec; }
-      client.Start();
-      _running = true;
-      _status = (perProcess ? "capturing " + _targetName + " only" : "capturing all system audio")
-                + " (" + fmt.nChannels + "ch " + fmt.nSamplesPerSec + "Hz)";
-
-      int channels = Math.Max(1, (int)fmt.nChannels);
-      int bytesPerSample = fmt.wBitsPerSample / 8;
-      int stride = channels * bytesPerSample;
-
       try {
+        if (pid != 0) client = ActivateProcessLoopback(pid);
+
+        if (client != null) {
+          perProcess = true;
+          // Process loopback makes us state the format; 16-bit PCM is always safe.
+          fmt = new WAVEFORMATEX {
+            wFormatTag = 1, nChannels = 2, nSamplesPerSec = 48000,
+            wBitsPerSample = 16, nBlockAlign = 4, nAvgBytesPerSec = 48000 * 4, cbSize = 0
+          };
+          pFmt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WAVEFORMATEX)));
+          pFmtIsHGlobal = true;
+          Marshal.StructureToPtr(fmt, pFmt, false);
+          hEvent = CreateEventW(IntPtr.Zero, false, false, IntPtr.Zero);
+          int phr = client.Initialize(SHARED, LOOPBACK | EVENTCALLBACK, 10000000L, 0, pFmt, IntPtr.Zero);
+          if (phr != 0) {
+            _status = "process capture init failed 0x" + phr.ToString("x8");
+            failedProcClient = client;     // fall through to whole-device capture
+            client = null;
+            perProcess = false;
+            Marshal.FreeHGlobal(pFmt); pFmt = IntPtr.Zero; pFmtIsHGlobal = false;
+          } else {
+            client.SetEventHandle(hEvent);
+          }
+        }
+
+        if (client == null) {
+          var en = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
+          enObj = en;
+          IMMDevice dev;
+          if (en.GetDefaultAudioEndpoint(0 /*eRender*/, 0 /*eConsole*/, out dev) != 0 || dev == null) {
+            _status = "no output device"; return;
+          }
+          devObj = dev;
+          Guid iidClient = typeof(IAudioClient).GUID;
+          object o;
+          if (dev.Activate(ref iidClient, 1 /*CLSCTX_INPROC_SERVER*/, IntPtr.Zero, out o) != 0) {
+            _status = "could not open audio client"; return;
+          }
+          client = (IAudioClient)o;
+          if (client.GetMixFormat(out pFmt) != 0) { _status = "no mix format"; return; }
+          fmt = (WAVEFORMATEX)Marshal.PtrToStructure(pFmt, typeof(WAVEFORMATEX));
+          int hr2 = client.Initialize(SHARED, LOOPBACK, 10000000L /*1s buffer*/, 0, pFmt, IntPtr.Zero);
+          if (hr2 != 0) { _status = "initialise failed 0x" + hr2.ToString("x8"); return; }
+        } else {
+          fmt = (WAVEFORMATEX)Marshal.PtrToStructure(pFmt, typeof(WAVEFORMATEX));
+        }
+
+        Guid iidCap = typeof(IAudioCaptureClient).GUID;
+        object oc;
+        if (client.GetService(ref iidCap, out oc) != 0) { _status = "no capture service"; return; }
+        capObj = oc;
+        var cap = (IAudioCaptureClient)oc;
+
+        lock (_lock) { _rate = fmt.nSamplesPerSec; }
+        client.Start();
+        _running = true;
+        _status = (perProcess ? "capturing " + _targetName + " only" : "capturing all system audio")
+                  + " (" + fmt.nChannels + "ch " + fmt.nSamplesPerSec + "Hz)";
+
+        int channels = Math.Max(1, (int)fmt.nChannels);
+        int bytesPerSample = fmt.wBitsPerSample / 8;
+        int stride = channels * bytesPerSample;
+
         while (true) {
           if (_restart) break;          // the overlay switched to another player
           if (perProcess) WaitForSingleObject(hEvent, 200);
@@ -395,9 +426,19 @@ namespace NowPlaying {
           cap.ReleaseBuffer(frames);
         }
       } finally {
-        try { client.Stop(); } catch { }
+        if (client != null) { try { client.Stop(); } catch { } }
         if (hEvent != IntPtr.Zero) { try { CloseHandle(hEvent); } catch { } }
-        if (pFmt != IntPtr.Zero && perProcess) { try { Marshal.FreeHGlobal(pFmt); } catch { } }
+        if (pFmt != IntPtr.Zero) {
+          // Two allocators, two frees: our own AllocHGlobal for the stated
+          // process-loopback format, CoTaskMem from GetMixFormat otherwise.
+          if (pFmtIsHGlobal) { try { Marshal.FreeHGlobal(pFmt); } catch { } }
+          else { try { Marshal.FreeCoTaskMem(pFmt); } catch { } }
+        }
+        if (capObj != null) { try { Marshal.ReleaseComObject(capObj); } catch { } }
+        if (client != null) { try { Marshal.ReleaseComObject(client); } catch { } }
+        if (failedProcClient != null) { try { Marshal.ReleaseComObject(failedProcClient); } catch { } }
+        if (devObj != null) { try { Marshal.ReleaseComObject(devObj); } catch { } }
+        if (enObj != null) { try { Marshal.ReleaseComObject(enObj); } catch { } }
       }
     }
 

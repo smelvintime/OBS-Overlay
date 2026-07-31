@@ -849,7 +849,15 @@ namespace NowPlaying {
     }
 
     static bool ITunesRunning() {
-      try { return System.Diagnostics.Process.GetProcessesByName("iTunes").Length > 0; }
+      // This runs every poll tick. Each Process object holds a real OS handle,
+      // and leaving them for the GC on a mostly-idle tray app means they pile
+      // up between collections - dispose them the moment the answer is known.
+      try {
+        var procs = System.Diagnostics.Process.GetProcessesByName("iTunes");
+        bool found = procs.Length > 0;
+        foreach (var p in procs) { try { p.Dispose(); } catch { } }
+        return found;
+      }
       catch { return false; }
     }
 
@@ -1009,6 +1017,15 @@ namespace NowPlaying {
         using (client)
         using (var ns = client.GetStream()) {
           ns.ReadTimeout = 4000;
+          // A hung peer (a stalled OBS browser process, a machine waking from
+          // sleep) stops ACKing without ever closing the socket. The default
+          // write timeout is infinite, so the SSE loops below would block in
+          // Write forever and their client slots would leak one by one until
+          // the cap turned every new OBS source away - while a fresh browser
+          // tab kept working, which is exactly the confusing half-dead state
+          // this guards against. Five seconds of zero progress on loopback
+          // means the peer is gone in every way that matters.
+          ns.WriteTimeout = 5000;
           var buf = new byte[4096];
           int read = ns.Read(buf, 0, buf.Length);
           if (read <= 0) return;
