@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Saved looks</title>
+<style>
+  :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
+         --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F;
+         --input:#0A0F1A; --ghost:#1B2438; --ghost-h:#24304A;
+         --track:#2A3550; --hair:#171F31; --code:#BFE6FA; --bad:#ff5470; }
+  /* Other palettes come from /themes as data - shared.js applies them. */
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:26px 32px 4px}
+  h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:14px;max-width:820px;line-height:1.5}
+  body.embed header{display:none}
+  body.embed .wrap{padding-top:20px}
+  .wrap{padding:18px 32px 50px;display:flex;flex-direction:column;gap:18px;max-width:1100px}
+  a{color:var(--accent)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:12px;padding:12px 16px;
+    border-bottom:1px solid var(--hair);flex-wrap:wrap}
+  .row:last-child{border-bottom:0}
+  .pname{font-weight:700;font-size:13.5px;flex:0 1 190px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .ptag{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:2px 6px}
+  .purl{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;color:var(--code);
+    flex:1 1 260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pwhen{color:var(--dim);font-size:11.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  button{background:var(--ghost);color:var(--fg);border:0;border-radius:7px;padding:6px 12px;
+    font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+  button:hover{background:var(--ghost-h)}
+  button.primary{background:var(--accent);color:var(--on-accent)}
+  button.danger{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+  .empty{padding:26px 20px;color:var(--dim);font-size:13.5px;line-height:1.6}
+</style>
+<script src="/shared.js"></script>
+<script>if(window.NPO) NPO.themeBoot('dashboard');</script>
+</head>
+<body>
+<header>
+  <h1>Saved looks</h1>
+  <p>Every look you saved from the customizer, ready to copy back into OBS. The list is
+     kept by the app itself, so it's the same from any browser on this PC.</p>
+</header>
+
+<div class="wrap">
+  <div class="panel" id="list"></div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  if(window.NPO && NPO.qs().get('embed') === '1') document.body.classList.add('embed');
+
+  var host = document.getElementById('list');
+
+  function copyText(text, btn){
+    function flash(t){
+      btn.textContent = t;
+      setTimeout(function(){ btn.textContent = 'Copy'; }, 1400);
+    }
+    if(navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(text).then(function(){ flash('Copied'); }, function(){ flash('Copy failed'); });
+    else flash('Copy failed');
+  }
+
+  function render(list){
+    host.innerHTML = '';
+    if(!list || !list.length){
+      var em = document.createElement('div');
+      em.className = 'empty';
+      em.innerHTML = 'Nothing saved yet. Open the <strong>Customize</strong> tab, dial in a look, '
+        + 'and press <strong>Save look</strong> next to the URL bar &mdash; it lands here.';
+      host.appendChild(em);
+      return;
+    }
+    list.forEach(function(p){
+      if(!p || !p.name || !p.url) return;
+      var row = document.createElement('div'); row.className = 'row';
+      var nm = document.createElement('span'); nm.className = 'pname'; nm.textContent = p.name;
+      var tg = document.createElement('span'); tg.className = 'ptag'; tg.textContent = p.page || 'look';
+      var u = document.createElement('span'); u.className = 'purl'; u.textContent = p.url; u.title = p.url;
+      var wh = document.createElement('span'); wh.className = 'pwhen'; wh.textContent = p.saved || '';
+      var cp = document.createElement('button'); cp.type = 'button'; cp.className = 'primary'; cp.textContent = 'Copy';
+      cp.addEventListener('click', function(){ copyText(p.url, cp); });
+      var op = document.createElement('button'); op.type = 'button'; op.textContent = 'Open';
+      op.addEventListener('click', function(){ window.open(p.url, '_blank'); });
+      var dl = document.createElement('button'); dl.type = 'button'; dl.className = 'danger'; dl.textContent = 'Delete';
+      dl.addEventListener('click', function(){
+        fetch('/presets/delete?name=' + encodeURIComponent(p.name), {cache:'no-store'})
+          .then(load).catch(function(){});
+      });
+      row.appendChild(nm); row.appendChild(tg); row.appendChild(u); row.appendChild(wh);
+      row.appendChild(cp); row.appendChild(op); row.appendChild(dl);
+      host.appendChild(row);
+    });
+  }
+
+  function load(){
+    fetch('/presets', {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(j){ render(j && j.presets); })
+      .catch(function(){});
+  }
+  load();
+
+  // A save made in the Customize tab while this tab sat loaded should show up
+  // the moment anyone looks. The dashboard keeps hidden tabs alive with
+  // display:none, which does NOT change this document's visibility state, so
+  // there is no event to hook - ask again on a slow clock instead, same as the
+  // theme poll. Short requests that close immediately.
+  setInterval(load, 5000);
+})();
+</script>
+</body>
+</html>

@@ -1284,6 +1284,8 @@ namespace NowPlaying {
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(ThemesJson()));
           } else if (route == "/themes-page" || route == "/themes-page/") {
             SendResource(ns, "themes.html");
+          } else if (route == "/looks" || route == "/looks/") {
+            SendResource(ns, "looks.html");
           } else if (route == "/themes/save") {
             // Writes a file to disk, so the same cross-site rules as the setup
             // routes: only our own pages get to call it.

@@ -36,10 +36,10 @@ remembered in that browser, and **Reset all** puts everything back.
 
 ### Saved looks
 
-When a look is finished, press **Save look**, give it a name, and it lands in
-the **Saved looks** list just above the URL bar — with Copy, Open and Delete
-buttons. The list is kept by the app itself, not the browser, so a look you
-save today is still there next month, in any browser, ready to paste back
+When a look is finished, press **Save look** next to the URL bar and give it a
+name — it lands on the dashboard's **Saved looks** tab, with Copy, Open and
+Delete buttons. The list is kept by the app itself, not the browser, so a look
+you save today is still there next month, in any browser, ready to paste back
 into OBS. (An OBS source's URL field is technically also a place to store a
 URL, but nobody has ever found one there again.)
 

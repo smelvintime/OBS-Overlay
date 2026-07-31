@@ -66,8 +66,9 @@ icon → **Open dashboard…**):
 | Tab | What it does |
 |---|---|
 | **Choose source** | Pin the overlay to one player, or leave it automatic |
-| **Customize** | Every look option with live preview, copy the URL, save looks |
 | **Layouts** | All four overlay styles side by side |
+| **Customize** | Every look option with live preview, copy the URL, save looks |
+| **Saved looks** | Every look you saved, ready to copy back into OBS |
 | **Themes** | Apply, build, import and export whole-app colour themes |
 | **Chat bot** | Switch the `!song` bot on and manage its commands |
 | **How to use** | The same guidance, inside the app |
