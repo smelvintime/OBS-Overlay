@@ -7,18 +7,21 @@ Works with **Spotify, Apple Music, iTunes, Tidal and browser players** — whate
 playing on this PC is what shows up, with no API keys or account linking for the music
 side at all.
 
-### ⬇️ [Download the latest release](https://github.com/smelvintime/OBS-Overlay/releases/latest)
+### ⬇️ Get it: build it yourself in a few seconds
 
-One file: `NowPlayingOverlay.exe`. Every overlay page is built into it, so there is
-nothing else to download and nothing to unzip.
+1. **Download the source** — green **Code** button above → **Download ZIP**. It's
+   source only, no executable, so nothing to trip antivirus.
+2. **Unzip it** anywhere.
+3. **Double-click `Build.bat`.** Windows already has everything it needs; this takes a
+   few seconds and puts `NowPlayingOverlay.exe` in the `dist\` folder.
+4. **Move that file somewhere permanent and run it.**
 
-**If antivirus blocks the download**, build it yourself instead — it takes seconds and
-needs nothing installed. Download this repository as a ZIP (green **Code** button →
-*Download ZIP*, source only, no executable in it), unzip it, and double-click
-**`Build.bat`**. The program appears in `dist\`. A file you compiled never came from
-the internet, so nothing flags it. See
-[Antivirus and SmartScreen warnings](#antivirus-and-smartscreen-warnings) for why this
-happens.
+Why build instead of downloading a ready-made `.exe`: an unsigned program downloaded
+from the internet gets flagged by Windows Defender as a false positive (see
+[Antivirus and SmartScreen warnings](#antivirus-and-smartscreen-warnings)). A file you
+compile on your own machine never came from the internet, so it sidesteps that
+entirely. It's the same program either way — every overlay page is built into the one
+file.
 
 ## Quick start
 
