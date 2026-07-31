@@ -327,8 +327,13 @@
     transform:rotate(-540deg);
     transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
 
+  /* Never wrap. At a narrow ?width= with a big ?mark= there genuinely isn't
+     room for "Latest subscriber" on one line, and a wrapped label makes the
+     upper blade taller than its partner - the matched-pair look breaks at
+     exactly the extremes the sliders allow. Clipping the tail is the same
+     honest degradation the .value line below already uses. */
   .label{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-    color:var(--c);opacity:.95}
+    color:var(--c);opacity:.95;white-space:nowrap;overflow:hidden}
   /* The shuriken, masked rather than drawn, so it takes the accent colour of
      whichever box it is in without a second copy per colour. Both frames that
      carry a mark share one rule; the plain frame deliberately has none.
