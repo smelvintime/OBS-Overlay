@@ -36,8 +36,16 @@ namespace NowPlaying {
     static string _channel = "";
     static string _clientId = "";
     static string _token = "";
+    static string _clientSecret = "";
+    static string _refreshToken = "";
+    static string _configPath;
     static int _followerGoal;          // 0 = round up automatically
     static int _subGoal;
+
+    // Both optional: a config with only clientId/apiToken behaves exactly as
+    // before, expiring every few hours with the tray/customizer telling the
+    // user to regenerate it by hand. Add these two and that stops mattering.
+    static bool CanRefresh { get { return _clientSecret.Length > 0 && _refreshToken.Length > 0; } }
 
     static string _broadcasterId = "";
 
@@ -122,7 +130,7 @@ namespace NowPlaying {
     }
 
     internal static string Helix(string url, out int httpStatus) {
-      return HelixGet(url, out httpStatus);
+      return HelixGetAuth(url, out httpStatus);
     }
 
     internal static string BroadcasterId { get { return _broadcasterId; } }
@@ -179,12 +187,15 @@ namespace NowPlaying {
         var cfg = ser.DeserializeObject(File.ReadAllText(p)) as Dictionary<string, object>;
         if (cfg == null) { _status = "error"; _detail = "twitch-config.json is not valid JSON"; return; }
 
+        _configPath = p;
         _channel = Str(cfg, "channel").Trim().TrimStart('#').ToLowerInvariant();
         _clientId = Str(cfg, "clientId").Trim();
         _token = Str(cfg, "apiToken").Trim();
         // Token generators hand these out with the chat prefix attached; Helix
         // wants the bare token, so accept either and normalise.
         if (_token.StartsWith("oauth:", StringComparison.OrdinalIgnoreCase)) _token = _token.Substring(6);
+        _clientSecret = Str(cfg, "clientSecret").Trim();
+        _refreshToken = Str(cfg, "refreshToken").Trim();
         _followerGoal = Num(cfg, "followerGoal");
         _subGoal = Num(cfg, "subGoal");
 
@@ -311,12 +322,158 @@ namespace NowPlaying {
       } catch { return null; }
     }
 
+    // ------------------------------------------------------------ auto-refresh
+    // Twitch user tokens are short-lived by design (hours, not days), so a
+    // channel left running unattended - the whole point of a stream overlay -
+    // would otherwise go dark on a timer nobody controls. Refreshing needs a
+    // Client Secret (from the same Developer Console registration as the
+    // Client ID) plus a refresh token, which the CLI prints right alongside
+    // the access token; without both, this is simply unavailable and the
+    // existing "regenerate it by hand" behaviour is unchanged.
+    static readonly object _refreshLock = new object();
+
+    // Twitch invalidates the refresh token itself the instant it's used, so
+    // the response's new one MUST be captured or the second refresh ever
+    // attempted fails outright with the account otherwise perfectly healthy.
+    static bool TryRefreshToken() {
+      if (!CanRefresh) return false;
+      try {
+        string body = "grant_type=refresh_token"
+          + "&refresh_token=" + Uri.EscapeDataString(_refreshToken)
+          + "&client_id=" + Uri.EscapeDataString(_clientId)
+          + "&client_secret=" + Uri.EscapeDataString(_clientSecret);
+        var req = (HttpWebRequest)WebRequest.Create("https://id.twitch.tv/oauth2/token");
+        req.Method = "POST";
+        req.Timeout = 10000;
+        req.ContentType = "application/x-www-form-urlencoded";
+        req.UserAgent = "NowPlayingOverlay";
+        var bytes = Encoding.UTF8.GetBytes(body);
+        req.ContentLength = bytes.Length;
+        using (var rs = req.GetRequestStream()) rs.Write(bytes, 0, bytes.Length);
+        string resp;
+        using (var wr = (HttpWebResponse)req.GetResponse())
+        using (var sr = new StreamReader(wr.GetResponseStream(), Encoding.UTF8))
+          resp = sr.ReadToEnd();
+
+        var root = _ser.DeserializeObject(resp);
+        string newAccess = SNav(root, "access_token");
+        string newRefresh = SNav(root, "refresh_token");
+        if (newAccess.Length == 0) {
+          AppLog.Write("twitch: refresh response carried no access_token");
+          return false;
+        }
+        _token = newAccess;
+        if (newRefresh.Length > 0) _refreshToken = newRefresh;
+        PersistRefreshedTokens();
+        AppLog.Write("twitch: access token refreshed automatically");
+        return true;
+      } catch (WebException we) {
+        // A refresh token is one-time use; this fires if it was already spent
+        // (two processes sharing one config, or Twitch revoked it) or if the
+        // client secret is wrong. Nothing left to try but a manual regenerate.
+        string body = "";
+        try {
+          var r = we.Response as HttpWebResponse;
+          if (r != null) using (var sr = new StreamReader(r.GetResponseStream())) body = sr.ReadToEnd();
+        } catch { }
+        AppLog.Write("twitch: token refresh failed: " + we.Message + (body.Length > 0 ? " - " + body : ""));
+        return false;
+      } catch (Exception ex) {
+        AppLog.Write("twitch: token refresh exception: " + ex.Message);
+        return false;
+      }
+    }
+
+    // Called after any Helix call comes back 401. Takes the token that just
+    // failed so two threads hitting 401 around the same moment don't both
+    // spend a refresh: whichever gets the lock second sees _token has already
+    // moved on and simply signals its caller to retry with what's current.
+    static bool RecoverFromUnauthorized(string failedToken) {
+      if (!CanRefresh) return false;
+      lock (_refreshLock) {
+        if (_token != failedToken) return true;      // someone else already refreshed it
+        return TryRefreshToken();
+      }
+    }
+
+    static string HelixGetAuth(string url, out int httpStatus) {
+      string body = HelixGet(url, out httpStatus);
+      if (body == null && httpStatus == 401) {
+        if (RecoverFromUnauthorized(_token)) body = HelixGet(url, out httpStatus);
+      }
+      return body;
+    }
+
+    static string HelixPostAuth(string url, string reqBody, out int httpStatus) {
+      string body = HelixPost(url, reqBody, out httpStatus);
+      if (body == null && httpStatus == 401) {
+        if (RecoverFromUnauthorized(_token)) body = HelixPost(url, reqBody, out httpStatus);
+      }
+      return body;
+    }
+
+    // The config file stays the single source of truth for both tokens, so a
+    // hand-pasted replacement (the user ran the CLI again) and an automatic
+    // refresh can never disagree about which token is current. Rewritten by
+    // hand rather than through JavaScriptSerializer.Serialize, which would
+    // collapse the whole file to one unreadable line - this still has to be
+    // comfortable to open and hand-edit after an automatic rewrite.
+    static readonly string[] PreferredKeyOrder = {
+      "channel",
+      "_comment_chat", "botUsername", "oauthToken", "command", "cooldownSeconds", "npUrl",
+      "responseTemplate", "pausedTemplate", "notPlayingMessage",
+      "_comment_api", "clientId", "clientSecret", "apiToken", "refreshToken",
+      "_comment_goals", "followerGoal", "subGoal"
+    };
+
+    static void PersistRefreshedTokens() {
+      if (_configPath == null) return;
+      try {
+        var cfg = ReadConfig(_configPath);
+        if (cfg == null) return;
+        cfg["apiToken"] = _token;
+        cfg["refreshToken"] = _refreshToken;
+        File.WriteAllText(_configPath, WriteConfig(cfg));
+      } catch (Exception ex) {
+        AppLog.Write("twitch: could not save refreshed token: " + ex.Message);
+      }
+    }
+
+    static string WriteConfig(Dictionary<string, object> cfg) {
+      var keys = new List<string>(PreferredKeyOrder);
+      foreach (var k in cfg.Keys) if (!keys.Contains(k)) keys.Add(k);
+
+      var sb = new StringBuilder("{\r\n");
+      bool first = true;
+      var done = new HashSet<string>();
+      foreach (var k in keys) {
+        object v;
+        if (!done.Add(k) || !cfg.TryGetValue(k, out v)) continue;
+        if (!first) sb.Append(",\r\n");
+        first = false;
+        sb.Append("  ").Append(Q(k)).Append(": ").Append(JsonValue(v));
+      }
+      return sb.Append("\r\n}\r\n").ToString();
+    }
+
+    static string JsonValue(object v) {
+      if (v == null) return "null";
+      if (v is bool) return ((bool)v) ? "true" : "false";
+      if (v is int || v is long || v is double || v is float)
+        return Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture);
+      return Q(Convert.ToString(v));
+    }
+
     // A 401 means the token is dead and no amount of retrying fixes it, so say
     // so plainly rather than letting the pages sit on a stale count forever.
     static bool NoteAuthFailure(int http, string what) {
       if (http == 401) {
         _status = "bad-token";
-        _detail = "Twitch rejected the token (401) on " + what + ". Regenerate it - user tokens expire.";
+        // Reaching here means an automatic refresh was already tried and either
+        // was not possible or itself failed - so the advice has to differ.
+        _detail = "Twitch rejected the token (401) on " + what + ". " + (CanRefresh
+          ? "The automatic refresh failed too - check clientSecret and refreshToken in twitch-config.json."
+          : "Regenerate it, or add clientSecret and refreshToken to twitch-config.json so this renews itself automatically.");
         return true;
       }
       if (http == 403) {
@@ -329,7 +486,7 @@ namespace NowPlaying {
 
     static bool ResolveBroadcaster() {
       int http;
-      string body = HelixGet("https://api.twitch.tv/helix/users?login=" + Uri.EscapeDataString(_channel), out http);
+      string body = HelixGetAuth("https://api.twitch.tv/helix/users?login=" + Uri.EscapeDataString(_channel), out http);
       if (body == null) {
         if (NoteAuthFailure(http, "/users")) return false;
         if (http == 400) {
@@ -354,7 +511,7 @@ namespace NowPlaying {
       if (_broadcasterId.Length == 0) return;
       int http;
 
-      string f = HelixGet("https://api.twitch.tv/helix/channels/followers?first=1&broadcaster_id=" + _broadcasterId, out http);
+      string f = HelixGetAuth("https://api.twitch.tv/helix/channels/followers?first=1&broadcaster_id=" + _broadcasterId, out http);
       if (f != null) {
         var root = _ser.DeserializeObject(f);
         _followerTotal = INav(root, "total");
@@ -375,7 +532,7 @@ namespace NowPlaying {
         return;
       }
 
-      string s = HelixGet("https://api.twitch.tv/helix/subscriptions?first=1&broadcaster_id=" + _broadcasterId, out http);
+      string s = HelixGetAuth("https://api.twitch.tv/helix/subscriptions?first=1&broadcaster_id=" + _broadcasterId, out http);
       if (s != null) {
         var root = _ser.DeserializeObject(s);
         _subTotal = INav(root, "total");
@@ -525,7 +682,7 @@ namespace NowPlaying {
                   + "\"condition\":" + condition + ","
                   + "\"transport\":{\"method\":\"websocket\",\"session_id\":\"" + sessionId + "\"}}";
       int http;
-      string resp = HelixPost("https://api.twitch.tv/helix/eventsub/subscriptions", body, out http);
+      string resp = HelixPostAuth("https://api.twitch.tv/helix/eventsub/subscriptions", body, out http);
       if (resp != null && (http == 200 || http == 202)) {
         lock (_active) _active.Add(type);
         return true;
@@ -742,6 +899,7 @@ namespace NowPlaying {
       sb.Append('{');
       sb.Append("\"status\":").Append(Q(_status)).Append(',');
       sb.Append("\"detail\":").Append(Q(_detail)).Append(',');
+      sb.Append("\"autoRefresh\":").Append(CanRefresh ? "true" : "false").Append(',');
       sb.Append("\"channel\":").Append(Q(_channel)).Append(',');
       sb.Append("\"seq\":").Append(CurrentSeq).Append(',');
       sb.Append("\"events\":{\"listening\":[");

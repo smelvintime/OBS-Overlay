@@ -368,6 +368,39 @@ wrong scopes and belongs to a different client, so it will not work here.
    }
    ```
 
+### Not expiring every few hours
+
+A Twitch user token like the one above is short-lived - a stream left running
+unattended will eventually see it expire, and the tray/customizer will say the
+token was rejected and needs regenerating.
+
+To make the app renew it on its own instead, add two more fields:
+
+```json
+{
+  "channel": "your_channel",
+  "clientId": "your_client_id",
+  "clientSecret": "your_client_secret",
+  "apiToken": "your_user_token",
+  "refreshToken": "your_refresh_token",
+  "followerGoal": 0,
+  "subGoal": 0
+}
+```
+
+- **`clientSecret`** - from the same app you registered in step 1, on its page in
+  the [Developer Console](https://dev.twitch.tv/console).
+- **`refreshToken`** - printed right alongside the access token by the same
+  `twitch token -u -s "..."` command from step 2.
+
+With both present, a rejected token is refreshed automatically the moment it's
+needed - no restart, no manual regenerate - and `twitch-config.json` is
+rewritten in place with the new `apiToken` and `refreshToken` each time (Twitch
+issues a fresh refresh token on every use and invalidates the old one, so this
+file has to stay in sync with whichever one is current). Leave both blank and
+nothing changes: the original regenerate-by-hand behaviour is exactly what you
+had before.
+
 4. **Restart the app.** The tray menu's *Twitch alerts and stats* submenu shows the
    connection state, and `/customize` shows a banner explaining any problem.
 
