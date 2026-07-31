@@ -1061,10 +1061,23 @@ namespace NowPlaying {
           // this guards against. Five seconds of zero progress on loopback
           // means the peer is gone in every way that matters.
           ns.WriteTimeout = 5000;
-          var buf = new byte[4096];
-          int read = ns.Read(buf, 0, buf.Length);
+          // Read until the header block is complete rather than taking whatever
+          // one packet happened to carry. Every request here is a GET with no
+          // body, so the blank line is the end of the message and this cannot
+          // block waiting for more. It matters because the same-origin guard
+          // below reads headers: a set that straddled a TCP boundary would look
+          // like headers that simply were not sent.
+          var buf = new byte[8192];
+          int read = 0;
+          string req = "";
+          while (read < buf.Length) {
+            int n = ns.Read(buf, read, buf.Length - read);
+            if (n <= 0) break;
+            read += n;
+            req = Encoding.ASCII.GetString(buf, 0, read);
+            if (req.IndexOf("\r\n\r\n", StringComparison.Ordinal) >= 0) break;
+          }
           if (read <= 0) return;
-          string req = Encoding.ASCII.GetString(buf, 0, read);
 
           string path = "/";
           int sp1 = req.IndexOf(' ');
@@ -1573,14 +1586,31 @@ namespace NowPlaying {
     }
 
     static bool SameOriginRequest(string req) {
+      // Truncated headers are not "headers that said nothing" - they are an
+      // unknown, and an unknown must not open a door.
+      if (req.IndexOf("\r\n\r\n", StringComparison.Ordinal) < 0) return false;
+
       string site = HeaderValue(req, "Sec-Fetch-Site");
       if (site != null)
         return site.Equals("same-origin", StringComparison.OrdinalIgnoreCase)
             || site.Equals("none", StringComparison.OrdinalIgnoreCase);
+
+      // No Fetch Metadata: an older browser, or a script. A same-origin fetch
+      // from our own wizard still carries a Referer pointing at us.
       string referer = HeaderValue(req, "Referer");
-      if (referer == null) return true;              // not a browser
-      return referer.StartsWith("http://127.0.0.1:" + _port, StringComparison.OrdinalIgnoreCase)
-          || referer.StartsWith("http://localhost:" + _port, StringComparison.OrdinalIgnoreCase);
+      if (referer != null)
+        return referer.StartsWith("http://127.0.0.1:" + _port, StringComparison.OrdinalIgnoreCase)
+            || referer.StartsWith("http://localhost:" + _port, StringComparison.OrdinalIgnoreCase);
+
+      // Neither signal. This used to be allowed as "not a browser", which was
+      // wrong: an attacker's page controls whether its own requests carry a
+      // Referer (one Referrer-Policy: no-referrer meta tag suppresses it), so
+      // on any browser that does not send Sec-Fetch-Site the absent-absent
+      // case was reachable on purpose and re-opened the whole attack. Deny by
+      // default and let genuine non-browser callers say so explicitly: a web
+      // page cannot add a custom header to a cross-origin request without a
+      // preflight, and nothing here answers one.
+      return HeaderValue(req, "X-Setup-Tool") != null;
     }
 
     // 403 for a route that only this app's own pages may drive.
