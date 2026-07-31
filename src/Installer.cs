@@ -66,9 +66,9 @@ namespace NowPlaying {
     }
 
     /// <summary>
-    /// Offers to install on the very first run. Returns true if the caller
-    /// should stop - the installed copy has been launched and this one is done.
-    /// Must run before the port is bound, or the new copy cannot take it.
+    /// Offers to install on the very first run. Always returns false - this
+    /// process carries on running whatever the answer - but the return value is
+    /// kept so the caller can stop if that ever changes.
     /// </summary>
     public static bool MaybeOffer() {
       try {
@@ -92,16 +92,20 @@ namespace NowPlaying {
         string destExe = DoInstall(target, desktop, startMenu, autostart);
         if (destExe == null) return false;       // already in the chosen place
 
+        // Deliberately does NOT launch the copy and exit. "Write an executable
+        // somewhere else, run it, and terminate yourself" is the dropper
+        // sequence every heuristic engine is trained on, and an unsigned binary
+        // doing it on first run is a large part of why this app gets flagged.
+        // Carrying on in this process reaches the same place: the copy is what
+        // the shortcuts and the startup entry point at, so from the next launch
+        // onward the installed one is the one that runs.
         MessageBox.Show(
           "Installed to:\r\n" + target + "\r\n\r\n"
-          + "It will start up now from there. You can delete the copy you "
-          + "downloaded - everything it needs is in the one file.",
+          + "This window's copy keeps running for now. From next time - the "
+          + "shortcut, or signing in to Windows - it starts from its new home, "
+          + "and you can delete the file you downloaded.",
           "Now Playing Overlay", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(destExe) {
-          UseShellExecute = true, WorkingDirectory = target
-        });
-        return true;
+        return false;
       } catch (Exception ex) {
         AppLog.Write("install offer failed (continuing where we are): " + ex.Message);
         MessageBox.Show(

@@ -497,10 +497,9 @@ namespace NowPlaying {
       _relaunchArgs = keepArgs.ToArray();
       if (_relaunchCount > 0) AppLog.Write("this is relaunch #" + _relaunchCount + " after a crash");
 
-      // Offer to install on the very first run, before the port is bound: the
-      // copy this hands over to has to be able to take that port. Skipped
-      // entirely for a relaunch after a crash - the question has been answered
-      // once already, and a crash loop must not turn into a dialog loop.
+      // Offer to install on the very first run, before the port is bound.
+      // Skipped for a relaunch after a crash - the question has been answered
+      // once already, and a crash loop must not become a dialog loop.
       if (_relaunchCount == 0 && Installer.MaybeOffer()) return 0;
 
       // A crashed instance's socket is not always released the instant the
