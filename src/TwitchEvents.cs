@@ -124,6 +124,214 @@ namespace NowPlaying {
     // Sharing them beats a second, subtly different copy.
     internal static string FindConfigPath() { return FindConfig(); }
 
+    // ------------------------------------------------------------ setup wizard
+    // The /setup page drives everything here. The goal is that a person who has
+    // never seen a terminal gets from a fresh download to working alerts by
+    // filling in three fields and clicking one Twitch consent screen: the app
+    // itself runs the OAuth authorization-code flow against its own local port,
+    // so no CLI, no token generator sites, and nothing pasted by hand.
+
+    // Where to create the config when none exists yet: beside the exe, which is
+    // the layout a downloaded release has. FindConfig() walking upward still
+    // honours a repo-root file when developing.
+    static string ConfigPathOrDefault() {
+      string p = FindConfig();
+      if (p != null) return p;
+      try {
+        return Path.Combine(
+          Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
+          "twitch-config.json");
+      } catch { return "twitch-config.json"; }
+    }
+
+    // True after the OAuth flow succeeds while the Twitch side was already
+    // running with older credentials - threads mid-flight hold the old token,
+    // and a clean restart is simpler and better tested than hot-swapping it.
+    static volatile bool _needsRestart;
+
+    internal static string RedirectUri(int port) {
+      return "http://localhost:" + port + "/oauth/callback";
+    }
+
+    internal static string SetupStateJson(int port) {
+      var sb = new StringBuilder();
+      sb.Append('{');
+      sb.Append("\"configured\":").Append(Configured ? "true" : "false").Append(',');
+      sb.Append("\"status\":").Append(Q(_status)).Append(',');
+      sb.Append("\"detail\":").Append(Q(_detail)).Append(',');
+      sb.Append("\"channel\":").Append(Q(_channel)).Append(',');
+      sb.Append("\"clientId\":").Append(Q(_clientId)).Append(',');
+      sb.Append("\"hasSecret\":").Append(_clientSecret.Length > 0 ? "true" : "false").Append(',');
+      sb.Append("\"hasToken\":").Append(_token.Length > 0 ? "true" : "false").Append(',');
+      sb.Append("\"hasRefresh\":").Append(_refreshToken.Length > 0 ? "true" : "false").Append(',');
+      sb.Append("\"needsRestart\":").Append(_needsRestart ? "true" : "false").Append(',');
+      sb.Append("\"redirectUri\":").Append(Q(RedirectUri(port))).Append(',');
+      sb.Append("\"configPath\":").Append(Q(FindConfigPath() ?? ""));
+      sb.Append('}');
+      return sb.ToString();
+    }
+
+    // Writes the identity half of the config (channel + app credentials). The
+    // token half arrives later through the OAuth callback. Values are merged
+    // into whatever file exists so a hand-maintained config keeps its comments
+    // and its chat-bot half untouched.
+    internal static bool SetupSave(string channel, string clientId, string clientSecret, out string error) {
+      error = "";
+      channel = (channel ?? "").Trim().TrimStart('#');
+      clientId = (clientId ?? "").Trim();
+      clientSecret = (clientSecret ?? "").Trim();
+      if (channel.Length == 0) { error = "channel name is required"; return false; }
+      if (clientId.Length == 0) { error = "Client ID is required"; return false; }
+      try {
+        string p = ConfigPathOrDefault();
+        Dictionary<string, object> cfg = null;
+        if (File.Exists(p)) {
+          try { cfg = ReadConfig(p); } catch { cfg = null; }
+          if (cfg == null) { error = "the existing twitch-config.json could not be read - fix or delete it first"; return false; }
+        } else {
+          cfg = new Dictionary<string, object>();
+          cfg["followerGoal"] = 0;
+          cfg["subGoal"] = 0;
+        }
+        cfg["channel"] = channel;
+        cfg["clientId"] = clientId;
+        if (clientSecret.Length > 0) cfg["clientSecret"] = clientSecret;
+        File.WriteAllText(p, WriteConfig(cfg));
+        _configPath = p;
+        LoadConfig();               // pick the new identity up immediately
+        AppLog.Write("setup: saved channel/client for \"" + channel + "\"");
+        return true;
+      } catch (Exception ex) {
+        error = "could not write twitch-config.json: " + ex.Message;
+        return false;
+      }
+    }
+
+    // One-shot nonce tying the callback to a start we actually issued.
+    static string _oauthState = "";
+
+    internal static string OAuthStartUrl(int port) {
+      _oauthState = Guid.NewGuid().ToString("N");
+      return "https://id.twitch.tv/oauth2/authorize"
+        + "?response_type=code"
+        + "&client_id=" + Uri.EscapeDataString(_clientId)
+        + "&redirect_uri=" + Uri.EscapeDataString(RedirectUri(port))
+        + "&scope=" + Uri.EscapeDataString("moderator:read:followers channel:read:subscriptions")
+        + "&state=" + _oauthState;
+    }
+
+    internal static bool OAuthReady { get { return _clientId.Length > 0 && _clientSecret.Length > 0; } }
+
+    // Exchanges the authorization code for a token pair, learns which account
+    // authorized (so a blank channel can be filled in from it), persists both,
+    // and either starts the feed (first-time setup) or asks for a restart.
+    internal static bool OAuthComplete(int port, string code, string state, out string error) {
+      error = "";
+      if (state != _oauthState || _oauthState.Length == 0) {
+        error = "this authorization did not come from this app's setup page (state mismatch) - start again from Setup";
+        return false;
+      }
+      _oauthState = "";
+      if (!OAuthReady) { error = "Client ID and Secret must be saved before connecting"; return false; }
+      try {
+        string body = "grant_type=authorization_code"
+          + "&code=" + Uri.EscapeDataString(code ?? "")
+          + "&client_id=" + Uri.EscapeDataString(_clientId)
+          + "&client_secret=" + Uri.EscapeDataString(_clientSecret)
+          + "&redirect_uri=" + Uri.EscapeDataString(RedirectUri(port));
+        var req = (HttpWebRequest)WebRequest.Create("https://id.twitch.tv/oauth2/token");
+        req.Method = "POST";
+        req.Timeout = 15000;
+        req.ContentType = "application/x-www-form-urlencoded";
+        req.UserAgent = "NowPlayingOverlay";
+        var bytes = Encoding.UTF8.GetBytes(body);
+        req.ContentLength = bytes.Length;
+        using (var rs = req.GetRequestStream()) rs.Write(bytes, 0, bytes.Length);
+        string resp;
+        using (var wr = (HttpWebResponse)req.GetResponse())
+        using (var sr = new StreamReader(wr.GetResponseStream(), Encoding.UTF8))
+          resp = sr.ReadToEnd();
+
+        var root = _ser.DeserializeObject(resp);
+        string access = SNav(root, "access_token");
+        string refresh = SNav(root, "refresh_token");
+        if (access.Length == 0) { error = "Twitch's reply carried no token"; return false; }
+
+        // Which account said yes. Fills a blank channel, and catches the
+        // classic mistake of authorizing as the wrong account.
+        string login = "";
+        try {
+          var vreq = (HttpWebRequest)WebRequest.Create("https://id.twitch.tv/oauth2/validate");
+          vreq.Timeout = 10000;
+          vreq.Headers["Authorization"] = "OAuth " + access;
+          vreq.UserAgent = "NowPlayingOverlay";
+          using (var vr = (HttpWebResponse)vreq.GetResponse())
+          using (var sr = new StreamReader(vr.GetResponseStream(), Encoding.UTF8))
+            login = SNav(_ser.DeserializeObject(sr.ReadToEnd()), "login");
+        } catch { }
+
+        string p = ConfigPathOrDefault();
+        Dictionary<string, object> cfg = File.Exists(p) ? ReadConfig(p) : new Dictionary<string, object>();
+        if (cfg == null) cfg = new Dictionary<string, object>();
+        cfg["apiToken"] = access;
+        cfg["refreshToken"] = refresh;
+        if (SNav2(cfg, "channel").Length == 0 && login.Length > 0) cfg["channel"] = login;
+        File.WriteAllText(p, WriteConfig(cfg));
+        _configPath = p;
+
+        bool wasRunning = _status != "off";
+        LoadConfig();
+        AppLog.Write("setup: OAuth connected as \"" + (login.Length > 0 ? login : "(unknown)")
+                   + "\", channel \"" + _channel + "\"");
+        if (wasRunning) {
+          // Threads already hold the old credentials; a restart is the clean
+          // way to apply the new ones everywhere at once.
+          _needsRestart = true;
+        } else {
+          Start();
+        }
+        return true;
+      } catch (WebException we) {
+        string detail = "";
+        try {
+          var r = we.Response as HttpWebResponse;
+          if (r != null) using (var sr = new StreamReader(r.GetResponseStream())) detail = sr.ReadToEnd();
+        } catch { }
+        // The error body here is Twitch's own ("invalid client", "invalid
+        // grant") and carries no secrets - it is safe and useful to show.
+        error = "Twitch refused the exchange: " + we.Message + (detail.Length > 0 ? " - " + detail : "");
+        AppLog.Write("setup: OAuth exchange failed: " + error);
+        return false;
+      } catch (Exception ex) {
+        error = "unexpected failure: " + ex.Message;
+        AppLog.Write("setup: OAuth exchange exception: " + ex);
+        return false;
+      }
+    }
+
+    // "I don't use Twitch": write a minimal config so the file exists and the
+    // first-run wizard stops opening, while everything Twitch stays cleanly
+    // off. Never touches an existing file.
+    internal static void SetupSkip() {
+      try {
+        if (FindConfig() != null) return;
+        var cfg = new Dictionary<string, object>();
+        cfg["channel"] = "";
+        cfg["followerGoal"] = 0;
+        cfg["subGoal"] = 0;
+        File.WriteAllText(ConfigPathOrDefault(), WriteConfig(cfg));
+        AppLog.Write("setup: skipped - minimal config written");
+      } catch (Exception ex) {
+        AppLog.Write("setup: skip failed: " + ex.Message);
+      }
+    }
+
+    static string SNav2(Dictionary<string, object> d, string key) {
+      object v;
+      if (d != null && d.TryGetValue(key, out v) && v != null) return Convert.ToString(v).Trim();
+      return "";
+    }
+
     internal static Dictionary<string, object> ReadConfig(string path) {
       return new JavaScriptSerializer().DeserializeObject(File.ReadAllText(path))
              as Dictionary<string, object>;

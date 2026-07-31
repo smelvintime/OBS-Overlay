@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Set up Twitch</title>
+<style>
+  /* Same blue-tinted dark palette as the dashboard, so this reads as one app. */
+  :root{
+    --bg:#080B14; --panel:#10141F; --line:#1E2740; --hair:#171F31;
+    --fg:#EAF2FF; --dim:#8A9BC0; --accent:#9BD4F5; --on-accent:#04121F;
+    --ok:#39d98a; --bad:#ff7a7a; --input:#0A0F1A;
+  }
+  :root[data-theme="shadow"]{ --accent:#e5383b; --on-accent:#1a0507 }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.55}
+  .w{max-width:760px;margin:0 auto;padding:30px 22px 80px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--dim);margin:0 0 26px}
+  a{color:var(--accent)}
+
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;margin-bottom:16px}
+  .step h2{display:flex;align-items:center;gap:11px;margin:0 0 6px;font-size:16px}
+  .n{flex:0 0 auto;width:26px;height:26px;border-radius:50%;background:var(--input);
+    border:1px solid var(--line);color:var(--dim);display:inline-flex;align-items:center;
+    justify-content:center;font-size:13px;font-weight:700}
+  .step.done .n{background:var(--ok);border-color:var(--ok);color:#04140b}
+  .step.done h2 .t{color:var(--dim)}
+  .hint{color:var(--dim);font-size:13px;margin:0 0 12px}
+
+  label{display:block;font-size:12.5px;font-weight:600;color:var(--dim);margin:12px 0 4px}
+  input[type=text],input[type=password]{width:100%;background:var(--input);
+    border:1px solid var(--line);border-radius:9px;color:var(--fg);
+    padding:9px 12px;font:inherit;font-size:14px}
+  input:focus{outline:none;border-color:var(--accent)}
+
+  button,.btn{background:var(--accent);border:0;color:var(--on-accent);border-radius:9px;
+    padding:9px 18px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none;
+    display:inline-block}
+  button.ghost,.btn.ghost{background:var(--input);color:var(--fg);border:1px solid var(--line)}
+  button:disabled{opacity:.45;cursor:default}
+  .rowbtns{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center}
+
+  .msg{border-radius:9px;padding:10px 13px;font-size:13.5px;margin:12px 0 0;
+    border:1px solid;display:none}
+  .msg.on{display:block}
+  .msg.ok{background:#0d1f16;border-color:#1f4a33;color:#a9e6c4}
+  .msg.bad{background:#2a1414;border-color:#5c2626;color:#f3bcbc}
+
+  details{margin:10px 0 0;border:1px solid var(--hair);border-radius:9px;padding:10px 14px}
+  summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px}
+  details ol{margin:10px 0 4px;padding-left:22px;color:var(--fg)}
+  details li{margin-bottom:8px}
+  .chip{display:inline-flex;align-items:center;gap:8px;background:var(--input);
+    border:1px solid var(--line);border-radius:8px;padding:5px 10px;
+    font-family:Consolas,monospace;font-size:12.5px;color:#BFE6FA}
+  .chip button{padding:3px 10px;font-size:12px}
+
+  .urls{display:flex;flex-direction:column;gap:9px;margin-top:8px}
+  .urlrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .urlrow .what{flex:0 0 190px;color:var(--dim);font-size:13px}
+  .live{border:1px solid var(--hair);border-radius:10px;overflow:hidden;margin-top:12px;
+    background:#000;display:none}
+  .live.on{display:block}
+  .live iframe{width:100%;height:190px;border:0;display:block}
+  .foot{color:var(--dim);font-size:12.5px;margin-top:26px}
+</style>
+</head>
+<body>
+<div class="w">
+  <h1>Set up Twitch</h1>
+  <p class="sub">Follower and subscriber alerts, live goal boxes and the chat bot all need
+    permission to read your channel. This page gets that permission once &mdash; after it,
+    everything renews itself automatically. Nothing here ever leaves this computer.</p>
+
+  <!-- Step 1: identity -->
+  <div class="step" id="s1">
+    <h2><span class="n">1</span><span class="t">Your channel and your Twitch app</span></h2>
+    <p class="hint">The overlay talks to Twitch as an "application" that you own. Creating
+      one is free, takes about two minutes, and is the only part that happens outside
+      this page.</p>
+
+    <details id="howto">
+      <summary>How to create the Twitch app (step by step)</summary>
+      <ol>
+        <li>Open <a href="https://dev.twitch.tv/console/apps/create" target="_blank" rel="noopener">dev.twitch.tv/console/apps/create</a>
+          and log in with your normal Twitch account. If it asks you to enable two-factor
+          authentication first, do that in your Twitch security settings and come back.</li>
+        <li><b>Name</b>: anything you like, e.g. <i>My Stream Overlay</i>.</li>
+        <li><b>OAuth Redirect URLs</b>: paste exactly this &mdash; it must match to the letter,
+          including <i>http</i> (not https) and no slash at the end:<br>
+          <span class="chip"><span id="redirect">http://localhost:8787/oauth/callback</span>
+            <button type="button" id="copyRedirect">Copy</button></span></li>
+        <li><b>Category</b>: Application Integration. Then click <b>Create</b>.</li>
+        <li>On the app's page, copy the <b>Client ID</b> into the field below.</li>
+        <li>Click <b>New Secret</b>, confirm, and copy the secret it shows into the field
+          below. Twitch only shows a secret once &mdash; if you lose it, just make a new one.</li>
+      </ol>
+    </details>
+
+    <label for="channel">Your channel name</label>
+    <input type="text" id="channel" autocomplete="off" spellcheck="false"
+           placeholder="the name after twitch.tv/ in your channel's address" />
+    <label for="clientId">Client ID</label>
+    <input type="text" id="clientId" autocomplete="off" spellcheck="false" />
+    <label for="clientSecret">Client Secret</label>
+    <input type="password" id="clientSecret" autocomplete="off"
+           placeholder="saved on this computer only, never shown again here" />
+    <div class="rowbtns">
+      <button type="button" id="save">Save</button>
+      <span class="hint" style="margin:0">Saved into <code>twitch-config.json</code> next to the app.</span>
+    </div>
+    <div class="msg" id="msg1"></div>
+  </div>
+
+  <!-- Step 2: authorize -->
+  <div class="step" id="s2">
+    <h2><span class="n">2</span><span class="t">Connect your Twitch account</span></h2>
+    <p class="hint">This opens Twitch's own consent page in this tab. You approve it there,
+      Twitch sends your browser straight back here, and the app stores the keys itself.
+      You never see or paste a token &mdash; and it renews itself from then on.</p>
+    <div class="rowbtns">
+      <a class="btn" id="connect" href="/oauth/start">Connect with Twitch</a>
+      <span id="connState" class="hint" style="margin:0"></span>
+    </div>
+    <div class="msg" id="msg2"></div>
+  </div>
+
+  <!-- Step 3: prove it works -->
+  <div class="step" id="s3">
+    <h2><span class="n">3</span><span class="t">See it work</span></h2>
+    <p class="hint">Fires a pretend follow through the exact pipeline a real one takes.
+      The strip below is the real alerts page.</p>
+    <div class="rowbtns">
+      <button type="button" class="ghost" id="testFollow">Test follow</button>
+      <button type="button" class="ghost" id="testSub">Test sub</button>
+    </div>
+    <div class="live" id="live"><iframe id="liveFrame" title="Live alerts preview"></iframe></div>
+    <div class="msg" id="msg3"></div>
+  </div>
+
+  <!-- Step 4: OBS -->
+  <div class="step" id="s4">
+    <h2><span class="n">4</span><span class="t">Add the overlays to OBS</span></h2>
+    <p class="hint">Each one is its own <b>Browser Source</b> in OBS (Sources &rarr; + &rarr; Browser).
+      Paste the URL, set the size, done. The <a href="/app#customize">customizer</a> can
+      restyle any of them later without touching OBS again.</p>
+    <div class="urls">
+      <div class="urlrow"><span class="what">Now playing (music)</span>
+        <span class="chip"><span class="u">http://127.0.0.1:8787/</span> <button type="button">Copy</button></span>
+        <span class="hint" style="margin:0">600 &times; 200</span></div>
+      <div class="urlrow"><span class="what">Follow / sub alerts</span>
+        <span class="chip"><span class="u">http://127.0.0.1:8787/alerts</span> <button type="button">Copy</button></span>
+        <span class="hint" style="margin:0">1920 &times; 1080, over everything</span></div>
+      <div class="urlrow"><span class="what">Goal boxes</span>
+        <span class="chip"><span class="u">http://127.0.0.1:8787/stats</span> <button type="button">Copy</button></span>
+        <span class="hint" style="margin:0">the customizer shows the exact size</span></div>
+    </div>
+  </div>
+
+  <p class="foot">Not using Twitch? <a href="#" id="skip">Skip this</a> &mdash; the music overlay
+    works without it, and this page stays available in the tray menu if you change your mind.</p>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  function $(id){ return document.getElementById(id); }
+  function show(el, kind, text){ el.className = 'msg on ' + kind; el.textContent = text; }
+  function hide(el){ el.className = 'msg'; }
+
+  // Theme follows the app-wide preference like every other page.
+  fetch('/prefs',{cache:'no-store'}).then(function(r){return r.json();}).then(function(p){
+    if(p && p.theme && p.theme !== 'shockblade')
+      document.documentElement.setAttribute('data-theme', p.theme);
+  }).catch(function(){});
+
+  function copyBtn(btn, text){
+    btn.addEventListener('click', function(){
+      var done = function(){ btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1400); };
+      if(navigator.clipboard && navigator.clipboard.writeText)
+        navigator.clipboard.writeText(text).then(done, function(){});
+      else { // http:// origin: clipboard API may be absent; fall back
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch(e){}
+        document.body.removeChild(ta);
+      }
+    });
+  }
+  [].forEach.call(document.querySelectorAll('.urlrow .chip'), function(chip){
+    var txt = chip.querySelector('.u').textContent.replace('8787', String(location.port || 8787));
+    chip.querySelector('.u').textContent = txt;
+    copyBtn(chip.querySelector('button'), txt);
+  });
+
+  // ---- state ------------------------------------------------------------
+  var st = null;
+  function applyState(s){
+    st = s;
+    $('redirect').textContent = s.redirectUri;
+    copyBtn($('copyRedirect'), s.redirectUri);   // re-bind is harmless; latest wins visually
+    if(s.channel && !$('channel').value) $('channel').value = s.channel;
+    if(s.clientId && !$('clientId').value) $('clientId').value = s.clientId;
+    if(s.hasSecret) $('clientSecret').placeholder = 'saved - paste a new one only to replace it';
+
+    var idDone = s.channel && s.clientId && s.hasSecret;
+    $('s1').className = 'step' + (idDone ? ' done' : '');
+    $('s2').className = 'step' + (s.hasToken ? ' done' : '');
+    $('connect').style.display = idDone ? '' : 'none';
+    $('connState').textContent =
+        !idDone            ? 'Finish step 1 first.'
+      : s.needsRestart     ? ''
+      : s.hasToken && s.status === 'live' ? 'Connected and live.'
+      : s.hasToken         ? 'Connected. Status: ' + s.status + (s.detail ? ' - ' + s.detail : '')
+                           : '';
+    if(s.needsRestart){
+      show($('msg2'), 'ok', 'Connected! One restart applies it everywhere.');
+      if(!$('restartBtn')){
+        var b = document.createElement('button');
+        b.id = 'restartBtn'; b.textContent = 'Restart the app now';
+        b.addEventListener('click', doRestart);
+        $('msg2').appendChild(document.createTextNode(' '));
+        $('msg2').appendChild(b);
+      }
+    }
+    var canTest = s.hasToken || s.status === 'live';
+    $('testFollow').disabled = !canTest;
+    $('testSub').disabled = !canTest;
+    $('s3').className = 'step';
+  }
+
+  function poll(){
+    fetch('/setup/state',{cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(applyState)
+      .catch(function(){})
+      .finally(function(){ setTimeout(poll, 2500); });
+  }
+  poll();
+
+  // Outcome banners from the OAuth bounce.
+  var q = new URLSearchParams(location.search);
+  if(q.get('oauth') === 'ok') show($('msg2'), 'ok', 'Twitch accepted the connection.');
+  if(q.get('oautherr')) show($('msg2'), 'bad', q.get('oautherr'));
+
+  // ---- actions ----------------------------------------------------------
+  $('save').addEventListener('click', function(){
+    hide($('msg1'));
+    var p = '/setup/save?channel=' + encodeURIComponent($('channel').value)
+          + '&clientId=' + encodeURIComponent($('clientId').value)
+          + '&clientSecret=' + encodeURIComponent($('clientSecret').value);
+    fetch(p, {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(j.ok){ show($('msg1'), 'ok', 'Saved.'); $('clientSecret').value = ''; }
+        else show($('msg1'), 'bad', j.error || 'could not save');
+      })
+      .catch(function(){ show($('msg1'), 'bad', 'The app did not answer - is it still running?'); });
+  });
+
+  function doRestart(){
+    show($('msg2'), 'ok', 'Restarting... this page will reconnect by itself.');
+    fetch('/setup/restart', {cache:'no-store'}).catch(function(){});
+    var tries = 0;
+    (function again(){
+      setTimeout(function(){
+        fetch('/setup/state',{cache:'no-store'})
+          .then(function(r){ return r.json(); })
+          .then(function(s){ location.href = '/setup'; })
+          .catch(function(){ if(++tries < 40) again(); });
+      }, 1500);
+    })();
+  }
+
+  function fire(kind){
+    $('live').className = 'live on';
+    if(!$('liveFrame').src) $('liveFrame').src = '/alerts';
+    // Give a fresh iframe a moment to connect before the event flies.
+    setTimeout(function(){
+      fetch('/twitch/test?type=' + kind + '&user=SetupTest', {cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){ show($('msg3'), 'ok', 'Sent - watch the strip above. Real ones behave exactly like this.'); })
+        .catch(function(){ show($('msg3'), 'bad', 'could not reach the app'); });
+    }, $('liveFrame').src ? 700 : 0);
+  }
+  $('testFollow').addEventListener('click', function(){ fire('follow'); });
+  $('testSub').addEventListener('click', function(){ fire('sub'); });
+
+  $('skip').addEventListener('click', function(ev){
+    ev.preventDefault();
+    fetch('/setup/skip', {cache:'no-store'}).then(function(){
+      show($('msg1'), 'ok', 'Skipped. The music overlay works as-is; come back any time from the tray menu.');
+    });
+  });
+})();
+</script>
+</body>
+</html>

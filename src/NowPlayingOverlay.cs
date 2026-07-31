@@ -290,6 +290,8 @@ namespace NowPlaying {
       menu.Items.Add(new ToolStripSeparator());
 
       var twitch = new ToolStripMenuItem("Twitch alerts and stats");
+      twitch.DropDownItems.Add("Set up Twitch...", null, (s, e) => OpenUrl("/setup"));
+      twitch.DropDownItems.Add(new ToolStripSeparator());
       twitch.DropDownItems.Add("Preview alerts...", null, (s, e) => OpenUrl("/alerts"));
       twitch.DropDownItems.Add("Preview follower/sub boxes...", null, (s, e) => OpenUrl("/stats"));
       twitch.DropDownItems.Add(new ToolStripSeparator());
@@ -589,6 +591,17 @@ namespace NowPlaying {
 
       Banner();
       BuildTray();
+
+      // First run: no config file anywhere means this machine has never been
+      // set up, so open the wizard rather than sitting silently in the tray
+      // looking broken. Only on a completely absent file - a config that
+      // exists but has problems surfaces through the tray status instead,
+      // because popping a browser at every launch would punish the configured.
+      if (TwitchEvents.FindConfigPath() == null) {
+        AppLog.Write("first run: no twitch-config.json anywhere - opening /setup");
+        OpenUrl("/setup");
+      }
+
       Application.Run();       // tray message loop; Exit comes from the menu
       return 0;
     }
@@ -1179,6 +1192,53 @@ namespace NowPlaying {
             SaveSettings();
             var body = "{\"mode\":" + Q(_mode) + ",\"app\":" + Q(_pinApp) + "}";
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(body));
+          } else if (route == "/setup" || route == "/setup/") {
+            SendResource(ns, "setup.html");
+          } else if (route == "/setup/state") {
+            Send(ns, 200, "application/json; charset=utf-8",
+                 Encoding.UTF8.GetBytes(TwitchEvents.SetupStateJson(_port)));
+          } else if (route == "/setup/save") {
+            string err;
+            TwitchEvents.SetupSave(QueryParam(path, "channel"), QueryParam(path, "clientId"),
+                                   QueryParam(path, "clientSecret"), out err);
+            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
+              "{\"ok\":" + (err.Length == 0 ? "true" : "false") + ",\"error\":" + Q(err) + "}"));
+          } else if (route == "/oauth/start") {
+            if (!TwitchEvents.OAuthReady)
+              SendRedirect(ns, "/setup?oautherr=" + Uri.EscapeDataString(
+                "save the Client ID and Secret first"));
+            else
+              SendRedirect(ns, TwitchEvents.OAuthStartUrl(_port));
+          } else if (route == "/oauth/callback") {
+            // Twitch lands the user's browser here after the consent screen.
+            string denied = QueryParam(path, "error");
+            if (denied != null && denied.Length > 0) {
+              SendRedirect(ns, "/setup?oautherr=" + Uri.EscapeDataString(
+                "you declined the authorization (" + denied + ")"));
+            } else {
+              string oerr;
+              bool ok = TwitchEvents.OAuthComplete(_port, QueryParam(path, "code") ?? "",
+                                                   QueryParam(path, "state") ?? "", out oerr);
+              SendRedirect(ns, ok ? "/setup?oauth=ok"
+                                  : "/setup?oautherr=" + Uri.EscapeDataString(oerr));
+            }
+          } else if (route == "/setup/skip") {
+            TwitchEvents.SetupSkip();
+            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
+          } else if (route == "/setup/restart") {
+            Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
+            // Reply first, then hand over: the fresh copy binds the port as
+            // soon as this one lets it go, and every page already retries.
+            var t = new Thread(() => {
+              Thread.Sleep(600);
+              try {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                  ExePath(), string.Join(" ", _relaunchArgs)) { UseShellExecute = true });
+              } catch (Exception ex) { AppLog.Write("setup: restart spawn failed: " + ex.Message); }
+              Environment.Exit(0);
+            });
+            t.IsBackground = true;
+            t.Start();
           } else if (route == "/app" || route == "/app/") {
             SendResource(ns, "app.html");
           } else if (route == "/bot-page" || route == "/bot-page/") {
@@ -1467,6 +1527,17 @@ namespace NowPlaying {
     // in - a stale page or a stale /np is a bug that looks like a hardware fault.
     static void Send(NetworkStream ns, int code, string contentType, byte[] body) {
       Send(ns, code, contentType, body, null);
+    }
+
+    // Plain 302. The OAuth flow needs to bounce the user's browser out to
+    // Twitch and back, and the callback bounces on to /setup so the wizard is
+    // the single place that renders outcomes.
+    static void SendRedirect(NetworkStream ns, string url) {
+      var head = Encoding.ASCII.GetBytes(
+        "HTTP/1.1 302 Found\r\nLocation: " + url + "\r\n"
+        + "Content-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+      ns.Write(head, 0, head.Length);
+      ns.Flush();
     }
 
     static void Send(NetworkStream ns, int code, string contentType, byte[] body, string cacheControl) {
