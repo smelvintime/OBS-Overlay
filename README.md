@@ -38,11 +38,47 @@ It's a single ~390 KB file. Nothing to install, no PowerShell, no runtime downlo
 uses the .NET Framework already present on every Windows 10/11 machine, and the overlay
 pages are embedded inside the executable.
 
-> **First run:** Windows SmartScreen will likely say *"Windows protected your PC"*,
-> because the file isn't code-signed (a certificate costs a few hundred dollars a year).
-> Click **More info → Run anyway**. Some antivirus tools are also suspicious of small
-> unsigned executables. If you'd rather not deal with that, use the PowerShell scripts
-> below instead — they do exactly the same thing.
+## Antivirus and SmartScreen warnings
+
+Expect one, and here is the honest reason why.
+
+The download is **not code-signed** — a certificate costs a few hundred dollars a
+year — so Windows has no publisher to show you and falls back on reputation. A brand
+new file that almost nobody has downloaded scores badly on that alone, which is what
+produces *"Windows protected your PC"* (**More info → Run anyway**) and browser
+warnings that a file "isn't commonly downloaded".
+
+Some scanners go further and flag it outright. That is a **false positive**, but it
+is not a stupid one, because this app genuinely does several things that malware also
+does:
+
+| What it does | Why it looks bad | Why it's here |
+|---|---|---|
+| Copies itself to a folder you choose and runs the copy | droppers install themselves this way | the first-run "where should this live?" step |
+| Writes to the `Run` registry key | that is how malware persists across reboots | the **Start with Windows** option, which you tick yourself |
+| Captures system audio | eavesdropping | the live equalizer follows real audio |
+| Opens a listening socket | backdoors listen for connections | it *is* a web server — that is how OBS reads the overlay |
+| Reads the list of running processes | malware hunts for what to attack or avoid | to find your music player |
+
+Every one of those is visible in the source in this repository, and the server binds
+to `127.0.0.1` only, so nothing it serves is reachable from outside your machine.
+
+**Verifying you got the real file.** Each release lists the SHA-256 of its
+executable. On the downloaded file:
+
+```
+certutil -hashfile NowPlayingOverlay.exe SHA256
+```
+
+If it matches the release, the file is exactly what was published here.
+For `v0.9.0`: `F112D78F3079CB7CF34082D0596C8CF07A7B69F683591EF5C109157E534805BB`
+
+If your scanner quarantines it and you want it back, the fix is to report the false
+positive to your antivirus vendor (Microsoft's form is at
+<https://www.microsoft.com/en-us/wdsi/filesubmission>) rather than to disable your
+antivirus. If you would rather not run an unsigned executable at all, that is a
+completely reasonable call — you can build it yourself from source with `build.ps1`
+and get a binary that never touched the internet.
 
 Use a different port with `NowPlayingOverlay.exe -port 8788`.
 
