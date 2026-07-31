@@ -53,6 +53,14 @@ namespace NowPlaying {
     static volatile bool _enabled;
     static Thread _thread;
     static volatile bool _stopFlag;
+    // The live socket, so a stop can close it out from under the blocking
+    // read. Without that, a disabled bot would sit in ReadLine and keep
+    // answering commands until the next line of chat happened to arrive.
+    static volatile TcpClient _tcp;
+
+    static void CloseSocket() {
+      try { var t = _tcp; if (t != null) t.Close(); } catch { }
+    }
 
     // ------------------------------------------------------------- recent log
     // What it actually said, so the dashboard can show that it is working
@@ -144,6 +152,7 @@ namespace NowPlaying {
       var old = _thread;
       if (old != null && old.IsAlive) {
         _stopFlag = true;
+        CloseSocket();
         var t = new Thread(() => {
           try { old.Join(15000); } catch { }
           LoadConfig();
@@ -196,6 +205,7 @@ namespace NowPlaying {
 
     static void StopThread() {
       _stopFlag = true;
+      CloseSocket();      // wake the blocking read so the stop takes effect now
       _status = "disabled";
       _detail = "";
       _connectedAt = "";
@@ -236,6 +246,7 @@ namespace NowPlaying {
         try {
           tcp = new TcpClient();
           tcp.Connect("irc.chat.twitch.tv", 6697);
+          _tcp = tcp;
           ssl = new SslStream(tcp.GetStream(), false);
           // TLS 1.2 named explicitly. The parameterless overload negotiates
           // with SslStream's legacy defaults (TLS 1.0) on machines that lack
@@ -245,7 +256,17 @@ namespace NowPlaying {
           // failure, on some PCs while others connect fine.
           ssl.AuthenticateAsClient("irc.chat.twitch.tv", null,
             System.Security.Authentication.SslProtocols.Tls12, false);
-          ssl.ReadTimeout = 6000;
+          // A read timeout on SslStream is FATAL: .NET documents that a
+          // timed-out SslStream is out of sync and reading on returns
+          // garbage. This loop once used a 6-second timeout as a stop-flag
+          // poll and kept reading - so in a QUIET channel the stream was
+          // dead six seconds after login: the bot stayed "logged in", heard
+          // no one, answered no PING, and Twitch cut it ~10 minutes later.
+          // Busy channels never showed it, because chat arrived before the
+          // first timeout ever fired. Reads now block; six minutes of total
+          // silence (Twitch pings every ~5) means the connection is gone,
+          // and that timeout abandons the stream like the docs demand.
+          ssl.ReadTimeout = 360000;
 
           var enc = new UTF8Encoding(false);
           rd = new StreamReader(ssl, enc);
@@ -264,7 +285,13 @@ namespace NowPlaying {
           while (!_stopFlag && tcp.Connected) {
             string line;
             try { line = rd.ReadLine(); }
-            catch (IOException) { continue; }        // read timeout, keep waiting
+            catch (IOException) {
+              // Six minutes of dead air, or the transport failed under us.
+              // Either way this stream must not be read again - reconnect.
+              if (!_stopFlag) AppLog.Write("chat: connection went quiet or broke - reconnecting");
+              break;
+            }
+            catch (ObjectDisposedException) { break; }  // stop closed the socket
             if (line == null) break;                 // server closed the socket
 
             var ev = Parse(line);
