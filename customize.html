@@ -323,7 +323,7 @@
       defaults:{
         style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
-        radius:16, opacity:100, hold:6
+        radius:16, opacity:100, hold:6, spins:1.5
       },
       size:function(){ return {w:1920, h:1080}; },
       actions:[
@@ -339,6 +339,9 @@
             note:'Slash is a long slow cut across the canvas with the shuriken spinning '
                + 'to a stop, and the whole thing reversed on the way back out. '
                + 'Use the test buttons above to watch it arrive.' },
+          { key:'spins', label:'Spin', type:'range', min:0.5, max:6, step:0.5, unit:' turns',
+            note:'How many times the shuriken whips round while a slash arrival lands. '
+               + 'Slash only - the other arrivals don’t turn the mark.' },
           { key:'frame', label:'Frame', type:'seg',
             options:[['blade','Blade'],['twin','Twin blades'],['soft','Plain']],
             note:'Blade cuts two corners and brackets the accent. Twin blades drops the '

@@ -26,6 +26,8 @@
      ?radius=16                    corner radius px
      ?opacity=100                  alert opacity 10-100         (default 100)
      ?hold=6                       seconds on screen            (default 6)
+     ?spins=1.5                    how many turns the shuriken makes while a
+                                   slash arrival lands, 0.5-6   (default 1.5)
      ?demo=1                       cycle fake alerts, no server needed
      ?preview=1                    hold one sample alert on screen permanently;
                                    used by the customizer, never on stream
@@ -282,13 +284,17 @@
      the wrapper around it. They cannot share an element: transform is a single
      property, so whichever rule won would silently drop the other - either the
      mark stops spinning or it hangs at 45 degrees inside the plate.
-     540 degrees is one and a half turns, which lands the tri-blade on a
-     different point from the one it started on. A whole number of turns and the
-     same blade comes back to the top, which at speed reads as no spin at all. */
+     The default 540 degrees is one and a half turns, which lands the tri-blade
+     on a different point from the one it started on; half turns keep that
+     property, whole turns bring the same blade back to the top. ?spins=
+     overrides the turn count - see the script.
+     The angle is positive on purpose: unwinding from a positive angle to zero
+     rotates counter-clockwise, which is the way this tri-blade's edges curve.
+     Negative here spun it backwards. */
   .icon .shuriken{transition:transform .9s cubic-bezier(.16,.86,.28,1)}
-  body.style-slash .alert.pre .shuriken{transform:rotate(-540deg)}
+  body.style-slash .alert.pre .shuriken{transform:rotate(var(--spin,540deg))}
   body.style-slash .alert.in  .shuriken{transform:rotate(0deg)}
-  body.style-slash .alert.out .shuriken{transform:rotate(-540deg);
+  body.style-slash .alert.out .shuriken{transform:rotate(var(--spin,540deg));
     transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
 
   .alert.in{opacity:var(--overlay-opacity)}
@@ -384,6 +390,13 @@ if(window.NPO) NPO.themeBoot('source');
   var hold = parseFloat(qs.get('hold'));
   if(!isFinite(hold) || hold < 1 || hold > 30) hold = 6;
   var holdMs = hold * 1000;
+
+  // Slash spin, in turns. Converted to degrees here so the CSS deals in one
+  // number; kept positive so the spin stays counter-clockwise - the direction
+  // this tri-blade's edges curve.
+  var spins = parseFloat(qs.get('spins'));
+  if(isFinite(spins) && spins >= 0.5 && spins <= 6)
+    root.style.setProperty('--spin', (spins * 360) + 'deg');
 
   // ---- rendering --------------------------------------------------------
   function tierName(t){

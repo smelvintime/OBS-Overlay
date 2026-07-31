@@ -271,13 +271,14 @@
   body.tr-slash.from-right .face{transform:translateX(140px)}
   body.tr-slash.from-right .face.leaving{transform:translateX(140px)}
   /* Only the blade and twin frames draw a mark, so the plain frame simply has
-     nothing here to turn. */
+     nothing here to turn. Positive angle on purpose: unwinding to zero spins
+     counter-clockwise, the way the tri-blade's edges curve - matches alerts. */
   body.tr-slash .label::before{
-    transform:rotate(-540deg);
+    transform:rotate(540deg);
     transition:transform .9s cubic-bezier(.16,.86,.28,1)}
   body.tr-slash .face.on .label::before{transform:rotate(0deg)}
   body.tr-slash .face.leaving .label::before{
-    transform:rotate(-540deg);
+    transform:rotate(540deg);
     transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
 
   /* ---- takeover ------------------------------------------------------------
@@ -309,13 +310,14 @@
     transform:translateX(-140px);opacity:0;
     transition:transform .72s cubic-bezier(.5,0,.78,.6),opacity .5s ease .18s}
   /* The mark turns with it. Only the blade and twin frames draw one, so on the
-     plain frame this simply has nothing to act on. */
+     plain frame this simply has nothing to act on. Positive for the same
+     counter-clockwise reason as tr-slash above. */
   body.takeover .face[data-face="alert"] .label::before{
-    transform:rotate(-540deg);
+    transform:rotate(540deg);
     transition:transform .9s cubic-bezier(.16,.86,.28,1)}
   body.takeover .face[data-face="alert"].on .label::before{transform:rotate(0deg)}
   body.takeover .face[data-face="alert"].leaving .label::before{
-    transform:rotate(-540deg);
+    transform:rotate(540deg);
     transition-duration:.72s;transition-timing-function:cubic-bezier(.5,0,.78,.6)}
 
   /* Never wrap. At a narrow ?width= with a big ?mark= there genuinely isn't
