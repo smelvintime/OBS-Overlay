@@ -1176,8 +1176,11 @@ namespace NowPlaying {
                  Encoding.UTF8.GetBytes(TwitchChat.StatusJson()));
           } else if (route == "/bot/set") {
             // One endpoint for every switch on the page: the master toggle, a
-            // per-command toggle, an edit, an add, a delete. Keeps the browser
-            // side to a single fetch helper.
+            // per-command toggle, an edit, an add, a delete, a restore. Keeps
+            // the browser side to a single fetch helper. It rewrites the
+            // command list on disk, so the same cross-site rule as every other
+            // state-writing route: only our own pages get to call it.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             string what = QueryParam(path, "what") ?? "";
             string name = QueryParam(path, "name") ?? "";
             string val = QueryParam(path, "value") ?? "";
@@ -1197,6 +1200,8 @@ namespace NowPlaying {
               BotCommands.Add(name, QueryParam(path, "response") ?? "");
             } else if (what == "remove") {
               BotCommands.Remove(name);
+            } else if (what == "restore") {
+              BotCommands.RestoreMissingDefaults();
             }
             Send(ns, 200, "application/json; charset=utf-8",
                  Encoding.UTF8.GetBytes(TwitchChat.StatusJson()));

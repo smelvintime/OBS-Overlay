@@ -173,6 +173,7 @@
       <input type="text" id="newName" placeholder="new command name (without !)" spellcheck="false" />
       <input type="text" id="newText" placeholder="what it should say" spellcheck="false" />
       <button type="button" class="primary" id="addBtn">Add</button>
+      <button type="button" id="restoreBtn" title="Re-adds any deleted default command. Ones you kept or edited are left alone.">Restore default commands</button>
     </div>
   </div>
 
@@ -318,7 +319,8 @@
       var mod  = c.modOnly ? '<span class="tag mod">mods</span>' : '';
       var alias = c.aliases ? '<div style="color:var(--dim);font-size:11.5px;margin-top:2px">also '
                   + esc(c.aliases.split(',').map(function(a){ return '!' + a.trim(); }).join(' ')) + '</div>' : '';
-      out += '<tr class="' + (c.enabled ? '' : 'off') + '" data-n="' + esc(c.name) + '">'
+      out += '<tr class="' + (c.enabled ? '' : 'off') + '" data-n="' + esc(c.name) + '"'
+        + (c.builtin ? ' data-b="1"' : '') + '>'
         + '<td><label class="toggle"><input type="checkbox" class="en"' + (c.enabled ? ' checked' : '')
           + ' /><span class="track"></span></label></td>'
         + '<td><span class="cmd">!' + esc(c.name) + '</span>' + live + mod + alias + '</td>'
@@ -327,13 +329,13 @@
             : '<input type="text" class="resp" value="' + esc(c.response) + '" spellcheck="false" />')
           + '</td>'
         + '<td><input type="number" class="cd" min="0" max="600" value="' + c.cooldown + '" /></td>'
-        + '<td>' + (c.builtin ? '' : '<button type="button" class="danger del">Delete</button>') + '</td>'
+        + '<td><button type="button" class="danger del">Delete</button></td>'
         + '</tr>';
     });
     rowsEl.innerHTML = out;
 
     [].forEach.call(rowsEl.querySelectorAll('tr'), function(tr){
-      var name = tr.getAttribute('data-n');
+      var name = tr.getAttribute('data-n'), builtin = tr.getAttribute('data-b') === '1';
       tr.querySelector('.en').addEventListener('change', function(){
         set('what=command&name=' + encodeURIComponent(name) + '&value=' + (this.checked ? '1' : '0'));
       });
@@ -352,6 +354,11 @@
           + '&cooldown=' + encodeURIComponent(cd.value));
       }
       if(del) del.addEventListener('click', function(){
+        // Text commands can be retyped; a built-in's behaviour can't, so that
+        // one gets a second look before it goes.
+        if(builtin && !confirm('!' + name + ' answers with live data and can’t be '
+          + 'recreated by typing it back in. Delete it anyway?\n\n'
+          + '(Restore default commands brings it back.)')) return;
         set('what=remove&name=' + encodeURIComponent(name));
       });
     });
@@ -372,6 +379,10 @@
 
   masterEl.addEventListener('change', function(){
     set('what=bot&value=' + (this.checked ? '1' : '0'));
+  });
+
+  document.getElementById('restoreBtn').addEventListener('click', function(){
+    set('what=restore');
   });
 
   document.getElementById('addBtn').addEventListener('click', function(){

@@ -179,12 +179,25 @@ namespace NowPlaying {
     public static bool Remove(string name) {
       lock (_lock) {
         var c = Find(name);
-        // Built-ins can be switched off but not deleted: they carry behaviour
-        // that cannot be recreated by typing a name back in.
-        if (c == null || c.Builtin.Length > 0) return false;
+        if (c == null) return false;
         _cmds.Remove(c);
         SaveLocked();
         return true;
+      }
+    }
+
+    // Deleting a built-in is allowed, but its behaviour can't be recreated by
+    // typing the name back in - this is the way back. Re-adds any default
+    // (built-in or starter text command) whose name is gone, leaving everything
+    // the streamer kept or customised untouched.
+    public static int RestoreMissingDefaults() {
+      lock (_lock) {
+        int added = 0;
+        foreach (var d in Defaults()) {
+          if (Find(d.Name) == null) { _cmds.Add(d); added++; }
+        }
+        if (added > 0) SaveLocked();
+        return added;
       }
     }
 

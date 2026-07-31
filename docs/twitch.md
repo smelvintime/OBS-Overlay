@@ -194,8 +194,10 @@ if you prefer), so it has its own sign-in.
    from Twitch itself and stores everything, including a refresh token, so the
    bot's sign-in renews on its own from then on.
 3. **Switch the bot on** in the same tab. It shows whether it connected, lists the
-   commands, lets you add your own, and names the exact problem if something is
-   wrong.
+   commands, lets you add your own or delete any you don't want, and names the
+   exact problem if something is wrong. Deleted a default by mistake? **Restore
+   default commands** re-adds whatever is missing without touching the ones you
+   kept or edited.
 
 ### Setting the bot up by hand instead
 
