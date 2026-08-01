@@ -102,6 +102,9 @@
 
   .eyebrow{display:flex;align-items:center;gap:8px;color:var(--accent);
     font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+  /* Never wraps: in a narrow fixed box "NOW PLAYING" folding onto two lines
+     is the first thing that reads as broken. */
+  .eyebrow span{white-space:nowrap}
   .eq{display:inline-flex;align-items:flex-end;gap:2px;height:12px}
   /* Matched to the .34s the incoming content takes to fly home, so the colour
      arrives with it. Any slower and the words have already settled while the
@@ -135,7 +138,13 @@
      per bar, a transform does not. */
   .eq.live span{animation:none !important;
     height:100%;transform-origin:bottom;
-    transition:transform .045s linear,background-color .45s ease}
+    transition:transform .045s linear,background-color .45s ease;
+    /* Top corners only. Live bars grow from the baseline, and full-corner
+       rounding turned a quiet bar's floor stub (about a pixel tall) into a
+       detached-looking ball - the stray "particles" dotted along the row.
+       Square bottoms sit ON the line, so the quiet bars read as a dotted
+       baseline instead of debris. */
+    border-radius:1.5px 1.5px 0 0}
   .wrap.paused .eq.live span{transform:scaleY(.12) !important;transition:transform .35s ease}
   .eq.off{display:none}
 
@@ -472,9 +481,17 @@ if(window.NPO) NPO.themeBoot('source');
   // the card holds exactly that box regardless of title length - so a scene
   // can be built around a size that never moves. The ticker ignores both:
   // it is the full canvas width by design.
+  // Floors are per layout, not global: each style has a size below which its
+  // own type starts wrapping and clipping into soup - Big's 38px title needs
+  // far more room than Minimal's 20px line. Anything smaller snaps up to the
+  // smallest box that still reads cleanly.
+  var MINW = { card:280, big:480, minimal:240 };
+  var MINH = { card:96,  big:160, minimal:72  };
   var fixW = parseInt(q.get('w'),10), fixH = parseInt(q.get('h'),10);
-  if(!isFinite(fixW) || fixW <= 0) fixW = 0; else fixW = Math.max(200, Math.min(1600, fixW));
-  if(!isFinite(fixH) || fixH <= 0) fixH = 0; else fixH = Math.max(64, Math.min(600, fixH));
+  if(!isFinite(fixW) || fixW <= 0) fixW = 0;
+  else fixW = Math.max(MINW[layout] || 200, Math.min(1600, fixW));
+  if(!isFinite(fixH) || fixH <= 0) fixH = 0;
+  else fixH = Math.max(MINH[layout] || 64, Math.min(600, fixH));
   if(layout === 'ticker'){ fixW = 0; fixH = 0; }
   if(fixW){
     body.classList.add('fixed-w','fixed-box');
@@ -487,6 +504,16 @@ if(window.NPO) NPO.themeBoot('source');
     // the new height: square, minus the layout's vertical padding.
     var artPad = layout === 'card' ? 28 : layout === 'big' ? 48 : 0;
     var artSize = Math.max(24, fixH - artPad);
+    // ...but never at the words' expense. With the width fixed too, a tall
+    // box would otherwise turn into an art tile with the text crushed
+    // beside it - the art only grows into what the text column can spare.
+    if(fixW){
+      var chromeW = layout === 'card' ? 50 : layout === 'big' ? 92 : 12;
+      var textMin = layout === 'big' ? 240 : 160;
+      var budget = fixW - chromeW - textMin;
+      if(budget < 24) budget = 24;
+      if(artSize > budget) artSize = budget;
+    }
     var artBoxEl = document.getElementById('artBox');
     artBoxEl.style.width = artSize + 'px';
     artBoxEl.style.height = artSize + 'px';
