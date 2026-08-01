@@ -16,7 +16,10 @@ There's no window. Everything lives on the tray icon (a green ♫). **Right-clic
 - **Start with Windows** — tick to launch automatically at login
 - **Open log folder** — where to look if something needs troubleshooting
 - **Restart** — restarts the app in place, no hunting for the exe. Safe mid-stream:
-  the overlays go quiet for a second or two and reconnect on their own
+  the overlays go quiet for a second or two and reconnect on their own.
+  **It does not apply an update** — it relaunches the same exe that is already
+  on disk, and Windows will not let that file be replaced while the app is
+  running. To update, run `Build.bat` (it closes the app, rebuilds, restarts it)
 - **Exit** — this is how you stop it
 
 **Double-click** the icon to jump to the dashboard. Hovering shows the current

@@ -66,6 +66,34 @@ if ($missing.Count) {
 
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
 
+# Windows will not let anyone overwrite a running .exe, so a rebuild while the
+# overlay is open fails - and it fails as a raw compiler error (CS0016) that
+# reads like a broken build rather than "close the app first". Worse, the same
+# lock silently defeats the documented way to update: copying a new exe over
+# the old one does nothing while the old one is running, so people carry on
+# using the build they were trying to replace and report the bug as unfixed.
+#
+# Closing it here is safe: running this script IS the request for a new build.
+# Whatever was running is started again at the end, so an update is one
+# double-click with nothing to remember.
+$wasRunning = $false
+$running = @(Get-Process -Name 'NowPlayingOverlay' -ErrorAction SilentlyContinue |
+             Where-Object { $_.Path -eq $outExe })
+if ($running.Count) {
+  $wasRunning = $true
+  Write-Host ""
+  Write-Host "  Closing the running overlay so the new build can replace it ..." -ForegroundColor Yellow
+  $running | ForEach-Object { try { $_.CloseMainWindow() | Out-Null } catch {} }
+  Start-Sleep -Milliseconds 400
+  $running | ForEach-Object {
+    try { if (-not $_.HasExited) { Stop-Process -Id $_.Id -Force -ErrorAction Stop } } catch {}
+  }
+  # The file lock outlives the process by a moment; give it up to ~3s.
+  for ($i = 0; $i -lt 30; $i++) {
+    try { [IO.File]::Open($outExe, 'Open', 'Write').Close(); break } catch { Start-Sleep -Milliseconds 100 }
+  }
+}
+
 Write-Host ""
 Write-Host "  Building NowPlayingOverlay.exe ..." -ForegroundColor Cyan
 
@@ -150,6 +178,14 @@ if ($warnings) {
 $size = [Math]::Round((Get-Item $outExe).Length / 1KB, 1)
 Write-Host ""
 Write-Host "  Built: $outExe  (${size} KB)" -ForegroundColor Green
-Write-Host "  Run it, then add http://127.0.0.1:8787/ as an OBS Browser Source."
+
+if ($wasRunning) {
+  # It was running when this started, so put it back - otherwise updating
+  # silently leaves the overlay closed mid-stream.
+  Start-Process $outExe | Out-Null
+  Write-Host "  Restarted it - the new build is live in the tray." -ForegroundColor Green
+} else {
+  Write-Host "  Run it, then add http://127.0.0.1:8787/ as an OBS Browser Source."
+}
 Write-Host ""
 

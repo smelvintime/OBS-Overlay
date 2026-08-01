@@ -31,8 +31,18 @@ the music side at all.
    seconds later `NowPlayingOverlay.exe` is in the `dist\` folder.
 4. **Move that file somewhere permanent and run it.** Permanent matters: your
    settings are saved in a file next to the exe, so running it from a new folder
-   looks like a first run. To update later, build the new version and copy the
-   new exe over the old one in place — settings carry over untouched.
+   looks like a first run.
+
+> **Updating later:** download the new source, run `Build.bat` **in the folder
+> the exe already lives in**, and it handles the rest — it closes the running
+> overlay, builds, and starts the new one. Settings carry over untouched.
+>
+> If instead you build somewhere else and copy the exe across by hand, **exit
+> the app from the tray first**. Windows refuses to overwrite a program while
+> it is running, so copying over a running overlay does nothing at all — and
+> the giveaway is subtle: everything keeps working, on the old version, and the
+> fixes you were updating for appear not to have landed. The tray's **Restart**
+> is not an update either; it relaunches the exe already on disk.
 
 There is no ready-made download on purpose. An unsigned program from the internet
 gets flagged by antivirus reputation checks no matter what's in it; a file you
