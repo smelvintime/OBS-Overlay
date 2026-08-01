@@ -34,6 +34,10 @@
                                    between its own two faces
                                    rotate = one panel in one spot working
                                    through every face in turn   (default pair)
+     ?faces=all|goal|latest        which faces exist at all: goal holds the
+                                   goal bars, latest holds the newest
+                                   follower/subscriber, all cycles both
+                                                                (default all)
      ?takeover=0|1                 when a follow or sub lands, the box it
                                    belongs to breaks off the cycle and plays
                                    the event in its own spot, then goes back
@@ -502,6 +506,14 @@ if(window.NPO) NPO.themeBoot('source');
   var rotate = mode === 'rotate';
   document.body.classList.add('mode-' + mode);
 
+  // Which standby faces exist at all: 'goal' holds the goal bars, 'latest'
+  // holds the newest follower/subscriber, 'all' cycles the two as before.
+  // Filtered in one place (usableFaces) so every mode obeys for free - pair
+  // holds a lone face instead of flipping, rotate builds its turn list from
+  // what is allowed, and a takeover still breaks in and hands back correctly.
+  var facesWanted = (qs.get('faces')||'all').toLowerCase();
+  if(['all','goal','latest'].indexOf(facesWanted) < 0) facesWanted = 'all';
+
   function px(name, cssVar, lo, hi){
     var v = parseInt(qs.get(name),10);
     if(isFinite(v) && v >= lo && v <= hi) root.style.setProperty(cssVar, v+'px');
@@ -616,8 +628,8 @@ if(window.NPO) NPO.themeBoot('source');
   }
   function usableFaces(box){
     var out = [];
-    if(faceUsable(box,'goal'))   out.push('goal');
-    if(faceUsable(box,'latest')) out.push('latest');
+    if(facesWanted !== 'latest' && faceUsable(box,'goal'))   out.push('goal');
+    if(facesWanted !== 'goal'   && faceUsable(box,'latest')) out.push('latest');
     return out;
   }
 

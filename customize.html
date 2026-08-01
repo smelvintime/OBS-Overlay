@@ -408,7 +408,7 @@
       defaults:{
         accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff', theme:'glass',
         frame:'blade', slant:1, mark:2, align:'left', valign:'top', scale:1, radius:14,
-        opacity:100, cycle:8, mode:'pair', order:'subs', arrange:'stack',
+        opacity:100, cycle:8, mode:'pair', faces:'all', order:'subs', arrange:'stack',
         takeover:0, hold:6,
         transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1
       },
@@ -457,6 +457,11 @@
                + 'its own goal and its own latest. One at a time uses a single panel in one spot '
                + 'and works through all four in turn - goal, latest, then the other box. '
                + 'Side by side has nothing to arrange when only one is up.' },
+          { key:'faces', label:'Faces', type:'seg', options:[
+            ['all','Goals + newest'],['goal','Goals only'],['latest','Newest only']],
+            note:'Goals only holds the goal bars; Newest only holds the most recent '
+               + 'follower and subscriber. With one face there is nothing to cycle, so '
+               + 'the boxes just sit still - takeovers still break in if switched on.' },
           { key:'cycle', label:'Each face', type:'range', min:3, max:20, step:1, unit:'s' },
           { key:'transition', label:'Changes', type:'seg', options:[
             ['slide','Slide'],['slash','Slash'],['fade','Fade'],['none','Instant']],
