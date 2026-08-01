@@ -243,6 +243,11 @@
     transition:transform .34s cubic-bezier(.22,1.28,.35,1),opacity .28s ease}
   .face.on{opacity:1}
   body.tr-none .face{transition:none}
+  /* Scene-switch resync (see the rAF-gap watcher in the script): for one beat
+     after the source comes back on screen, nothing animates - stale frozen
+     transitions snap to their settled state instead of replaying late. */
+  body.resync .face,body.resync .box,
+  body.resync .face .label::before{transition:none !important}
 
   body.tr-slide .face{transform:translateY(14px)}
   body.tr-slide .face.on{transform:none}
@@ -930,6 +935,37 @@ if(window.NPO) NPO.themeBoot('source');
     void box.el.offsetWidth;
     box.el.classList.add('bump');
   }
+
+  // ---- OBS scene-switch resync --------------------------------------------
+  // OBS pauses a hidden source's animation clock but not its timers, so on
+  // another scene the cycle keeps advancing while every CSS transition sits
+  // frozen mid-flight. Switching back resumes those stale half-finished
+  // animations - the previous face glides around beside the current one and
+  // the panel looks doubled for a moment. rAF is the tell: it only fires
+  // while the source is actually composited, so a long gap between frames
+  // means "we just came back on screen". Snap to the settled state with
+  // transitions suppressed for a beat; everything after animates normally.
+  (function(){
+    var lastFrame = performance.now();
+    function tick(now){
+      if(now - lastFrame > 1000){
+        document.body.classList.add('resync');
+        [follow, subs].forEach(function(box){
+          [box.latestFace, box.goalFace, box.alertFace].forEach(function(f){
+            f.classList.remove('leaving');
+            // Only the face the state says is current keeps .on; anything
+            // else still carrying it is a leftover from the frozen stretch.
+            if(box.current && f !== faceEl(box, box.current)) f.classList.remove('on');
+          });
+        });
+        void document.body.offsetWidth;   // apply the snap before re-enabling
+        setTimeout(function(){ document.body.classList.remove('resync'); }, 60);
+      }
+      lastFrame = now;
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  })();
 
   // ---- data -------------------------------------------------------------
   function applyStatus(d){
