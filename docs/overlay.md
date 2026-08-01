@@ -62,6 +62,8 @@ http://127.0.0.1:8787/?layout=big&accent=fa2d48&showAlbum=1
 | `align` | `left`, `right` | `left` | Which side it sits and animates from |
 | `valign` | `top`, `bottom` | `bottom` | Vertical position |
 | `scale` | e.g. `1.25` | `1` | Overall size multiplier |
+| `w` | px, `200`–`1600` | hug the song | Fixed card width — the card holds this size whatever the title, and long titles scroll inside it. Card, Big and Minimal; the ticker is always full-width |
+| `h` | px, `64`–`600` | hug the song | Fixed card height — the album art grows to fill a taller card |
 | `radius` | px, e.g. `24` | `18` | Corner roundness |
 | `speed` | px/sec, e.g. `90` | `60` | Ticker scroll speed |
 | `mqspeed` | px/sec, `5`–`200` | `30` | How fast an overflowing title scrolls back and forth (card, big, minimal) |

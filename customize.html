@@ -267,7 +267,7 @@
       live:['accent','radius','scale','opacity'],
       defaults:{
         layout:'card', accent:'9bd4f5', theme:'glass', align:'left', valign:'bottom',
-        scale:1, radius:18, opacity:100, transition:'slide', eq:'live', bars:5,
+        scale:1, radius:18, opacity:100, w:0, h:0, transition:'slide', eq:'live', bars:5,
         speed:60, mqspeed:30, showAlbum:0, showArt:1, hideWhenPaused:0
       },
       size:function(st){ return SIZES[st.layout]; },
@@ -289,6 +289,13 @@
           { key:'align', label:'Side', type:'seg', options:[['left','Left'],['right','Right']] },
           { key:'valign', label:'Vertical', type:'seg', options:[['bottom','Bottom'],['top','Top']] },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
+          { key:'w', label:'Width', type:'range', min:0, max:900, step:20, unit:'px', zeroText:'Auto',
+            note:'Auto hugs the song and grows with the title. A set width holds the card at '
+               + 'exactly that size no matter the song - long titles scroll inside it. '
+               + 'Card, Big and Minimal; the ticker is always the full canvas width.' },
+          { key:'h', label:'Height', type:'range', min:0, max:400, step:8, unit:'px', zeroText:'Auto',
+            note:'A set height holds the card there too, and the album art grows to fill a '
+               + 'taller card.' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' }
         ]},
         { title:'New song', controls:[
@@ -866,7 +873,12 @@
             rng.value = state[C.key];
             var val = document.createElement('span');
             val.className = 'val';
-            var show = function(){ val.textContent = state[C.key] + C.unit; };
+            // zeroText lets a slider's zero position mean "automatic" and say
+            // so, instead of showing a meaningless "0px".
+            var show = function(){
+              val.textContent = (C.zeroText && !state[C.key]) ? C.zeroText
+                                                              : state[C.key] + C.unit;
+            };
             show();
             rng.addEventListener('input', function(){
               var n = parseFloat(this.value);

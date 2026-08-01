@@ -12,6 +12,11 @@
      ?align=left|right                 side it sits / slides from (default left)
      ?valign=top|bottom                vertical position          (default bottom)
      ?scale=1.0                        size multiplier
+     ?w=600                            fixed card width px, 200-1600; unset =
+                                       hug the song (card/big/minimal - the
+                                       ticker is always the full canvas)
+     ?h=200                            fixed card height px, 64-600; the album
+                                       art grows to fill a taller card
      ?radius=18                        corner radius px
      ?speed=60                         ticker scroll px/sec       (default 60)
      ?mqspeed=30                       marquee px/sec for an overflowing title
@@ -223,6 +228,21 @@
   body.layout-minimal .album{display:none}
   body.layout-minimal .accent-bar{width:3px;align-self:stretch;min-height:40px;
     background:var(--accent);border-radius:2px;box-shadow:0 0 12px var(--accent)}
+
+  /* ---------- fixed box (?w= / ?h=) ---------- */
+  /* A set size wins over hugging the song: the card holds still at exactly
+     the chosen box whatever the title length. The per-layout text caps come
+     off so the columns use the real space, the meta column grows into it,
+     and the title's marquee takes over whenever it genuinely doesn't fit. */
+  /* flex 0 0 auto: the wrap is a flex item of #stage, and fixed-box's
+     overflow:hidden drops a flex item's automatic minimum size to zero - in
+     any viewport narrower than the card, flex-shrink would quietly crush a
+     "fixed" box. Fixed means fixed: hold the size and let a too-small OBS
+     source crop it instead. */
+  body.fixed-w .wrap{max-width:none;flex:0 0 auto}
+  body.fixed-w .meta{flex:1 1 auto}
+  body.fixed-w .title,body.fixed-w .artist,body.fixed-w .album{max-width:none}
+  body.fixed-box .wrap{overflow:hidden;box-sizing:border-box}
 
   /* theme=solid drops the translucency (card + big) */
   body.theme-solid .wrap{background:rgba(16,16,18,.985);
@@ -446,6 +466,31 @@ if(window.NPO) NPO.themeBoot('source');
 
   if(styleScale !== 1) wrap.style.zoom = styleScale;
   if(!showArt) body.classList.add('noart');
+
+  // ---- fixed box (?w= / ?h=) --------------------------------------------
+  // Unset = today's behaviour, hugging the song up to the layout's max. Set,
+  // the card holds exactly that box regardless of title length - so a scene
+  // can be built around a size that never moves. The ticker ignores both:
+  // it is the full canvas width by design.
+  var fixW = parseInt(q.get('w'),10), fixH = parseInt(q.get('h'),10);
+  if(!isFinite(fixW) || fixW <= 0) fixW = 0; else fixW = Math.max(200, Math.min(1600, fixW));
+  if(!isFinite(fixH) || fixH <= 0) fixH = 0; else fixH = Math.max(64, Math.min(600, fixH));
+  if(layout === 'ticker'){ fixW = 0; fixH = 0; }
+  if(fixW){
+    body.classList.add('fixed-w','fixed-box');
+    wrap.style.width = fixW + 'px';
+  }
+  if(fixH){
+    body.classList.add('fixed-box');
+    wrap.style.height = fixH + 'px';
+    // The art is what reads as "the card got taller", so it grows to fill
+    // the new height: square, minus the layout's vertical padding.
+    var artPad = layout === 'card' ? 28 : layout === 'big' ? 48 : 0;
+    var artSize = Math.max(24, fixH - artPad);
+    var artBoxEl = document.getElementById('artBox');
+    artBoxEl.style.width = artSize + 'px';
+    artBoxEl.style.height = artSize + 'px';
+  }
 
   var lastId=null, rendered=false;
 
