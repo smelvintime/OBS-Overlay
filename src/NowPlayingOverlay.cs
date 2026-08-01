@@ -1276,6 +1276,12 @@ namespace NowPlaying {
             if (IsWebSocket(req)) WsStreamTwitch(ns, req);
             else StreamTwitch(ns);       // long-lived; returns on disconnect
           } else if (route == "/twitch/test") {
+            // Same cross-site rule as the state-writing routes, for the same
+            // reason: this pushes an alert to every connected source, so a
+            // page looping it would spray fake follows over a live stream for
+            // as long as the tab stayed open. Our own pages call it fetch()-
+            // style from the same origin and are unaffected.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             string kind = QueryParam(path, "type") ?? "follow";
             string who = QueryParam(path, "user") ?? "";
             Send(ns, 200, "application/json; charset=utf-8",

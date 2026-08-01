@@ -239,11 +239,33 @@
     minimal:{w:600,  h:120}
   };
 
+  // A test has two audiences and they need telling in different ways.
+  //
+  // The server fire is the real thing: /twitch/test pushes a genuine event
+  // envelope through the same pipeline Twitch's own events take, so every
+  // source that is actually CONNECTED plays it exactly as it would a real
+  // follow - which is the point, because the one in OBS is connected and
+  // dressing an alert you cannot watch land on stream is half a tool.
+  //
+  // The preview frame beside the controls is deliberately NOT connected
+  // (alerts run ?preview=1 so a card is held on screen to dress; stats run
+  // ?demo=1 when there is no live data), so it has to be told directly. Only
+  // when it is deaf, though: a stats preview on live data hears the server
+  // itself, and telling it as well would play every test twice.
+  function previewIsDeaf(){
+    if(current === 'stats') return statsDemo;   // demo=1 replaces the live feed
+    return true;                                // alerts/overlay: always preview=1
+  }
+
   function alertPreview(kind, extra){
     return function(win){
       var a = {kind:kind, user:'TestUser'};
       for(var k in extra) a[k] = extra[k];
-      win.postMessage({type:'nowplaying:alert-preview', alert:a}, location.origin);
+      fetch('/twitch/test?type=' + encodeURIComponent(kind)
+          + '&user=' + encodeURIComponent(a.user), {cache:'no-store'})
+        .catch(function(){});     // no server, no OBS to reach - preview still works
+      if(previewIsDeaf())
+        win.postMessage({type:'nowplaying:alert-preview', alert:a}, location.origin);
     };
   }
 
@@ -328,7 +350,8 @@
       label:'Twitch alerts', path:'/alerts', store:'nowplaying.customize.alerts',
       blurb:'A follow or subscription alert, as its own OBS <strong>Browser Source</strong> sized to the '
           + 'whole canvas. Nothing is drawn between events, so it can sit over everything else. '
-          + 'Use the test buttons to see each kind without waiting for a real one.',
+          + 'The test buttons fire a pretend event through the real pipeline, so the preview '
+          + '<em>and</em> any alerts source you already have in OBS both play it.',
       live:[],
       defaults:{
         style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
@@ -410,7 +433,8 @@
       growToContent:true,
       blurb:'Two boxes stacked on top of each other, each one alternating between who was most recent '
           + 'and how close the count is to the next goal. Add it as its own OBS '
-          + '<strong>Browser Source</strong> so it can be positioned away from the now-playing card.',
+          + '<strong>Browser Source</strong> so it can be positioned away from the now-playing card. '
+          + 'The test buttons fire through the real pipeline, so your OBS sources react too.',
       live:[],
       defaults:{
         accent:'9bd4f5', followColor:'9bd4f5', subColor:'a970ff', theme:'glass',
