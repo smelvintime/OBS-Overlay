@@ -279,6 +279,37 @@ namespace NowPlaying {
       try { System.Diagnostics.Process.Start("http://127.0.0.1:" + _port + suffix); } catch { }
     }
 
+    // Every "open this folder" menu item comes here.
+    //
+    // The quotes are the whole point. These paths contain the Windows account
+    // name, and an account called "Alex Smith" makes
+    // C:\Users\Alex Smith\AppData\... - handed to explorer.exe as a bare
+    // argument that arrives as TWO arguments, so Explorer tries to open
+    // "C:\Users\Alex" and reports the folder as unavailable. A missing pair of
+    // quotes presenting as "your files are missing" is a bad way to greet
+    // someone, and it only ever reproduces on accounts with a space in the
+    // name - never on the machine this was written on.
+    //
+    // Failures are also no longer silent: a swallowed exception here meant a
+    // menu item that did nothing at all, with nothing to look at afterwards.
+    static void OpenFolder(string dir) {
+      try {
+        Directory.CreateDirectory(dir);
+        if (!Directory.Exists(dir)) {
+          AppLog.Write("open folder: could not create " + dir);
+          MessageBox.Show("This folder could not be created:\r\n\r\n" + dir,
+                          "Now Playing Overlay", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+          return;
+        }
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+          "explorer.exe", "\"" + dir + "\"") { UseShellExecute = true });
+      } catch (Exception ex) {
+        AppLog.Write("open folder failed (" + dir + "): " + ex.Message);
+        MessageBox.Show("Could not open:\r\n\r\n" + dir + "\r\n\r\n" + ex.Message,
+                        "Now Playing Overlay", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+      }
+    }
+
     // Drawn rather than shipped as a .ico file, so the build stays a single
     // source file with no binary assets.
     static Icon MakeTrayIcon() {
@@ -376,18 +407,11 @@ namespace NowPlaying {
       menu.Items.Add(startup);
       menu.Items.Add(new ToolStripSeparator());
       menu.Items.Add("Diagnostics...", null, (s, e) => OpenUrl("/diag"));
-      menu.Items.Add("Open media folder (alert sounds && clips)", null, (s, e) => {
-        try { System.Diagnostics.Process.Start("explorer.exe", MediaDir()); } catch { }
-      });
-      menu.Items.Add("Open log folder", null, (s, e) => {
-        try {
-          string dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "NowPlayingOverlay");
-          Directory.CreateDirectory(dir);
-          System.Diagnostics.Process.Start("explorer.exe", dir);
-        } catch { }
-      });
+      menu.Items.Add("Open media folder (alert sounds && clips)", null,
+                     (s, e) => OpenFolder(MediaDir()));
+      menu.Items.Add("Open log folder", null, (s, e) => OpenFolder(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NowPlayingOverlay")));
       menu.Items.Add(new ToolStripSeparator());
       // Sits beside Exit because they are the same kind of thing, and it is
       // the safer of the two: Exit means going to find the exe again, which
