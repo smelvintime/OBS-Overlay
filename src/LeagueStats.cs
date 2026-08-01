@@ -136,19 +136,24 @@ namespace NowPlaying {
             try { while ((n = ssl.Read(buf, 0, buf.Length)) > 0) ms.Write(buf, 0, n); }
             catch (IOException) { }      // close without close_notify is normal here
 
-            string all = Encoding.UTF8.GetString(ms.ToArray());
-            int hdrEnd = all.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+            byte[] all = ms.ToArray();
+            int hdrEnd = IndexOfHeaderEnd(all);
             if (hdrEnd < 0) { _lastHttpError = "malformed response"; return null; }
-            string head = all.Substring(0, hdrEnd);
+            string head = Encoding.ASCII.GetString(all, 0, hdrEnd);
             string statusLine = head.Split('\r')[0];
             if (statusLine.IndexOf(" 200", StringComparison.Ordinal) < 0) {
               _lastHttpError = statusLine;
               return null;
             }
-            string body = all.Substring(hdrEnd + 4);
-            if (head.IndexOf("chunked", StringComparison.OrdinalIgnoreCase) >= 0)
-              body = DeChunk(body);
-            return body;
+            int bodyStart = hdrEnd + 4;
+            byte[] body;
+            if (head.IndexOf("chunked", StringComparison.OrdinalIgnoreCase) >= 0) {
+              body = DeChunk(all, bodyStart);
+            } else {
+              body = new byte[all.Length - bodyStart];
+              Array.Copy(all, bodyStart, body, 0, body.Length);
+            }
+            return Encoding.UTF8.GetString(body);
           }
         }
       } catch (Exception ex) {
@@ -157,27 +162,36 @@ namespace NowPlaying {
       }
     }
 
-    // Minimal HTTP/1.1 chunked-transfer decoding: hex size line, that many
-    // bytes, repeat until a zero-size chunk. On anything unexpected, return
-    // what we have - the JSON parse upstream fails gracefully.
-    static string DeChunk(string body) {
+    static int IndexOfHeaderEnd(byte[] b) {
+      for (int i = 0; i + 3 < b.Length; i++)
+        if (b[i] == 13 && b[i + 1] == 10 && b[i + 2] == 13 && b[i + 3] == 10) return i;
+      return -1;
+    }
+
+    // Minimal HTTP/1.1 chunked-transfer decoding, walked in BYTES: a chunk
+    // size is an octet count (RFC 7230), so framing must happen before any
+    // text decoding - one multi-byte character in a payload would otherwise
+    // shift every offset after it. On anything unexpected, return what has
+    // been assembled; the JSON parse upstream fails gracefully.
+    static byte[] DeChunk(byte[] all, int pos) {
+      var outMs = new MemoryStream();
       try {
-        var sb = new StringBuilder();
-        int pos = 0;
         while (true) {
-          int nl = body.IndexOf("\r\n", pos, StringComparison.Ordinal);
+          int nl = -1;
+          for (int i = pos; i + 1 < all.Length; i++)
+            if (all[i] == 13 && all[i + 1] == 10) { nl = i; break; }
           if (nl < 0) break;
-          string sizeHex = body.Substring(pos, nl - pos).Trim();
+          string sizeHex = Encoding.ASCII.GetString(all, pos, nl - pos).Trim();
           int semi = sizeHex.IndexOf(';');
           if (semi >= 0) sizeHex = sizeHex.Substring(0, semi);
           int size = Convert.ToInt32(sizeHex, 16);
-          if (size == 0) break;
-          if (nl + 2 + size > body.Length) break;
-          sb.Append(body, nl + 2, size);
+          if (size <= 0) break;
+          if (nl + 2 + size > all.Length) break;
+          outMs.Write(all, nl + 2, size);
           pos = nl + 2 + size + 2;       // skip the chunk's trailing CRLF
         }
-        return sb.Length > 0 ? sb.ToString() : body;
-      } catch { return body; }
+      } catch { }
+      return outMs.ToArray();
     }
 
     // ----------------------------------------------------------------- parse
@@ -202,8 +216,9 @@ namespace NowPlaying {
         for (int i = 0; i < list.Count && letters.Count < 5; i++) {
           object stats = FirstParticipantStats(list[i]);
           if (stats == null) continue;
-          bool win = TwitchEvents.SNavPublic(stats, "win").Equals("True", StringComparison.OrdinalIgnoreCase)
-                  || TwitchEvents.SNavPublic(stats, "win").Equals("Win", StringComparison.OrdinalIgnoreCase);
+          // stats.win is a JSON boolean (verified against the live client);
+          // Convert.ToString(bool) yields "True"/"False".
+          bool win = TwitchEvents.SNavPublic(stats, "win").Equals("True", StringComparison.OrdinalIgnoreCase);
           letters.Add(win ? "W" : "L");
           if (letters.Count == 1) {
             newestId = LNav(list[i], "gameId");
@@ -258,7 +273,15 @@ namespace NowPlaying {
 
       while (true) {
         try {
-          if (!_enabled) { Thread.Sleep(2000); continue; }
+          if (!_enabled) {
+            // Re-asserted every pass, not just in SetEnabled: a poll that was
+            // mid-flight when the switch flipped can land afterwards and
+            // stamp "live" over the off state - this wins the race by being
+            // repeated.
+            _status = "off"; _detail = "";
+            Thread.Sleep(2000);
+            continue;
+          }
 
           int port; string pw;
           if (!FindLockfile(out port, out pw)) {

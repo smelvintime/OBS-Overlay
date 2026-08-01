@@ -176,6 +176,13 @@ namespace NowPlaying {
       string line = _pendingGameLine;
       if (line != null) {
         _pendingGameLine = null;
+        // Same rule the thank-yous follow: a "game just ended" line that
+        // waited out a long disconnect arriving half an hour later reads as
+        // a glitch. The timer path re-announces new games on its own clock,
+        // so nothing is lost by dropping this one.
+        if ((DateTime.UtcNow - _pendingGameAt).TotalMinutes > 3) line = null;
+      }
+      if (line != null) {
         if (_gameStats && _gameAnnounce) {
           SendSide(line, "(game over)", "record");
           _timerSeqSent = LeagueStats.ResultSeq;
@@ -215,12 +222,14 @@ namespace NowPlaying {
     static volatile bool _gameAnnounce = true;
     static volatile int _gameTimerMin;             // 0 = off, else 5/10/15
     static volatile string _pendingGameLine;       // set by OnGameEnded, sent by the loop
+    static DateTime _pendingGameAt;                // when it was set - stale lines are dropped
     static long _timerSeqSent;                     // LeagueStats.ResultSeq last posted by the timer
     static DateTime _lastTimerPost = DateTime.MinValue;
 
     public static void OnGameEnded(string line) {
       if (!_enabled || !_gameStats || !_gameAnnounce) return;
       if (string.IsNullOrEmpty(line)) return;
+      _pendingGameAt = DateTime.UtcNow;
       _pendingGameLine = line;
     }
 
