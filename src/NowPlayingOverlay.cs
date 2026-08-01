@@ -124,7 +124,7 @@ namespace NowPlaying {
 
     internal static void SaveSettings() {
       try {
-        File.WriteAllText(SettingsPath(),
+        Files.WriteAtomic(SettingsPath(),
           "mode=" + _mode + "\r\napp=" + _pinApp + "\r\n"
           + "bot=" + (TwitchChat.Enabled ? "1" : "0") + "\r\n"
           + "feat.overlay=" + (_featOverlay ? "1" : "0") + "\r\n"
@@ -180,7 +180,7 @@ namespace NowPlaying {
         try {
           var sb = new StringBuilder();
           foreach (var kv in d) sb.Append(kv.Key).Append('=').Append(kv.Value).Append("\r\n");
-          File.WriteAllText(PrefsPath(), sb.ToString());
+          Files.WriteAtomic(PrefsPath(), sb.ToString());
         } catch (Exception ex) {
           AppLog.Write("could not save prefs: " + ex.Message);
         }
@@ -1498,7 +1498,6 @@ namespace NowPlaying {
           "HTTP/1.1 200 OK\r\n" +
           "Content-Type: text/event-stream; charset=utf-8\r\n" +
           "Cache-Control: no-cache, no-store, must-revalidate\r\n" +
-          "Access-Control-Allow-Origin: *\r\n" +
           "Connection: keep-alive\r\n" +
           "X-Accel-Buffering: no\r\n\r\n");
         ns.Write(head, 0, head.Length);
@@ -1538,7 +1537,6 @@ namespace NowPlaying {
           "HTTP/1.1 200 OK\r\n" +
           "Content-Type: text/event-stream; charset=utf-8\r\n" +
           "Cache-Control: no-cache, no-store, must-revalidate\r\n" +
-          "Access-Control-Allow-Origin: *\r\n" +
           "Connection: keep-alive\r\n" +
           "X-Accel-Buffering: no\r\n\r\n");
         ns.Write(head, 0, head.Length);
@@ -1592,6 +1590,19 @@ namespace NowPlaying {
     }
 
     static bool WsHandshake(NetworkStream ns, string req) {
+      // WebSockets are not bound by CORS at all - any website can open one to
+      // a loopback port and read whatever comes back - so the handshake checks
+      // Origin itself. A browser always sends it: only our own pages get
+      // upgraded. No Origin means a non-browser client (a script, a tool),
+      // which the same-origin guard elsewhere also lets through on purpose.
+      string origin = HeaderValue(req, "Origin");
+      if (origin != null
+          && !origin.Equals("http://127.0.0.1:" + _port, StringComparison.OrdinalIgnoreCase)
+          && !origin.Equals("http://localhost:" + _port, StringComparison.OrdinalIgnoreCase)) {
+        SendForbidden(ns);
+        return false;
+      }
+
       string key = null;
       foreach (var line in req.Split(new[] { "\r\n" }, StringSplitOptions.None)) {
         int c = line.IndexOf(':');
@@ -1915,7 +1926,7 @@ namespace NowPlaying {
           error = "theme folder is full (50) - delete one first";
           return false;
         }
-        File.WriteAllText(file, new JavaScriptSerializer().Serialize(clean));
+        Files.WriteAtomic(file, new JavaScriptSerializer().Serialize(clean));
         return true;
       } catch (Exception ex) {
         AppLog.Write("theme save failed: " + ex.Message);
@@ -2007,7 +2018,7 @@ namespace NowPlaying {
         entry["saved"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
         list.Insert(0, entry);        // newest first, which is also the one just saved
         try {
-          File.WriteAllText(PresetsPath(), new JavaScriptSerializer().Serialize(list));
+          Files.WriteAtomic(PresetsPath(), new JavaScriptSerializer().Serialize(list));
           return true;
         } catch (Exception ex) {
           AppLog.Write("preset save failed: " + ex.Message);
@@ -2025,7 +2036,7 @@ namespace NowPlaying {
           object n; return d.TryGetValue("name", out n)
             && string.Equals(Convert.ToString(n), name, StringComparison.OrdinalIgnoreCase);
         });
-        try { File.WriteAllText(PresetsPath(), new JavaScriptSerializer().Serialize(list)); }
+        try { Files.WriteAtomic(PresetsPath(), new JavaScriptSerializer().Serialize(list)); }
         catch (Exception ex) { AppLog.Write("preset delete failed: " + ex.Message); }
       }
     }
@@ -2171,10 +2182,10 @@ namespace NowPlaying {
       ns.Flush();
     }
 
-    // No Access-Control-Allow-Origin. The overlay routes carry it because OBS
-    // browser sources and the dashboard's frames legitimately read them from
-    // another origin; the setup routes never need that, and the wildcard would
-    // otherwise let any site read setup state cross-origin.
+    // Like Send but never cached by default and with an explicit "private"
+    // history: this variant predates the CORS-wildcard removal from Send, and
+    // stays for the routes that also must not be cached (setup state, presets,
+    // media with its own short max-age).
     static void SendPrivate(NetworkStream ns, int code, string contentType, byte[] body) {
       SendPrivate(ns, code, contentType, body, null);
     }
@@ -2201,7 +2212,12 @@ namespace NowPlaying {
       sb.Append("HTTP/1.1 ").Append(code).Append(' ').Append(status).Append("\r\n");
       sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
       sb.Append("Content-Length: ").Append(body == null ? 0 : body.Length).Append("\r\n");
-      sb.Append("Access-Control-Allow-Origin: *\r\n");
+      // No CORS header, deliberately. Every legitimate reader - OBS browser
+      // sources, the dashboard, the customizer's frames - loads OUR pages
+      // from this same host and port, so their fetches are same-origin and
+      // need no CORS at all. The old wildcard here meant any website the
+      // user browsed could read /np and /twitch and learn what this machine
+      // plays and whose Twitch channel it runs - recon nobody signed up for.
       sb.Append("Cache-Control: ")
         .Append(cacheControl ?? "no-cache, no-store, must-revalidate").Append("\r\n");
       sb.Append("Connection: close\r\n\r\n");

@@ -123,7 +123,7 @@ namespace NowPlaying {
             {"cooldown", c.Cooldown}, {"modOnly", c.ModOnly}
           });
         }
-        File.WriteAllText(Path_(), new JavaScriptSerializer().Serialize(list));
+        Files.WriteAtomic(Path_(), new JavaScriptSerializer().Serialize(list));
       } catch (Exception ex) {
         AppLog.Write("chat: could not write bot-commands.json: " + ex.Message);
       }

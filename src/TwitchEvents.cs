@@ -191,7 +191,25 @@ namespace NowPlaying {
         Dictionary<string, object> cfg = null;
         if (File.Exists(p)) {
           try { cfg = ReadConfig(p); } catch { cfg = null; }
-          if (cfg == null) { error = "the existing twitch-config.json could not be read - fix or delete it first"; return false; }
+          if (cfg == null) {
+            // "Fix or delete it first" was a dead end for anyone who doesn't
+            // edit JSON - and an unreadable config's tokens are already
+            // unusable, so there is nothing left in it worth blocking on.
+            // Move it aside (kept as evidence, never deleted) and start clean.
+            try {
+              string broken = p + ".broken";
+              if (File.Exists(broken)) File.Delete(broken);
+              File.Move(p, broken);
+              AppLog.Write("setup: unreadable twitch-config.json moved aside to " + broken);
+              cfg = new Dictionary<string, object>();
+              cfg["followerGoal"] = 0;
+              cfg["subGoal"] = 0;
+            } catch (Exception mex) {
+              error = "the existing twitch-config.json could not be read, and moving it aside failed ("
+                    + mex.Message + ") - delete the file by hand and try again";
+              return false;
+            }
+          }
         } else {
           cfg = new Dictionary<string, object>();
           cfg["followerGoal"] = 0;
@@ -200,7 +218,7 @@ namespace NowPlaying {
         cfg["channel"] = channel;
         cfg["clientId"] = clientId;
         if (clientSecret.Length > 0) cfg["clientSecret"] = clientSecret;
-        File.WriteAllText(p, WriteConfig(cfg));
+        Files.WriteAtomic(p, WriteConfig(cfg));
         _configPath = p;
         LoadConfig();               // pick the new identity up immediately
         AppLog.Write("setup: saved channel/client for \"" + channel + "\"");
@@ -333,7 +351,7 @@ namespace NowPlaying {
         cfg["apiToken"] = access;
         cfg["refreshToken"] = refresh;
         if (SNav2(cfg, "channel").Length == 0 && login.Length > 0) cfg["channel"] = login;
-        File.WriteAllText(p, WriteConfig(cfg));
+        Files.WriteAtomic(p, WriteConfig(cfg));
         _configPath = p;
       } catch (Exception ex) {
         error = "could not write twitch-config.json: " + ex.Message;
@@ -387,7 +405,7 @@ namespace NowPlaying {
         cfg["botUsername"] = login;
         cfg["oauthToken"] = access;
         cfg["botRefreshToken"] = refresh;
-        File.WriteAllText(p, WriteConfig(cfg));
+        Files.WriteAtomic(p, WriteConfig(cfg));
         _configPath = p;
       } catch (Exception ex) {
         error = "could not write twitch-config.json: " + ex.Message;
@@ -409,7 +427,7 @@ namespace NowPlaying {
         cfg["channel"] = "";
         cfg["followerGoal"] = 0;
         cfg["subGoal"] = 0;
-        File.WriteAllText(ConfigPathOrDefault(), WriteConfig(cfg));
+        Files.WriteAtomic(ConfigPathOrDefault(), WriteConfig(cfg));
         AppLog.Write("setup: skipped - minimal config written");
       } catch (Exception ex) {
         AppLog.Write("setup: skip failed: " + ex.Message);
@@ -473,7 +491,7 @@ namespace NowPlaying {
                + "lastSubAt=" + _lastSubAt + "\r\n"
                + "lastSubTier=" + _lastSubTier + "\r\n";
         }
-        File.WriteAllText(StatePath(), body);
+        Files.WriteAtomic(StatePath(), body);
       } catch { }
     }
 
@@ -755,17 +773,40 @@ namespace NowPlaying {
       "_comment_goals", "followerGoal", "subGoal"
     };
 
+    // Retries where every other write in the app fails fast, because what is
+    // being persisted here is unlike everything else: Twitch refresh tokens
+    // are single-use, and the moment one is spent its replacement exists only
+    // in memory until this write lands. A transiently locked config file - an
+    // antivirus scan, a cloud-sync client, the file open in an editor - would
+    // otherwise cost the token silently, and the bill arrives weeks later as
+    // "bad token" on the next restart with nothing left to do but reconnect.
+    static void PersistTokens(string path, Action<Dictionary<string, object>> apply, string what) {
+      for (int attempt = 0; ; attempt++) {
+        try {
+          var cfg = ReadConfig(path);
+          if (cfg == null) return;
+          apply(cfg);
+          Files.WriteAtomic(path, WriteConfig(cfg));
+          if (attempt > 0) AppLog.Write("twitch: saved " + what + " after " + (attempt + 1) + " tries");
+          return;
+        } catch (Exception ex) {
+          if (attempt >= 4) {
+            AppLog.Write("twitch: could not save " + what + " after retries: " + ex.Message
+              + " - if the app restarts before the next successful refresh, reconnect via Setup.");
+            return;
+          }
+          Thread.Sleep(300 * (attempt + 1));
+        }
+      }
+    }
+
     static void PersistRefreshedTokens() {
       if (_configPath == null) return;
-      try {
-        var cfg = ReadConfig(_configPath);
-        if (cfg == null) return;
-        cfg["apiToken"] = _token;
-        cfg["refreshToken"] = _refreshToken;
-        File.WriteAllText(_configPath, WriteConfig(cfg));
-      } catch (Exception ex) {
-        AppLog.Write("twitch: could not save refreshed token: " + ex.Message);
-      }
+      string tok = _token, rt = _refreshToken;
+      PersistTokens(_configPath, delegate(Dictionary<string, object> cfg) {
+        cfg["apiToken"] = tok;
+        cfg["refreshToken"] = rt;
+      }, "refreshed token");
     }
 
     // TwitchChat's version of the same persistence. It lives here because this
@@ -775,15 +816,10 @@ namespace NowPlaying {
       string p = _configPath;
       if (p == null) p = FindConfigPath();
       if (p == null) return;
-      try {
-        var cfg = ReadConfig(p);
-        if (cfg == null) return;
+      PersistTokens(p, delegate(Dictionary<string, object> cfg) {
         cfg["oauthToken"] = access;
         if (refresh.Length > 0) cfg["botRefreshToken"] = refresh;
-        File.WriteAllText(p, WriteConfig(cfg));
-      } catch (Exception ex) {
-        AppLog.Write("chat: could not save refreshed bot token: " + ex.Message);
-      }
+      }, "refreshed bot token");
     }
 
     // The follow thank-you's two settings, written by the bot dashboard. Lives
@@ -798,7 +834,7 @@ namespace NowPlaying {
         if (cfg == null) return;
         cfg["followThanks"] = on;
         cfg["followThanksTemplate"] = template ?? "";
-        File.WriteAllText(p, WriteConfig(cfg));
+        Files.WriteAtomic(p, WriteConfig(cfg));
       } catch (Exception ex) {
         AppLog.Write("chat: could not save follow-thanks settings: " + ex.Message);
       }
@@ -1321,9 +1357,14 @@ namespace NowPlaying {
 
       // .NET Framework still negotiates TLS 1.0 by default on some machines and
       // Twitch refuses it, which surfaces as a bare "unable to connect" with no
-      // hint that the protocol is the problem. Pin 1.2 up front.
+      // hint that the protocol is the problem. Pin 1.2 up front - and OR in 1.3
+      // where the runtime knows it (4.8+), because the day Twitch turns 1.2 off
+      // an exact 1.2 pin would break every install at once.
       try {
-        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+        var protos = SecurityProtocolType.Tls12;
+        if (Enum.IsDefined(typeof(SecurityProtocolType), 12288))
+          protos |= (SecurityProtocolType)12288;   // Tls13; named only from 4.8
+        ServicePointManager.SecurityProtocol = protos;
       } catch { }
 
       _status = "connecting";

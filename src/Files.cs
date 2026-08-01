@@ -1,0 +1,28 @@
+// The one way this app writes a file it intends to read back.
+//
+// Truncate-then-write (File.WriteAllText) dies at the worst possible moment:
+// a crash or power cut between the truncate and the write leaves an empty or
+// half-written file. For most of what the app saves that is an annoyance; for
+// twitch-config.json - rewritten automatically at every token refresh, so
+// every few hours for as long as the app runs - it means the client's Twitch
+// sign-in is gone and the setup wizard has to be run again, weeks after
+// anyone touched anything. Writing a sibling temp file and swapping it in
+// makes the switch a single atomic rename: the file on disk is always either
+// the old complete content or the new complete content, never neither.
+
+using System.IO;
+
+namespace NowPlaying {
+
+  static class Files {
+
+    // Same volume by construction (the temp sits beside the target), which is
+    // what File.Replace needs to stay atomic.
+    internal static void WriteAtomic(string path, string text) {
+      string tmp = path + ".tmp";
+      File.WriteAllText(tmp, text);
+      if (File.Exists(path)) File.Replace(tmp, path, null);
+      else File.Move(tmp, path);
+    }
+  }
+}

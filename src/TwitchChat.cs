@@ -382,8 +382,12 @@ namespace NowPlaying {
           // handshake immediately - which surfaces as "connection forcibly
           // closed by the remote host" right after connect, or an SSPI
           // failure, on some PCs while others connect fine.
-          ssl.AuthenticateAsClient("irc.chat.twitch.tv", null,
-            System.Security.Authentication.SslProtocols.Tls12, false);
+          var protos = System.Security.Authentication.SslProtocols.Tls12;
+          // 1.3 as well wherever the runtime knows it (4.8+), so a future
+          // Twitch 1.2 shutoff is a non-event here too.
+          if (Enum.IsDefined(typeof(System.Security.Authentication.SslProtocols), 12288))
+            protos |= (System.Security.Authentication.SslProtocols)12288;
+          ssl.AuthenticateAsClient("irc.chat.twitch.tv", null, protos, false);
           // A read timeout on SslStream is FATAL: .NET documents that a
           // timed-out SslStream is out of sync and reading on returns
           // garbage. This loop once used a 6-second timeout as a stop-flag
