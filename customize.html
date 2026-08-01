@@ -257,6 +257,20 @@
     return true;                                // alerts/overlay: always preview=1
   }
 
+  // Mirrors the floors in overlay.html: below these a fixed box has no room
+  // left for its own type, so the page clamps up to them. Kept here too so
+  // the slider can say where the wall is instead of just going quiet - keep
+  // the two lists in step.
+  var BOX_MINW = { card:280, big:480, minimal:240 };
+  var BOX_MINW_NOART = { card:190, big:300, minimal:150 };
+  var BOX_MINH = { card:96, big:160, minimal:72 };
+
+  function boxFloor(which, st){
+    if(current !== 'overlay' || st.layout === 'ticker') return 0;   // ticker is full-width
+    if(which === 'h') return BOX_MINH[st.layout] || 0;
+    return (st.showArt ? BOX_MINW : BOX_MINW_NOART)[st.layout] || 0;
+  }
+
   function alertPreview(kind, extra){
     return function(win){
       var a = {kind:kind, user:'TestUser'};
@@ -288,7 +302,7 @@
       // is read once at startup, so changing it reloads the preview frame.
       live:['accent','radius','scale','opacity'],
       defaults:{
-        layout:'card', accent:'9bd4f5', theme:'glass', align:'left', valign:'bottom',
+        layout:'card', accent:'9bd4f5', theme:'auto', artbg:'auto', align:'left', valign:'bottom',
         scale:1, radius:18, opacity:100, w:0, h:0, transition:'slide', eq:'live', bars:5,
         speed:60, mqspeed:30, showAlbum:0, showArt:1, hideWhenPaused:0
       },
@@ -303,8 +317,17 @@
         { title:'Look', controls:[
           { key:'accent', label:'Accent', type:'color',
             note:'Auto takes the strongest colour out of the album art and follows it from song to song.' },
-          { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']],
-            note:'Card and Big only.' },
+          { key:'theme', label:'Chrome', type:'seg',
+            options:[['auto','Auto'],['glass','Frosted'],['solid','Solid'],['none','None']],
+            note:'The panel behind the words - now available to every style, not just Card and '
+               + 'Big. Auto keeps each style’s own look (Minimal bare, the rest frosted). '
+               + 'Pick Frosted to give Minimal or the ticker the glass panel, or None to strip '
+               + 'Card and Big back to bare text over your scene.' },
+          { key:'artbg', label:'Art hues', type:'seg',
+            options:[['auto','Auto'],['1','On'],['0','Off']],
+            note:'The blurred album cover bleeding through the panel - the soft colour wash that '
+               + 'used to be Big’s alone. Auto means exactly that (Big with frosted chrome); '
+               + 'switch it On to get it on Card, Minimal or the ticker too.' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
         ]},
         { title:'Position and size', controls:[
@@ -312,12 +335,16 @@
           { key:'valign', label:'Vertical', type:'seg', options:[['bottom','Bottom'],['top','Top']] },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
           { key:'w', label:'Width', type:'range', min:0, max:900, step:20, unit:'px', zeroText:'Auto',
+            floor:'w',
             note:'Auto hugs the song and grows with the title. A set width holds the card at '
                + 'exactly that size no matter the song - long titles scroll inside it. '
-               + 'Card, Big and Minimal; the ticker is always the full canvas width.' },
+               + 'Each style stops at the narrowest box its text still fits in (the slider '
+               + 'says “min” there); switching the album art off lowers that a good deal. '
+               + 'Card, Big and Minimal - the ticker is always the full canvas width.' },
           { key:'h', label:'Height', type:'range', min:0, max:400, step:8, unit:'px', zeroText:'Auto',
+            floor:'h',
             note:'A set height holds the card there too, and the album art grows to fill a '
-               + 'taller card.' },
+               + 'taller card - up to what the text column can spare.' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' }
         ]},
         { title:'New song', controls:[
@@ -535,6 +562,13 @@
     try {
       var saved = JSON.parse(localStorage.getItem(T.store) || '{}');
       for(var s in saved) if(s in T.defaults) st[s] = saved[s];
+      // Chrome used to default to 'glass' and mean "whatever this layout
+      // normally looks like" - it did nothing at all to Minimal. Now that
+      // Frosted genuinely puts a panel on any style, a stored 'glass' from
+      // back then would quietly give Minimal a panel it never had. 'auto' is
+      // what that old value actually meant, so say so.
+      if(name === 'overlay' && saved.theme === 'glass' && saved.artbg === undefined)
+        st.theme = 'auto';
     } catch(e){}
     states[name] = st;
   });
@@ -803,6 +837,17 @@
 
   function set(key, value, live){
     state[key] = value;
+    // Switching layout or hiding the art moves the floor, and a stored size
+    // below the new one would render clamped while the slider still showed
+    // the old number. Move the value instead of letting the two disagree.
+    if(key === 'layout' || key === 'showArt'){
+      ['w','h'].forEach(function(k){
+        if(!(k in T.defaults)) return;
+        var fl = boxFloor(k, state);
+        if(state[k] && fl && state[k] < fl) state[k] = fl;
+      });
+      refresh.forEach(function(f){ f(); });
+    }
     paint();
     if(live) pushLive(); else reloadFrame();
   }
@@ -898,18 +943,35 @@
             var val = document.createElement('span');
             val.className = 'val';
             // zeroText lets a slider's zero position mean "automatic" and say
-            // so, instead of showing a meaningless "0px".
+            // so, instead of showing a meaningless "0px". The "min" suffix is
+            // the other half of the same honesty: a slider that has hit a wall
+            // should say so rather than appear broken.
             var show = function(){
-              val.textContent = (C.zeroText && !state[C.key]) ? C.zeroText
-                                                              : state[C.key] + C.unit;
+              var v = state[C.key];
+              if(C.zeroText && !v){ val.textContent = C.zeroText; return; }
+              var fl = C.floor ? boxFloor(C.floor, state) : 0;
+              val.textContent = v + C.unit + (fl && v <= fl ? ' min' : '');
             };
             show();
             rng.addEventListener('input', function(){
               var n = parseFloat(this.value);
               // Keep 1.25 as 1.25 but 18 as 18, so the URL never grows ".00".
-              set(C.key, C.step < 1 ? Math.round(n*100)/100 : n, live);
+              n = C.step < 1 ? Math.round(n*100)/100 : n;
+              // The stretch between Auto and the smallest box that still fits
+              // the type is unreachable, so make it magnetic instead of dead:
+              // the near half means "Auto", the far half means "as small as
+              // this layout goes".
+              if(C.floor){
+                var fl = boxFloor(C.floor, state);
+                if(fl && n > 0 && n < fl) n = (n < fl / 2) ? 0 : fl;
+              }
+              set(C.key, n, live);
               show();
             });
+            // Fires on release. The thumb can end up inside the unreachable
+            // stretch mid-drag; this settles it onto the value that actually
+            // took effect, so the control and the card never disagree.
+            rng.addEventListener('change', function(){ this.value = state[C.key]; });
             refresh.push(function(){ rng.value = state[C.key]; show(); });
             ctl.appendChild(rng); ctl.appendChild(val);
 

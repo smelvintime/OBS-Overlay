@@ -58,12 +58,26 @@ http://127.0.0.1:8787/?layout=big&accent=fa2d48&showAlbum=1
 |---|---|---|---|
 | `layout` | `card`, `big`, `ticker`, `minimal` | `card` | Which overlay style |
 | `accent` | hex, no `#` (e.g. `ff0055`), or `auto` | `1db954` | Bar/glow/equalizer color. `auto` takes it from the album art |
-| `theme` | `glass`, `solid` | `glass` | Card chrome (card and big only) |
+| `theme` | `auto`, `glass`, `solid`, `none` | `auto` | The panel behind the content, on **any** style. `auto` keeps each style's own look — Minimal bare, the rest frosted |
+| `artbg` | `auto`, `1`, `0` | `auto` | Blurred album cover washing through the panel. `auto` means Big-with-frosted only, where it used to live — set `1` to get it on Card, Minimal or the ticker |
 | `align` | `left`, `right` | `left` | Which side it sits and animates from |
 | `valign` | `top`, `bottom` | `bottom` | Vertical position |
 | `scale` | e.g. `1.25` | `1` | Overall size multiplier |
-| `w` | px, `200`–`1600` | hug the song | Fixed card width — the card holds this size whatever the title, and long titles scroll inside it. Card, Big and Minimal; the ticker is always full-width |
-| `h` | px, `64`–`600` | hug the song | Fixed card height — the album art grows to fill a taller card |
+| `w` | px, up to `1600` | hug the song | Fixed card width — the card holds this size whatever the title, and long titles scroll inside it. Card, Big and Minimal; the ticker is always full-width |
+| `h` | px, up to `600` | hug the song | Fixed card height — the album art grows to fill a taller card, up to what the text column can spare |
+
+**How small a fixed box can go.** Each style stops at the narrowest box its own
+text still reads in, and anything smaller is clamped up to it. Switching the
+album art off (`showArt=0`) removes the cover's column, so the floor drops:
+
+| Style | Min width | …with art off | Min height |
+|---|---|---|---|
+| Card | 280 | 190 | 96 |
+| Big | 480 | 300 | 160 |
+| Minimal | 240 | 150 | 72 |
+
+In the customizer the value reads **min** once you're at the wall, and dragging
+further left snaps to **Auto**.
 | `radius` | px, e.g. `24` | `18` | Corner roundness |
 | `speed` | px/sec, e.g. `90` | `60` | Ticker scroll speed |
 | `mqspeed` | px/sec, `5`–`200` | `30` | How fast an overflowing title scrolls back and forth (card, big, minimal) |

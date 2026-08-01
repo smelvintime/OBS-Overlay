@@ -8,7 +8,13 @@
   /* ---------------- Options via URL query params (all optional) ----------------
      ?layout=card|ticker|big|minimal   which overlay style        (default card)
      ?accent=9bd4f5|auto               accent color, hex no #; auto = from art
-     ?theme=glass|solid                card chrome (card + big)   (default glass)
+     ?theme=glass|solid|none|auto      the panel behind the content, on any
+                                       layout. auto = each layout's own look
+                                       (minimal bare, the rest frosted)
+                                                                  (default auto)
+     ?artbg=auto|1|0                   blurred album cover washing through the
+                                       panel. auto = big+frosted only, which is
+                                       where it used to live      (default auto)
      ?align=left|right                 side it sits / slides from (default left)
      ?valign=top|bottom                vertical position          (default bottom)
      ?scale=1.0                        size multiplier
@@ -87,7 +93,6 @@
      switched on only by the layout that actually wants them. Without this a
      layout inherits the others' empty boxes and picks up phantom gaps. */
   .backdrop,.accent-bar,.badge,.ticker-view{display:none}
-  body.layout-big .backdrop{display:block}
   body.layout-minimal .accent-bar{display:block}
   body.layout-ticker .badge{display:flex}
   body.layout-ticker .ticker-view{display:block}
@@ -160,10 +165,11 @@
   @keyframes mq{from{transform:translateX(0)}to{transform:translateX(calc(-1 * var(--dist,0px)))}}
 
   /* ============================ LAYOUT: card ============================ */
+  /* Background, border and blur are NOT here - they belong to the chrome
+     block at the end of this stylesheet, so every layout can wear any of
+     them. Layout rules own arrangement, size and shadow only. */
   body.layout-card .wrap{display:flex;align-items:center;gap:16px;
-    padding:14px 20px 14px 14px;background:var(--card-bg);
-    border:1px solid var(--card-border);border-radius:var(--radius);
-    backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);
+    padding:14px 20px 14px 14px;border-radius:var(--radius);
     box-shadow:0 12px 40px rgba(0,0,0,.45);max-width:560px}
   body.layout-card .art{width:64px;height:64px}
   body.layout-card .art .fallback{font-size:26px}
@@ -178,16 +184,8 @@
 
   /* ============================ LAYOUT: big ============================= */
   body.layout-big .wrap{position:relative;display:flex;align-items:center;gap:28px;
-    padding:24px 40px 24px 24px;background:var(--card-bg);
-    border:1px solid var(--card-border);border-radius:var(--radius);
-    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    padding:24px 40px 24px 24px;border-radius:var(--radius);
     box-shadow:0 24px 70px rgba(0,0,0,.55);max-width:900px;overflow:hidden}
-  /* blurred album art bleeding through the card background */
-  body.layout-big .backdrop{position:absolute;inset:0;background-size:cover;
-    background-position:center;filter:blur(38px) saturate(180%) brightness(.55);
-    transform:scale(1.35);opacity:0;transition:opacity .6s;z-index:0}
-  body.layout-big .wrap.show .backdrop{opacity:.75}
-  body.layout-big .art,body.layout-big .meta{position:relative;z-index:1}
   body.layout-big .art{width:160px;height:160px;border-radius:calc(var(--radius) - 4px);
     box-shadow:0 14px 40px rgba(0,0,0,.6)}
   body.layout-big .art .fallback{font-size:60px}
@@ -203,10 +201,8 @@
   /* Full-width bar with seamless continuously scrolling text. */
   body.layout-ticker #stage{padding:0}
   body.layout-ticker .wrap{display:flex;align-items:center;gap:16px;width:100%;
-    padding:0 0 0 14px;height:64px;background:var(--card-bg);
-    border-top:1px solid var(--card-border);border-bottom:2px solid var(--accent);
-    backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);
-    box-sizing:border-box;overflow:hidden}
+    padding:0 0 0 14px;height:64px;
+    box-sizing:border-box;overflow:hidden;position:relative}
   body.layout-ticker .art{width:44px;height:44px;border-radius:6px}
   body.layout-ticker .art .fallback{font-size:20px}
   body.layout-ticker .badge{flex:0 0 auto;display:flex;align-items:center;gap:8px;
@@ -253,10 +249,39 @@
   body.fixed-w .title,body.fixed-w .artist,body.fixed-w .album{max-width:none}
   body.fixed-box .wrap{overflow:hidden;box-sizing:border-box}
 
-  /* theme=solid drops the translucency (card + big) */
-  body.theme-solid .wrap{background:rgba(16,16,18,.985);
+  /* ---------- chrome: frosted / solid / none, on ANY layout ----------
+     Lifted out of the individual layouts so the frosted look is not a
+     privilege of Card and Big. Placed last on purpose: these match the
+     layout rules' specificity exactly, so source order is what lets them
+     win. Layout rules keep arrangement, padding, radius and shadow. */
+  body.chrome-glass .wrap{background:var(--card-bg);border:1px solid var(--card-border);
+    backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%)}
+  body.layout-big.chrome-glass .wrap{
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%)}
+  body.chrome-solid .wrap{background:rgba(16,16,18,.985);border:1px solid var(--card-border);
     backdrop-filter:none;-webkit-backdrop-filter:none}
-  body.theme-solid .backdrop{display:none}
+  body.chrome-none .wrap{background:none;border:0;box-shadow:none;
+    backdrop-filter:none;-webkit-backdrop-filter:none}
+
+  /* Minimal has no padding or corners of its own - it was never meant to be
+     a panel - so give it both the moment it is asked to wear one. */
+  body.layout-minimal.chrome-glass .wrap,body.layout-minimal.chrome-solid .wrap{
+    padding:12px 16px;border-radius:var(--radius)}
+  /* The ticker's edges are its identity: a hairline on top, the accent below. */
+  body.layout-ticker.chrome-glass .wrap,body.layout-ticker.chrome-solid .wrap{
+    border:0;border-top:1px solid var(--card-border);border-bottom:2px solid var(--accent)}
+
+  /* ---------- album-art hues (?artbg=) ----------
+     The blurred cover bleeding through the panel. Was welded to Big; now any
+     layout can carry it, and Big can drop it. */
+  body.artbg .backdrop{display:block;position:absolute;inset:0;background-size:cover;
+    background-position:center;filter:blur(38px) saturate(180%) brightness(.55);
+    transform:scale(1.35);opacity:0;transition:opacity .6s;z-index:0}
+  body.artbg .wrap{position:relative;overflow:hidden}
+  body.artbg .wrap.show .backdrop{opacity:.75}
+  /* Anything that should sit over the wash rather than under it. */
+  body.artbg .art,body.artbg .meta,body.artbg .badge,
+  body.artbg .ticker-view,body.artbg .accent-bar{position:relative;z-index:1}
 </style>
 <script src="/shared.js"></script>
 <script>
@@ -304,7 +329,23 @@ if(window.NPO) NPO.themeBoot('source');
   if(!layout){ layout = (theme==='minimal') ? 'minimal' : 'card'; }
   if(['card','ticker','big','minimal'].indexOf(layout)<0) layout='card';
   body.classList.add('layout-'+layout);
-  body.classList.add('theme-' + (theme==='solid' ? 'solid' : 'glass'));
+
+  // Chrome - the panel behind the content - is no longer a property of the
+  // layout. "auto" reproduces each layout's historical look exactly (Minimal
+  // bare, everything else frosted), so every URL saved before this existed
+  // renders unchanged. The parameter keeps the name ?theme= because that is
+  // what those URLs already say.
+  var chrome = (theme === 'minimal') ? '' : theme;      // legacy layout alias
+  if(['glass','solid','none'].indexOf(chrome) < 0) chrome = 'auto';
+  if(chrome === 'auto') chrome = (layout === 'minimal') ? 'none' : 'glass';
+  body.classList.add('chrome-' + chrome);
+
+  // The blurred album cover washing through the panel. "auto" is Big with
+  // frosted chrome and nothing else - precisely where it used to live - so
+  // this too changes nothing until someone asks it to.
+  var artbg = (q.get('artbg')||'auto').toLowerCase();
+  if(artbg === 'auto') artbg = (layout === 'big' && chrome === 'glass') ? '1' : '0';
+  if(artbg === '1' || artbg === 'on' || artbg === 'true') body.classList.add('artbg');
 
   // The four purely visual options live in one place because the customizer
   // re-sends them as you drag a slider, rather than reloading the frame on
@@ -485,11 +526,15 @@ if(window.NPO) NPO.themeBoot('source');
   // own type starts wrapping and clipping into soup - Big's 38px title needs
   // far more room than Minimal's 20px line. Anything smaller snaps up to the
   // smallest box that still reads cleanly.
+  // With the art switched off the card is a text block, and most of that
+  // floor was room for a cover that is no longer there - so it drops.
   var MINW = { card:280, big:480, minimal:240 };
+  var MINW_NOART = { card:190, big:300, minimal:150 };
   var MINH = { card:96,  big:160, minimal:72  };
+  var minW = (showArt ? MINW : MINW_NOART)[layout] || 200;
   var fixW = parseInt(q.get('w'),10), fixH = parseInt(q.get('h'),10);
   if(!isFinite(fixW) || fixW <= 0) fixW = 0;
-  else fixW = Math.max(MINW[layout] || 200, Math.min(1600, fixW));
+  else fixW = Math.max(minW, Math.min(1600, fixW));
   if(!isFinite(fixH) || fixH <= 0) fixH = 0;
   else fixH = Math.max(MINH[layout] || 64, Math.min(600, fixH));
   if(layout === 'ticker'){ fixW = 0; fixH = 0; }
@@ -592,7 +637,7 @@ if(window.NPO) NPO.themeBoot('source');
   // Fonts can finish after the first measurement, and a title measured in the
   // fallback font is a title measured wrong - re-check once they settle.
   if(document.fonts && document.fonts.ready)
-    document.fonts.ready.then(function(){ fitMarquee(); });
+    document.fonts.ready.then(function(){ fitMarquee(); buildBars(); });
 
   // ---- ticker conveyor -------------------------------------------------
   // A CSS keyframe loop has to restart when the track changes, which chops the
@@ -776,12 +821,35 @@ if(window.NPO) NPO.themeBoot('source');
 
   var eqs = [].slice.call(document.querySelectorAll('.eq'));
 
+  // How many bars the row can hold without shoving the label out of the card.
+  // The words are the point and the bars are decoration, so when a narrow
+  // fixed box cannot take the requested count, the count gives way - measured
+  // rather than guessed, because bar width, gaps and the label's own width
+  // all move with the layout, the theme and the font.
+  // Trim by asking whether the row actually overflows, not by computing how
+  // much room is free. Free space is the wrong question here: with no fixed
+  // width the card is sized BY this row, so "available" always comes back as
+  // roughly what the bars already occupy and the count creeps down a bar at a
+  // time for no reason. Overflow is self-limiting - when nothing is too wide,
+  // nothing is removed, and the ordinary card keeps every bar it asked for.
+  function trimBars(eq){
+    var row = eq.parentElement;
+    if(!row || !row.clientWidth) return;               // not laid out yet
+    var guard = 0;
+    while(eq.children.length > 1 && row.scrollWidth > row.clientWidth + 1 && guard++ < 64)
+      eq.removeChild(eq.lastChild);
+  }
+
   function buildBars(){
     eqs.forEach(function(eq){
       if(eqMode==='off'){ eq.classList.add('off'); return; }
-      if(eq.children.length===barCount) return;
-      eq.innerHTML='';
-      for(var i=0;i<barCount;i++) eq.appendChild(document.createElement('span'));
+      // Built at the asked-for count first so a real bar can be measured,
+      // then trimmed to what actually fits beside the label.
+      if(eq.children.length !== barCount){
+        eq.innerHTML='';
+        for(var i=0;i<barCount;i++) eq.appendChild(document.createElement('span'));
+      }
+      trimBars(eq);
     });
   }
   buildBars();
@@ -848,7 +916,7 @@ if(window.NPO) NPO.themeBoot('source');
       .finally(function(){ setTimeout(tick,1500); });
   }
   tick();
-  window.addEventListener('resize', function(){ fitMarquee(); });
+  window.addEventListener('resize', function(){ fitMarquee(); buildBars(); });
 
   // Hooks for the layouts and customize pages. Same origin only. Neither
   // message carries display content: the replay reuses the song we already
