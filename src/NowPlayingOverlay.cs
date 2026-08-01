@@ -301,8 +301,14 @@ namespace NowPlaying {
                           "Now Playing Overlay", MessageBoxButtons.OK, MessageBoxIcon.Warning);
           return;
         }
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
-          "explorer.exe", "\"" + dir + "\"") { UseShellExecute = true });
+        // Hand the folder to the shell rather than passing it to explorer.exe
+        // as an argument. Explorer parses its own command line and can refuse
+        // a path it has only just learned about - a folder created moments
+        // earlier by the click itself is exactly that case, and it reports
+        // "location is not available" for a folder that demonstrably exists.
+        // The shell opens the item directly and has no such trouble.
+        System.Diagnostics.Process.Start(
+          new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
       } catch (Exception ex) {
         AppLog.Write("open folder failed (" + dir + "): " + ex.Message);
         MessageBox.Show("Could not open:\r\n\r\n" + dir + "\r\n\r\n" + ex.Message,
@@ -692,6 +698,16 @@ namespace NowPlaying {
       var poller = new Thread(PollLoop);
       poller.IsBackground = true;
       poller.Start();          // left MTA on purpose - see Await()
+
+      // Make the media folder real at startup instead of on first use. It was
+      // created lazily by whatever touched it first, so until someone opened
+      // the Customize tab the folder the docs and the tray menu both tell you
+      // to put files in did not exist - and the tray item, which created it
+      // and opened it in the same breath, handed the shell a folder that was
+      // microseconds old and got told the location was unavailable.
+      try { MediaDir(); } catch (Exception ex) {
+        AppLog.Write("could not create the media folder: " + ex.Message);
+      }
 
       if (_featEq) AudioSpectrum.Start();   // live equaliser; self-heals if the device changes
       else AppLog.Write("equaliser: not started - switched off on the Features page");
