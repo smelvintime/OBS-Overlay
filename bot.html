@@ -182,6 +182,25 @@
   </div>
 
   <div class="panel">
+    <div class="phead">
+      <h2>Thank new followers</h2>
+      <span class="sub">Says thanks in chat when someone follows. Viewers can&rsquo;t trigger it
+        by typing, each person is thanked once, and a burst of follows becomes one message
+        naming a few people &mdash; so it can&rsquo;t be turned into spam.</span>
+      <span class="spacer"></span>
+      <label class="toggle" title="Thank new followers in chat">
+        <input type="checkbox" id="ftOn" /><span class="track"></span>
+      </label>
+    </div>
+    <div class="addrow">
+      <input type="text" id="ftMsg" spellcheck="false"
+             title="What the bot says. {user} becomes the follower's name." />
+      <button type="button" class="primary" id="ftSave">Save</button>
+    </div>
+    <div class="tryout" id="ftPreview"></div>
+  </div>
+
+  <div class="panel">
     <div class="phead"><h2>Recently answered</h2>
       <span class="sub">The last few things it actually said in chat.</span></div>
     <div class="feed" id="feed"></div>
@@ -273,6 +292,7 @@
 
     renderSetup();
     if(!editing) renderRows();
+    renderThanks();
     renderFeed();
   }
 
@@ -384,6 +404,30 @@
   masterEl.addEventListener('change', function(){
     set('what=bot&value=' + (this.checked ? '1' : '0'));
   });
+
+  // ---- follow thank-you ------------------------------------------------------
+  var ftOn = document.getElementById('ftOn'), ftMsg = document.getElementById('ftMsg'),
+      ftPreview = document.getElementById('ftPreview');
+
+  function renderThanks(){
+    ftOn.checked = !!data.followThanks;
+    // Same rule as the command rows: the 3s poll must not stamp over typing.
+    if(document.activeElement !== ftMsg) ftMsg.value = data.followTemplate || '';
+    var t = (document.activeElement === ftMsg ? ftMsg.value : data.followTemplate) || '';
+    ftPreview.innerHTML = 'In chat: <span class="said">'
+      + esc(t.replace(/\{user\}/g, 'SomeViewer')) + '</span>'
+      + (data.followThanks ? '' : '  <span style="color:var(--dim)">(switched off)</span>');
+  }
+
+  function saveThanks(){
+    set('what=followthanks&value=' + (ftOn.checked ? '1' : '0')
+      + '&template=' + encodeURIComponent(ftMsg.value));
+  }
+
+  ftOn.addEventListener('change', saveThanks);
+  document.getElementById('ftSave').addEventListener('click', function(){ saveThanks(); });
+  ftMsg.addEventListener('keydown', function(e){ if(e.key === 'Enter') saveThanks(); });
+  ftMsg.addEventListener('input', function(){ if(data) renderThanks(); });
 
   document.getElementById('restoreBtn').addEventListener('click', function(){
     set('what=restore');

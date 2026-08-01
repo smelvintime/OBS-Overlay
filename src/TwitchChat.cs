@@ -62,6 +62,125 @@ namespace NowPlaying {
       try { var t = _tcp; if (t != null) t.Close(); } catch { }
     }
 
+    // ---------------------------------------------------------- follow thanks
+    // The bot thanks new followers in chat. Driven by the EventSub follow
+    // event from TwitchEvents, not by anything a viewer can type - which is
+    // what makes it different from a command: chat cannot trigger it at all.
+    // The two abuse paths that remain are follow/unfollow toggling and
+    // follow-bot waves, and both are closed here: a name is thanked at most
+    // once per app run, and a burst becomes one message naming a few people,
+    // never a message per follow.
+    static volatile bool _followThanks = true;
+    static string _followTemplate = "Thanks for the follow, {user}!";
+    static readonly object _thanksLock = new object();
+    static readonly List<string> _pendingThanks = new List<string>();
+    static DateTime _oldestPendingAt;
+    static DateTime _lastThanksAt = DateTime.MinValue;
+    static readonly HashSet<string> _thanked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    static readonly Queue<string> _thankedOrder = new Queue<string>();
+
+    // The live connection's writer, so the thanks flusher can speak while the
+    // read loop sits in its blocking ReadLine. One reader plus one writer on
+    // an SslStream is fine; two writers are not, so every PRIVMSG/PONG the
+    // read loop sends goes through _sendLock too.
+    static volatile StreamWriter _wr;
+    static readonly object _sendLock = new object();
+
+    public static void OnFollow(string user) {
+      if (!_enabled || !_followThanks || string.IsNullOrEmpty(user)) return;
+      lock (_thanksLock) {
+        if (_thanked.Contains(user)) return;         // refollow toggling: one thanks, ever
+        foreach (var p in _pendingThanks)
+          if (string.Equals(p, user, StringComparison.OrdinalIgnoreCase)) return;
+        if (_pendingThanks.Count >= 50) return;      // a bot wave past this is just noise
+        if (_pendingThanks.Count == 0) _oldestPendingAt = DateTime.UtcNow;
+        _pendingThanks.Add(user);
+      }
+    }
+
+    // One line, however many followed: "a, b and 3 more". The cap on named
+    // people keeps a raid's thank-you shorter than the raid.
+    static string BuildThanks(List<string> names) {
+      string who;
+      if (names.Count == 1) who = names[0];
+      else if (names.Count <= 3)
+        who = string.Join(", ", names.GetRange(0, names.Count - 1).ToArray())
+            + " and " + names[names.Count - 1];
+      else
+        who = names[0] + ", " + names[1] + " and " + (names.Count - 2) + " more";
+      return _followTemplate.Replace("{user}", who);
+    }
+
+    static Thread _thanksThread;
+
+    static void StartThanksThread() {
+      if (_thanksThread != null && _thanksThread.IsAlive) return;
+      _thanksThread = new Thread(ThanksLoop);
+      _thanksThread.IsBackground = true;
+      _thanksThread.Start();
+    }
+
+    static void ThanksLoop() {
+      while (true) {
+        Thread.Sleep(1000);
+        try {
+          if (!_enabled || _status != "live" || _wr == null) {
+            // A thank-you delivered half an hour late reads as a glitch, so
+            // anything that has waited out a long disconnect is let go. The
+            // names were never marked thanked, so a genuinely new follow
+            // while the bot was down simply goes unthanked, not double-thanked.
+            lock (_thanksLock) {
+              if (_pendingThanks.Count > 0
+                  && (DateTime.UtcNow - _oldestPendingAt).TotalMinutes > 5)
+                _pendingThanks.Clear();
+            }
+            continue;
+          }
+          string msg = null;
+          lock (_thanksLock) {
+            if (_pendingThanks.Count == 0) continue;
+            // Linger a few seconds so a burst lands as one message, and never
+            // thank more often than every 15s no matter what Twitch sends.
+            if ((DateTime.UtcNow - _oldestPendingAt).TotalSeconds < 4) continue;
+            if ((DateTime.UtcNow - _lastThanksAt).TotalSeconds < 15) continue;
+            msg = BuildThanks(_pendingThanks);
+            foreach (var n in _pendingThanks) {
+              if (!_thanked.Add(n)) continue;
+              _thankedOrder.Enqueue(n);
+              while (_thankedOrder.Count > 500) _thanked.Remove(_thankedOrder.Dequeue());
+            }
+            _pendingThanks.Clear();
+            _lastThanksAt = DateTime.UtcNow;
+          }
+          var wr = _wr;
+          if (wr != null && msg.Length > 0) {
+            lock (_sendLock) {
+              wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(msg));
+              _lastSent = msg;
+            }
+            _sent++;
+            Note("(new follower)", "follow-thanks", msg);
+          }
+        } catch {
+          // a socket dying mid-write is the reconnect loop's problem, not ours
+        }
+      }
+    }
+
+    public static void SetFollowThanks(bool on, string template) {
+      _followThanks = on;
+      if (template != null) {
+        template = template.Trim().Replace("\\n", " ").Replace("\n", " ");
+        if (template.Length == 0) template = "Thanks for the follow, {user}!";
+        if (template.Length > 400) template = template.Substring(0, 400);
+        // One chat line, always: splitting is for commands; this feature's
+        // whole reason to exist is staying unspammable.
+        _followTemplate = template;
+      }
+      TwitchEvents.SaveBotFollowThanks(_followThanks, _followTemplate);
+      AppLog.Write("chat: follow thanks " + (on ? "on" : "off"));
+    }
+
     // ------------------------------------------------------------- recent log
     // What it actually said, so the dashboard can show that it is working
     // without anyone having to watch the channel.
@@ -89,6 +208,14 @@ namespace NowPlaying {
         _botUser = Cfg(cfg, "botUsername").Trim().ToLowerInvariant();
         _token = Cfg(cfg, "oauthToken").Trim();
         _botRefresh = Cfg(cfg, "botRefreshToken").Trim();
+
+        // Follow thank-you: on unless the config says otherwise (it only
+        // speaks when the bot itself is on, so "on by default" costs nothing
+        // for anyone who never enables the bot).
+        string ft = Cfg(cfg, "followThanks").Trim().ToLowerInvariant();
+        _followThanks = !(ft == "0" || ft == "false" || ft == "off");
+        string ftt = Cfg(cfg, "followThanksTemplate").Trim();
+        if (ftt.Length > 0) _followTemplate = ftt;
 
         // Chat wants the oauth: prefix; the Helix token must not have it. Accept
         // either spelling here and normalise, because the two tokens sit next to
@@ -135,6 +262,7 @@ namespace NowPlaying {
       LoadConfig();
       BotCommands.Load();
       CheckScopes();
+      StartThanksThread();
       if (_enabled && Configured) StartThread();
     }
 
@@ -297,7 +425,7 @@ namespace NowPlaying {
             var ev = Parse(line);
             switch (ev.Type) {
               case "PING":
-                wr.WriteLine("PONG :" + ev.Text);
+                lock (_sendLock) wr.WriteLine("PONG :" + ev.Text);
                 break;
 
               case "WELCOME":
@@ -306,6 +434,7 @@ namespace NowPlaying {
                 _connectedAt = DateTime.Now.ToString("HH:mm:ss");
                 backoff = 5;
                 _authFails = 0;
+                _wr = wr;      // from here the thanks flusher may speak too
                 AppLog.Write("chat: logged in as " + _botUser);
                 break;
 
@@ -347,6 +476,7 @@ namespace NowPlaying {
         } catch (Exception ex) {
           if (!_stopFlag) AppLog.Write("chat: connection problem: " + ex.Message);
         } finally {
+          _wr = null;         // the flusher must never write to a dead stream
           try { if (rd != null) rd.Dispose(); } catch { }
           try { if (wr != null) wr.Dispose(); } catch { }
           try { if (ssl != null) ssl.Dispose(); } catch { }
@@ -484,8 +614,12 @@ namespace NowPlaying {
         // on the read loop is fine at this scale: five lines hold it for two
         // seconds against a PING cadence of five minutes.
         if (sent > 0) Thread.Sleep(600);
-        wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(one));
-        _lastSent = one;
+        // _sendLock: the follow-thanks flusher writes on its own thread, and
+        // two writers interleaving on one SslStream corrupt the TLS stream.
+        lock (_sendLock) {
+          wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(one));
+          _lastSent = one;
+        }
         _sent++;
         sent++;
       }
@@ -600,6 +734,8 @@ namespace NowPlaying {
       sb.Append("\"status\":").Append(Qs(_status)).Append(',');
       sb.Append("\"detail\":").Append(Qs(_detail)).Append(',');
       sb.Append("\"enabled\":").Append(_enabled ? "true" : "false").Append(',');
+      sb.Append("\"followThanks\":").Append(_followThanks ? "true" : "false").Append(',');
+      sb.Append("\"followTemplate\":").Append(Qs(_followTemplate)).Append(',');
       sb.Append("\"configured\":").Append(Configured ? "true" : "false").Append(',');
       sb.Append("\"channel\":").Append(Qs(_channel)).Append(',');
       sb.Append("\"botUser\":").Append(Qs(_botUser)).Append(',');
