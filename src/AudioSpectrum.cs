@@ -461,10 +461,19 @@ namespace NowPlaying {
       lock (_lock) {
         rate = _rate;
         int pos = _ringPos;
+        // Subtract the frame's mean before windowing. Any DC offset in the
+        // capture leaks through the window's skirt into the first few bins,
+        // and in a quiet room that leakage becomes the loudest thing the
+        // meter sees - the AGC locks onto it and the far-left bar sits
+        // permanently lit while everything else floors (the "sliver" bar).
+        // DC is the mean by definition; removing it kills the whole skirt.
+        double mean = 0;
+        for (int i = 0; i < FftSize; i++) mean += _ring[i];
+        mean /= FftSize;
         for (int i = 0; i < FftSize; i++) {
           // Hann window keeps neighbouring bands from bleeding into each other
           double w = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (FftSize - 1));
-          _re[i] = _ring[(pos + i) % FftSize] * w;
+          _re[i] = (_ring[(pos + i) % FftSize] - mean) * w;
           _im[i] = 0;
         }
       }
@@ -481,9 +490,11 @@ namespace NowPlaying {
       // naive floor() mapping handed the SAME bin to two neighbouring bands -
       // which is why the far-left bars moved in perfect lockstep. Forcing the
       // start past the previous band's end costs a little frequency accuracy
-      // at the very bottom and buys every bar its own signal. Bin 0 is DC and
-      // never belongs to any band.
-      int prevEnd = 1;
+      // at the very bottom and buys every bar its own signal. Bins 0 and 1
+      // never belong to any band: 0 is DC, and 1 spans ~12-35Hz - below the
+      // declared LowHz and mostly driver rumble, which the per-band
+      // normalisation would happily dress up as music.
+      int prevEnd = 2;
       for (int b = 0; b < Bands; b++) {
         double f0 = LowHz * Math.Pow(HighHz / LowHz, (double)b / Bands);
         double f1 = LowHz * Math.Pow(HighHz / LowHz, (double)(b + 1) / Bands);
