@@ -344,6 +344,23 @@ namespace NowPlaying {
         return false;
       }
       string login = WhoAuthorized(access);
+      // This flow reuses whatever Twitch session the browser already holds
+      // (no force_verify - re-consent should stay one click), which makes
+      // "connected as the wrong account" the easiest mistake to make and the
+      // most expensive to find: count polls work with anyone's token, so the
+      // numbers keep moving, while the follow subscription needs the
+      // channel's own account and dies quietly - alerts and the newest
+      // follower just never update. Refuse the mismatch here, with the fix
+      // in the message, instead of letting it half-work for weeks.
+      if (login.Length > 0 && _channel.Length > 0
+          && !login.Equals(_channel, StringComparison.OrdinalIgnoreCase)) {
+        error = "Twitch was signed in as \"" + login + "\" but this channel is \"" + _channel
+              + "\". Alerts need the channel's own account: open twitch.tv, switch to "
+              + _channel + " (the \"Not you?\" link on Twitch's page), then press Connect again.";
+        AppLog.Write("setup: OAuth account mismatch - authorized \"" + login
+                   + "\", channel \"" + _channel + "\" - tokens not saved");
+        return false;
+      }
       try {
         string p = ConfigPathOrDefault();
         Dictionary<string, object> cfg = File.Exists(p) ? ReadConfig(p) : new Dictionary<string, object>();
