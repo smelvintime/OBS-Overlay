@@ -384,7 +384,7 @@
         style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
         radius:16, opacity:100, hold:6, spins:1.5,
-        sound:'', soundvol:70, media:'', mediah:180
+        sound:'', soundvol:70, media:'', mediah:180, mediax:50, mediay:50, mediadelay:0
       },
       size:function(){ return {w:1920, h:1080}; },
       actions:[
@@ -438,9 +438,19 @@
                + 'that is a browser rule; OBS plays it every time.' },
           { key:'soundvol', label:'Volume', type:'range', min:0, max:100, step:5, unit:'%' },
           { key:'media', label:'Clip', type:'media', kind:'visual',
-            note:'A gif, image or looping video (mp4 / webm, always muted) shown centered '
-               + 'over the canvas while each alert is up.' },
-          { key:'mediah', label:'Clip size', type:'range', min:40, max:540, step:10, unit:'px' }
+            note:'A gif, image or looping video (mp4 / webm, always muted) shown while each '
+               + 'alert is up. Gifs and videos restart from their first frame on every '
+               + 'alert; size and place it with the sliders below.' },
+          { key:'mediah', label:'Clip size', type:'range', min:40, max:720, step:10, unit:'px' },
+          { key:'mediax', label:'Across', type:'range', min:0, max:100, step:1, unit:'%' },
+          { key:'mediay', label:'Down', type:'range', min:0, max:100, step:1, unit:'%',
+            note:'Where the middle of the clip sits on the canvas: 0% across is the left '
+               + 'edge, 100% the right; 0% down is the top. 50 / 50 is dead centre.' },
+          { key:'mediadelay', label:'Clip delay', type:'range', min:0, max:3, step:0.1, unit:'s',
+            zeroText:'With the alert',
+            note:'Holds the clip back this long after the alert lands - for a sound that '
+               + 'builds before the visual should hit. Keep it shorter than On screen, or '
+               + 'the clip loses its turn entirely.' }
         ]},
         { title:'Timing', controls:[
           { key:'hold', label:'On screen', type:'range', min:2, max:20, step:1, unit:'s' }

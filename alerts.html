@@ -33,8 +33,14 @@
                                    folder (mp3 / wav / ogg / m4a)
      ?soundvol=70                  sound volume 0-100           (default 70)
      ?media=hype.webm              a gif, image or looping video (mp4/webm,
-                                   muted) shown centered while the alert is up
-     ?mediah=180                   clip height in px 40-540     (default 180)
+                                   muted) shown while the alert is up; gifs
+                                   and videos restart from their first frame
+                                   on every alert
+     ?mediah=180                   clip height in px 40-720     (default 180)
+     ?mediax=50                    clip centre, % across canvas (default 50)
+     ?mediay=50                    clip centre, % down canvas   (default 50)
+     ?mediadelay=0                 seconds between the alert landing and the
+                                   clip starting, 0-5           (default 0)
      ?demo=1                       cycle fake alerts, no server needed
      ?preview=1                    hold one sample alert on screen permanently;
                                    used by the customizer, never on stream
@@ -81,14 +87,17 @@
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
-  /* The clip layer sits centered in the canvas, independent of where the card
+  /* The clip is pinned by its centre to one point of the canvas (--mx/--my,
+     from ?mediax/?mediay, default the middle), independent of where the card
      is pinned - the card can go in any of nine positions and a clip glued to
      it would fight every frame style. It fades with the same opacity the card
-     uses so the two always read as one alert. */
-  #medialayer{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-    pointer-events:none;opacity:0;transition:opacity .3s ease;z-index:0}
+     uses so the two always read as one alert. No max-width cap any more: the
+     size is an explicit choice now, and a cap would silently overrule a wide
+     clip that was placed on purpose. */
+  #medialayer{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .3s ease;z-index:0}
   #medialayer.on{opacity:var(--overlay-opacity)}
-  #medialayer img,#medialayer video{max-width:82%;border-radius:12px}
+  #medialayer img,#medialayer video{position:absolute;left:var(--mx,50%);top:var(--my,50%);
+    transform:translate(-50%,-50%);border-radius:12px}
   /* z-index 1: the clip layer below is appended to <body> after this, and two
      fixed elements at the same level paint in DOM order - without this the
      clip covers the card whenever the two overlap. */
@@ -429,7 +438,13 @@ if(window.NPO) NPO.themeBoot('source');
   if(!isFinite(soundVol) || soundVol < 0 || soundVol > 100) soundVol = 70;
   var mediaFile = (qs.get('media') || '').trim();
   var mediaH = parseInt(qs.get('mediah'), 10);
-  if(!isFinite(mediaH) || mediaH < 40 || mediaH > 540) mediaH = 180;
+  if(!isFinite(mediaH) || mediaH < 40 || mediaH > 720) mediaH = 180;
+  var mediaX = parseFloat(qs.get('mediax'));
+  if(!isFinite(mediaX) || mediaX < 0 || mediaX > 100) mediaX = 50;
+  var mediaY = parseFloat(qs.get('mediay'));
+  if(!isFinite(mediaY) || mediaY < 0 || mediaY > 100) mediaY = 50;
+  var mediaDelay = parseFloat(qs.get('mediadelay'));
+  if(!isFinite(mediaDelay) || mediaDelay < 0 || mediaDelay > 5) mediaDelay = 0;
 
   var sndEl = null;
   if(soundFile){
@@ -438,23 +453,85 @@ if(window.NPO) NPO.themeBoot('source');
     sndEl.volume = soundVol / 100;
   }
 
-  var mediaLayer = null, mediaEl = null;
+  // A gif needs different machinery from everything else. An <img> pointed at
+  // a gif starts animating the moment the bytes arrive and loops forever -
+  // there is no pause and no rewind - so left alone it is mid-loop whenever an
+  // alert happens to land, which reads as broken. The only way to start one at
+  // frame 0 on cue is to hand the element a NEW resource each time: the file
+  // is fetched once into memory here, and every alert then mints a fresh
+  // object URL over those same bytes, which decodes with no network trip and
+  // begins at the first frame.
+  var mediaLayer = null, mediaEl = null, mediaKind = '';
+  var mediaUrl = '', mediaBlob = null, mediaBlobSrc = '';
+  var mediaDelayTimer = null, mediaIdleTimer = null;
+  // Bumped on every show and hide. decode() promises and safety-net timers
+  // from a superseded alert check it before touching the layer, so a test
+  // cutting in mid-fade can't be flashed by its predecessor's stragglers.
+  var mediaGen = 0;
   if(mediaFile){
     mediaLayer = document.createElement('div');
     mediaLayer.id = 'medialayer';
-    var mUrl = '/media/' + encodeURIComponent(mediaFile);
+    mediaLayer.style.setProperty('--mx', mediaX + '%');
+    mediaLayer.style.setProperty('--my', mediaY + '%');
+    mediaUrl = '/media/' + encodeURIComponent(mediaFile);
     var mExt = (mediaFile.split('.').pop() || '').toLowerCase();
     if(mExt === 'mp4' || mExt === 'webm'){
+      mediaKind = 'video';
       mediaEl = document.createElement('video');
       mediaEl.muted = true; mediaEl.loop = true; mediaEl.playsInline = true;
-      mediaEl.preload = 'auto'; mediaEl.src = mUrl;
-    } else {
+      mediaEl.preload = 'auto'; mediaEl.src = mediaUrl;
+    } else if(mExt === 'gif'){
+      mediaKind = 'gif';
       mediaEl = document.createElement('img');
-      mediaEl.src = mUrl;
+      mediaEl.alt = '';
+      fetch(mediaUrl)
+        .then(function(r){ return r.ok ? r.blob() : null; })
+        .then(function(b){ mediaBlob = b; })
+        .catch(function(){});
+    } else {
+      mediaKind = 'image';
+      mediaEl = document.createElement('img');
+      mediaEl.alt = '';
+      mediaEl.src = mediaUrl;
     }
     mediaEl.style.height = mediaH + 'px';
     mediaLayer.appendChild(mediaEl);
     document.body.appendChild(mediaLayer);
+  }
+
+  function clipStart(){
+    var gen = ++mediaGen;
+    var arm = function(){
+      if(gen !== mediaGen) return;   // a newer show or a hide superseded this
+      mediaLayer.classList.add('on');
+    };
+    if(mediaKind === 'gif'){
+      var old = mediaBlobSrc;
+      if(mediaBlob){
+        mediaBlobSrc = URL.createObjectURL(mediaBlob);
+        mediaEl.src = mediaBlobSrc;
+      } else {
+        // The first alert can beat the fetch; playing from the server
+        // directly - mid-loop, once - beats showing nothing at all.
+        mediaEl.src = mediaUrl;
+      }
+      if(old) URL.revokeObjectURL(old);
+      // Fade in only once frame 0 is actually decoded, so the gap between
+      // the event and the visual is exactly as long as it needs to be and no
+      // longer - the alert never fades in over a half-painted image. The
+      // timer is the net for a decoder that never resolves.
+      if(mediaEl.decode) mediaEl.decode().then(arm, arm); else arm();
+      setTimeout(arm, 400);
+    } else if(mediaKind === 'video'){
+      // Rewind before play: a video paused partway by the previous hide, or
+      // still rolling when a test cuts in, must still start this alert at
+      // its first frame.
+      try { mediaEl.currentTime = 0; } catch(e){}
+      try { var q = mediaEl.play(); if(q && q.catch) q.catch(function(){}); } catch(e){}
+      arm();
+    } else {
+      arm();
+    }
   }
 
   function mediaShow(){
@@ -464,14 +541,29 @@ if(window.NPO) NPO.themeBoot('source');
       try { sndEl.currentTime = 0; var p = sndEl.play(); if(p && p.catch) p.catch(function(){}); } catch(e){}
     }
     if(mediaLayer){
-      mediaLayer.classList.add('on');
-      if(mediaEl.play){ try { var q = mediaEl.play(); if(q && q.catch) q.catch(function(){}); } catch(e){} }
+      clearTimeout(mediaDelayTimer);
+      clearTimeout(mediaIdleTimer);   // a show at fade's end must not have its src swept
+      if(mediaDelay > 0) mediaDelayTimer = setTimeout(clipStart, mediaDelay * 1000);
+      else clipStart();
     }
   }
   function mediaHide(){
     if(mediaLayer){
+      mediaGen++;
+      clearTimeout(mediaDelayTimer);
       mediaLayer.classList.remove('on');
-      if(mediaEl.pause){ try { mediaEl.pause(); mediaEl.currentTime = 0; } catch(e){} }
+      if(mediaKind === 'video'){
+        try { mediaEl.pause(); mediaEl.currentTime = 0; } catch(e){}
+      } else if(mediaKind === 'gif'){
+        // Once the fade is over, drop the src entirely. A gif at opacity 0
+        // still animates and still burns CPU, for the whole stretch of stream
+        // between one alert and the next.
+        clearTimeout(mediaIdleTimer);
+        mediaIdleTimer = setTimeout(function(){
+          mediaEl.removeAttribute('src');
+          if(mediaBlobSrc){ URL.revokeObjectURL(mediaBlobSrc); mediaBlobSrc = ''; }
+        }, 350);
+      }
     }
     if(sndEl){ try { sndEl.pause(); } catch(e){} }
   }

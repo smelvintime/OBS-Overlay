@@ -114,11 +114,20 @@ Alerts can play a sound and show a gif, image or looping video each time one lan
    `mp3` / `wav` / `ogg` / `m4a` for sounds, `gif` / `png` / `jpg` / `webp` /
    `mp4` / `webm` for visuals.
 2. In the **Customize** tab, pick the alerts source — the **Sound and clip**
-   section lists whatever is in the folder. Pick, set the volume and clip size,
-   copy the URL into OBS as usual.
+   section lists whatever is in the folder. Pick, set the volume, size and
+   place the clip, copy the URL into OBS as usual.
 
 Details worth knowing:
 
+- **The clip restarts on every alert.** A gif or video begins at its first
+  frame the moment the alert lands — the file is held ready in memory, so
+  there is no loading pause and it never appears mid-loop.
+- **Place it anywhere.** The two position sliders pin the clip's centre to any
+  point of the canvas — a corner, an edge, over the game. Dead centre is just
+  the default, not the rule.
+- **Clip delay** holds the visual back a beat after the alert lands, for a
+  sound that builds up before the drop. Keep it shorter than the on-screen
+  time, or the clip never gets its turn.
 - **Videos always play muted and looping** while the alert is on screen; the
   sound comes from the separate sound setting, so the two can be mixed freely.
 - **Hearing it in OBS**: browser sources output audio through OBS. If you don't
@@ -127,8 +136,9 @@ Details worth knowing:
 - **The dashboard preview may stay silent** until you click somewhere on the
   page once. That is a browser autoplay rule, not a fault; OBS has no such rule
   and plays it every time.
-- Keep clips short and reasonably sized — the file is read fresh from disk and
-  a multi-hundred-MB video as an alert clip will stutter.
+- Keep clips short and reasonably sized — a gif is held decoded in memory for
+  instant restarts, and a multi-hundred-MB video as an alert clip will stutter.
+  A few seconds and a few MB is the sweet spot.
 
 ## Testing it with a second account
 
