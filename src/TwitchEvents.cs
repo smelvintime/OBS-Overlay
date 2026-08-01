@@ -750,6 +750,7 @@ namespace NowPlaying {
       "channel",
       "_comment_chat", "botUsername", "oauthToken", "botRefreshToken", "command", "cooldownSeconds", "npUrl",
       "responseTemplate", "pausedTemplate", "notPlayingMessage",
+      "followThanks", "followThanksTemplate",
       "_comment_api", "clientId", "clientSecret", "apiToken", "refreshToken",
       "_comment_goals", "followerGoal", "subGoal"
     };
@@ -782,6 +783,24 @@ namespace NowPlaying {
         File.WriteAllText(p, WriteConfig(cfg));
       } catch (Exception ex) {
         AppLog.Write("chat: could not save refreshed bot token: " + ex.Message);
+      }
+    }
+
+    // The follow thank-you's two settings, written by the bot dashboard. Lives
+    // here for the same reason SaveBotTokens does: this class owns the config
+    // file's path and hand-readable format.
+    internal static void SaveBotFollowThanks(bool on, string template) {
+      string p = _configPath;
+      if (p == null) p = FindConfigPath();
+      if (p == null) return;
+      try {
+        var cfg = ReadConfig(p);
+        if (cfg == null) return;
+        cfg["followThanks"] = on;
+        cfg["followThanksTemplate"] = template ?? "";
+        File.WriteAllText(p, WriteConfig(cfg));
+      } catch (Exception ex) {
+        AppLog.Write("chat: could not save follow-thanks settings: " + ex.Message);
       }
     }
 
@@ -1081,6 +1100,10 @@ namespace NowPlaying {
         if (!test) {
           lock (_stateLock) { _lastFollower = user; _lastFollowerAt = SNav(ev, "followed_at"); }
           if (_followerTotal >= 0) _followerTotal++;
+          // The bot's thank-you in chat. Real follows only - a rehearsal from
+          // /twitch/test must never speak in the client's channel. Dedup and
+          // burst-coalescing live on the chat side.
+          TwitchChat.OnFollow(user);
         }
         Push("{\"kind\":\"follow\",\"user\":" + Q(user) + ",\"at\":" + Q(at) + tail);
 
@@ -1286,7 +1309,14 @@ namespace NowPlaying {
     // ----------------------------------------------------------------- start
     public static void Start() {
       LoadState();
-      LoadConfig();
+      LoadConfig();     // always runs, even disabled: the chat bot borrows
+                        // clientId/clientSecret from here for token refresh
+      if (!Program.TwitchFeatureOn) {
+        _status = "disabled";
+        _detail = "alerts and goal boxes are turned off on the Features page";
+        AppLog.Write("twitch: not starting - switched off on the Features page");
+        return;
+      }
       if (!Configured) return;
 
       // .NET Framework still negotiates TLS 1.0 by default on some machines and

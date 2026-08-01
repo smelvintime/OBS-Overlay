@@ -67,6 +67,33 @@ namespace NowPlaying {
     static volatile string _mode = "auto";
     static volatile string _pinApp = "";
 
+    // ---- feature switches ---------------------------------------------------
+    // Each of these is a background engine that costs something even when
+    // nothing is looking: media detection makes COM/WinRT calls every second,
+    // the equaliser captures audio at ~30fps, Twitch holds a socket open and
+    // polls Helix every minute. Pages and layouts are deliberately NOT switches
+    // - an unused page costs nothing, because the server only does work while
+    // something is holding it open. The chat bot has its own switch (/bot/set).
+    //
+    // Music detection applies live (the poller checks it every tick). The
+    // other two start threads that run forever by design, so flipping them
+    // takes the same clean self-restart the OAuth flow already uses - simpler
+    // and better tested than teaching every loop to stop and start again.
+    static volatile bool _featOverlay = true, _featEq = true, _featTwitch = true;
+    static bool _bootEq = true, _bootTwitch = true;   // what this process started with
+
+    internal static bool TwitchFeatureOn { get { return _featTwitch; } }
+
+    static bool FeatOn(string v) { return !(v == "0" || v == "off" || v == "false"); }
+
+    static string FeaturesJson() {
+      bool restart = (_featEq != _bootEq) || (_featTwitch != _bootTwitch);
+      return "{\"overlay\":" + (_featOverlay ? "true" : "false")
+           + ",\"eq\":" + (_featEq ? "true" : "false")
+           + ",\"twitch\":" + (_featTwitch ? "true" : "false")
+           + ",\"restartNeeded\":" + (restart ? "true" : "false") + "}";
+    }
+
     static string SettingsPath() {
       string dir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -87,6 +114,9 @@ namespace NowPlaying {
           if (k == "mode") _mode = NormalizeMode(v);
           else if (k == "app") _pinApp = v;
           else if (k == "bot") TwitchChat.RestoreEnabled(v == "1" || v == "on" || v == "true");
+          else if (k == "feat.overlay") _featOverlay = FeatOn(v);
+          else if (k == "feat.eq") _featEq = FeatOn(v);
+          else if (k == "feat.twitch") _featTwitch = FeatOn(v);
         }
         if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
       } catch { }
@@ -96,7 +126,10 @@ namespace NowPlaying {
       try {
         File.WriteAllText(SettingsPath(),
           "mode=" + _mode + "\r\napp=" + _pinApp + "\r\n"
-          + "bot=" + (TwitchChat.Enabled ? "1" : "0") + "\r\n");
+          + "bot=" + (TwitchChat.Enabled ? "1" : "0") + "\r\n"
+          + "feat.overlay=" + (_featOverlay ? "1" : "0") + "\r\n"
+          + "feat.eq=" + (_featEq ? "1" : "0") + "\r\n"
+          + "feat.twitch=" + (_featTwitch ? "1" : "0") + "\r\n");
       } catch { }
     }
 
@@ -318,6 +351,7 @@ namespace NowPlaying {
           : st == "connecting"    ? "Connecting to Twitch..."
           : st == "bad-token"     ? "Token expired - regenerate it"
           : st == "missing-scope" ? "Token is missing a required scope"
+          : st == "disabled"      ? "Turned off (Features page)"
           : st == "off"           ? "Not set up yet - see README"
                                   : "Twitch connection problem";
       };
@@ -584,12 +618,17 @@ namespace NowPlaying {
         }
       }
 
+      // What this process actually started with, so the Features page can say
+      // honestly whether a toggle needs the restart or is already in effect.
+      _bootEq = _featEq; _bootTwitch = _featTwitch;
+
       var poller = new Thread(PollLoop);
       poller.IsBackground = true;
       poller.Start();          // left MTA on purpose - see Await()
 
-      AudioSpectrum.Start();   // live equaliser; self-heals if the device changes
-      TwitchEvents.Start();    // no-op unless twitch-config.json has API creds
+      if (_featEq) AudioSpectrum.Start();   // live equaliser; self-heals if the device changes
+      else AppLog.Write("equaliser: not started - switched off on the Features page");
+      TwitchEvents.Start();    // loads config always (bot shares it); network only if the feature is on
       TwitchChat.Start();      // no-op unless configured AND switched on
 
       var accept = new Thread(() => {
@@ -648,6 +687,16 @@ namespace NowPlaying {
     static void PollLoop() {
       while (true) {
         try {
+          // Music detection off (Features page): publish silence, hold no COM
+          // object open. Checked every tick, which is what lets this switch
+          // apply instantly without the restart the other engines need.
+          if (!_featOverlay) {
+            lock (_mediaLock) { DropITunes(); }
+            _current = new Snapshot();
+            AudioSpectrum.SetTargetApp("");
+            Thread.Sleep(1000);
+            continue;
+          }
           Snapshot snap;
           lock (_mediaLock) {
             snap = Build();
@@ -1116,6 +1165,22 @@ namespace NowPlaying {
             if (snap.Art != null && snap.Art.Length > 0)
               Send(ns, 200, snap.ArtMime, snap.Art, "public, max-age=86400, immutable");
             else Send(ns, 204, "text/plain", new byte[0]);
+          } else if (route == "/features/state") {
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(FeaturesJson()));
+          } else if (route == "/features/set") {
+            // Flips background engines on and off and writes settings to disk,
+            // so the same cross-site rule as every other state-writing route.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            string fw = QueryParam(path, "what") ?? "";
+            bool fon = (QueryParam(path, "value") ?? "") == "1";
+            if (fw == "overlay") _featOverlay = fon;
+            else if (fw == "eq") _featEq = fon;
+            else if (fw == "twitch") _featTwitch = fon;
+            SaveSettings();
+            AppLog.Write("features: " + fw + " -> " + (fon ? "on" : "off"));
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(FeaturesJson()));
           } else if (route == "/prefs") {
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(PrefsJson()));
           } else if (route == "/prefs/set") {
@@ -1202,6 +1267,9 @@ namespace NowPlaying {
               BotCommands.Remove(name);
             } else if (what == "restore") {
               BotCommands.RestoreMissingDefaults();
+            } else if (what == "followthanks") {
+              // value flips it; template (optional) rewrites the message.
+              TwitchChat.SetFollowThanks(on, QueryParam(path, "template"));
             }
             Send(ns, 200, "application/json; charset=utf-8",
                  Encoding.UTF8.GetBytes(TwitchChat.StatusJson()));
@@ -1378,8 +1446,9 @@ namespace NowPlaying {
     static string SpectrumJson() {
       var bands = AudioSpectrum.Read();
       var sb = new StringBuilder();
-      sb.Append("{\"active\":").Append(AudioSpectrum.Active ? "true" : "false");
-      sb.Append(",\"status\":").Append(Q(AudioSpectrum.Status));
+      sb.Append("{\"active\":").Append((_featEq && AudioSpectrum.Active) ? "true" : "false");
+      sb.Append(",\"status\":").Append(Q(_featEq ? AudioSpectrum.Status
+                                       : "turned off on the Features page"));
       sb.Append(",\"target\":").Append(Q(AudioSpectrum.Target));
       sb.Append(",\"bands\":[");
       for (int i = 0; i < bands.Length; i++) {

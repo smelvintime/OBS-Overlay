@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Features</title>
+<style>
+  :root{ --bg:#080B14; --panel:#10141F; --line:#1E2740; --fg:#EAF2FF; --dim:#8A9BC0;
+         --accent:#9BD4F5; --trim:#C9A961; --on-accent:#04121F;
+         --input:#0A0F1A; --ghost:#1B2438; --ghost-h:#24304A;
+         --track:#2A3550; --hair:#171F31; --warn:#e8b339; }
+  /* Other palettes come from /themes as data - shared.js applies them. */
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:26px 32px 4px}
+  h1{margin:0 0 6px;font-size:24px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:14px;max-width:820px;line-height:1.5}
+  body.embed header{display:none}
+  body.embed .wrap{padding-top:20px}
+  .wrap{padding:18px 32px 50px;display:flex;flex-direction:column;gap:18px;max-width:900px}
+
+  .note{border:1px solid var(--line);border-radius:12px;padding:13px 16px;
+    font-size:13px;line-height:1.55;color:var(--dim);background:var(--panel)}
+  .note b{color:var(--fg)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:14px;padding:15px 16px;border-bottom:1px solid var(--hair)}
+  .row:last-child{border-bottom:0}
+  .row .txt{flex:1 1 auto;min-width:0}
+  .name{font-size:14.5px;font-weight:700}
+  .desc{font-size:12.5px;color:var(--dim);line-height:1.5;margin-top:2px}
+  .apply{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+    padding:2px 7px;border-radius:5px;background:var(--ghost);color:var(--dim);
+    flex:0 0 auto;white-space:nowrap}
+
+  .toggle{display:inline-flex;align-items:center;cursor:pointer;flex:0 0 auto}
+  .toggle input{position:absolute;opacity:0;pointer-events:none}
+  .track{width:42px;height:24px;border-radius:999px;background:var(--track);position:relative;transition:background .16s}
+  .track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;
+    border-radius:50%;background:var(--fg);transition:transform .16s}
+  .toggle input:checked + .track{background:var(--accent)}
+  .toggle input:checked + .track::after{transform:translateX(18px)}
+
+  .restart{display:none;border:1px solid rgba(232,179,57,.32);background:rgba(232,179,57,.09);
+    border-radius:12px;padding:13px 16px;font-size:13px;line-height:1.55;
+    align-items:center;gap:14px;flex-wrap:wrap}
+  .restart.on{display:flex}
+  .restart .grow{flex:1 1 260px}
+  .restart button{background:var(--accent);color:var(--on-accent);border:0;border-radius:7px;
+    padding:8px 16px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+  .restart button:disabled{opacity:.5;cursor:wait}
+</style>
+<script src="/shared.js"></script>
+<script>if(window.NPO) NPO.themeBoot('dashboard');</script>
+</head>
+<body>
+<header>
+  <h1>Features</h1>
+  <p>Switch off what you don&rsquo;t use, and the app stops doing that work entirely.</p>
+</header>
+
+<div class="wrap">
+  <div class="note">
+    Overlay layouts and pages don&rsquo;t need switches: <b>an unused page already costs
+    nothing</b>, because the app only does work for a page while OBS or a browser is holding
+    it open. A Ticker you never added to OBS uses zero resources. The switches below are the
+    <b>background engines</b> &mdash; the parts that run all the time, even when nothing is
+    watching.
+  </div>
+
+  <div class="restart" id="restart">
+    <span class="grow">A switch you changed starts or stops a background engine, which takes a
+      quick restart. It takes about two seconds and every OBS source reconnects by itself.</span>
+    <button type="button" id="restartBtn">Restart now</button>
+  </div>
+
+  <div class="panel" id="rows"></div>
+</div>
+
+<script>
+(function(){
+  if(new URLSearchParams(location.search).get('embed') === '1')
+    document.body.classList.add('embed');
+
+  var ROWS = [
+    { key:'overlay', name:'Music detection',
+      desc:'Checks what is playing (Spotify, Apple Music, iTunes, browsers) once a second and '
+          +'feeds every now-playing layout. Off: the overlay shows nothing playing.',
+      apply:'applies instantly' },
+    { key:'eq', name:'Live equaliser',
+      desc:'Captures the player’s audio about 30 times a second so the bars move with the '
+          +'actual music. The most expensive engine here. Off: live bars go quiet — pick '
+          +'“Animated” in the customizer’s Equalizer setting if you still want motion.',
+      apply:'needs restart' },
+    { key:'twitch', name:'Twitch alerts & goal boxes',
+      desc:'Holds a live connection to Twitch for follows and subs, and refreshes totals once a '
+          +'minute. Off: alerts and goal boxes stay blank, and the bot’s follow thank-you '
+          +'has nothing to hear. Your Twitch sign-in is kept.',
+      apply:'needs restart' },
+    { key:'bot', name:'Chat bot',
+      desc:'Answers !song and your custom commands, and thanks new followers. The same switch '
+          +'as the one on the Chat bot tab.',
+      apply:'applies instantly' }
+  ];
+
+  var rowsEl = document.getElementById('rows'),
+      restartEl = document.getElementById('restart'),
+      restartBtn = document.getElementById('restartBtn');
+  var state = null, botOn = null;
+
+  function esc(s){ return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  rowsEl.innerHTML = ROWS.map(function(r){
+    return '<div class="row">'
+      + '<div class="txt"><div class="name">' + esc(r.name) + '</div>'
+      + '<div class="desc">' + r.desc + '</div></div>'
+      + '<span class="apply">' + esc(r.apply) + '</span>'
+      + '<label class="toggle"><input type="checkbox" data-k="' + r.key + '" />'
+      + '<span class="track"></span></label>'
+      + '</div>';
+  }).join('');
+
+  function paint(){
+    [].forEach.call(rowsEl.querySelectorAll('input[data-k]'), function(el){
+      var k = el.getAttribute('data-k');
+      el.checked = (k === 'bot') ? !!botOn : !!(state && state[k]);
+    });
+    restartEl.className = 'restart' + (state && state.restartNeeded ? ' on' : '');
+  }
+
+  [].forEach.call(rowsEl.querySelectorAll('input[data-k]'), function(el){
+    el.addEventListener('change', function(){
+      var k = el.getAttribute('data-k'), v = el.checked ? '1' : '0';
+      var url = (k === 'bot') ? '/bot/set?what=bot&value=' + v
+                              : '/features/set?what=' + k + '&value=' + v;
+      fetch(url, {cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(k === 'bot') botOn = !!d.enabled;
+          else state = d;
+          paint();
+        })
+        .catch(function(){});
+    });
+  });
+
+  restartBtn.addEventListener('click', function(){
+    restartBtn.disabled = true;
+    restartBtn.textContent = 'Restarting…';
+    fetch('/setup/restart', {cache:'no-store'}).catch(function(){});
+    // The app hands the port to a fresh copy of itself; keep knocking until
+    // the new one answers, then reload so every switch shows its real state.
+    var tries = 0;
+    (function knock(){
+      setTimeout(function(){
+        fetch('/features/state', {cache:'no-store'})
+          .then(function(r){ if(r.ok) location.reload(); else throw 0; })
+          .catch(function(){ if(++tries < 30) knock(); else location.reload(); });
+      }, 1500);
+    })();
+  });
+
+  (function poll(){
+    Promise.all([
+      fetch('/features/state',{cache:'no-store'}).then(function(r){ return r.json(); }),
+      fetch('/bot',{cache:'no-store'}).then(function(r){ return r.json(); })
+    ]).then(function(a){
+      state = a[0]; botOn = !!a[1].enabled;
+      paint();
+    }).catch(function(){})
+      .then(function(){ setTimeout(poll, 3000); });
+  })();
+})();
+</script>
+</body>
+</html>
