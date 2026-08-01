@@ -142,7 +142,12 @@ namespace NowPlaying {
     const int SILENT = 0x2;          // AUDCLNT_BUFFERFLAGS_SILENT
 
     // --------------------------------------------------------------- settings
-    public const int Bands = 24;     // log-spaced bands sent to the browser
+    // 32 matches the overlay's maximum ?bars=, so every bar count up to the
+    // slider's top maps one-band-per-bar and no two bars can share a source.
+    // (At 24 bands, 26 bars meant the left three bars mirrored each other:
+    // two bars shared band 0 and band 1 WAS band 0 - see Compute's bin
+    // allocation for the other half of that bug.)
+    public const int Bands = 32;     // log-spaced bands sent to the browser
     const int FftSize = 2048;        // ~43ms at 48kHz: responsive but stable
     const double LowHz = 35;
     const double HighHz = 16000;
@@ -471,13 +476,24 @@ namespace NowPlaying {
       var raw = new double[Bands];
       double frameMax = 0;
 
+      // Each band owns bins no earlier band used. The log spacing makes the
+      // bottom bands narrower than one FFT bin (23Hz at 48k/2048), and the
+      // naive floor() mapping handed the SAME bin to two neighbouring bands -
+      // which is why the far-left bars moved in perfect lockstep. Forcing the
+      // start past the previous band's end costs a little frequency accuracy
+      // at the very bottom and buys every bar its own signal. Bin 0 is DC and
+      // never belongs to any band.
+      int prevEnd = 1;
       for (int b = 0; b < Bands; b++) {
         double f0 = LowHz * Math.Pow(HighHz / LowHz, (double)b / Bands);
         double f1 = LowHz * Math.Pow(HighHz / LowHz, (double)(b + 1) / Bands);
         int i0 = (int)(f0 / nyquist * half);
         int i1 = (int)(f1 / nyquist * half);
+        if (i0 < prevEnd) i0 = prevEnd;
         if (i1 <= i0) i1 = i0 + 1;
         if (i1 > half) i1 = half;
+        if (i0 >= half) { raw[b] = 0; continue; }   // ran off the top on a low rate
+        prevEnd = i1;
 
         double peak = 0;
         for (int i = i0; i < i1; i++) {
