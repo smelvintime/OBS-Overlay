@@ -376,6 +376,9 @@ namespace NowPlaying {
       menu.Items.Add(startup);
       menu.Items.Add(new ToolStripSeparator());
       menu.Items.Add("Diagnostics...", null, (s, e) => OpenUrl("/diag"));
+      menu.Items.Add("Open media folder (alert sounds && clips)", null, (s, e) => {
+        try { System.Diagnostics.Process.Start("explorer.exe", MediaDir()); } catch { }
+      });
       menu.Items.Add("Open log folder", null, (s, e) => {
         try {
           string dir = Path.Combine(
@@ -1426,6 +1429,22 @@ namespace NowPlaying {
             SendResource(ns, "alerts.html");
           } else if (route == "/stats" || route == "/stats/") {
             SendResource(ns, "stats.html");
+          } else if (route == "/media-list") {
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(MediaListJson()));
+          } else if (route.StartsWith("/media/", StringComparison.Ordinal)) {
+            string mname;
+            try { mname = Uri.UnescapeDataString(route.Substring("/media/".Length)); }
+            catch { mname = ""; }
+            string mime = MediaNameRe.IsMatch(mname) ? MediaMime(mname) : null;
+            string mfile = mime == null ? null : Path.Combine(MediaDir(), mname);
+            if (mfile != null && File.Exists(mfile)) {
+              // max-age 60: the alerts page preloads these; replacing a file
+              // under the same name shows up within a minute.
+              Send(ns, 200, mime, File.ReadAllBytes(mfile), "public, max-age=60");
+            } else {
+              Send(ns, 404, "text/plain", Encoding.UTF8.GetBytes("no such media file"));
+            }
           } else if (route == "/") {
             SendResource(ns, "overlay.html");
           } else if (IsEmbeddedPage(route)) {
@@ -2007,6 +2026,65 @@ namespace NowPlaying {
         try { File.WriteAllText(PresetsPath(), new JavaScriptSerializer().Serialize(list)); }
         catch (Exception ex) { AppLog.Write("preset delete failed: " + ex.Message); }
       }
+    }
+
+    // ---- user media ------------------------------------------------------------
+    // Alert sounds and clips: plain files the user drops into
+    // %APPDATA%\NowPlayingOverlay\media (tray menu opens it), served read-only
+    // at /media/<name>. The extension whitelist is the security boundary -
+    // this must never become "serve any file the URL names".
+
+    internal static string MediaDir() {
+      string dir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NowPlayingOverlay", "media");
+      Directory.CreateDirectory(dir);
+      return dir;
+    }
+
+    // Starts with a letter or digit (so no dot-names and no ".."), then the
+    // characters real downloads actually have. No slashes, no colons -
+    // nothing that can leave the media folder.
+    static readonly System.Text.RegularExpressions.Regex MediaNameRe =
+      new System.Text.RegularExpressions.Regex(@"^[A-Za-z0-9][A-Za-z0-9 ._()\-]{0,79}$");
+
+    static string MediaMime(string name) {
+      switch (Path.GetExtension(name).ToLowerInvariant()) {
+        case ".mp3": return "audio/mpeg";
+        case ".wav": return "audio/wav";
+        case ".ogg": return "audio/ogg";
+        case ".m4a": return "audio/mp4";
+        case ".mp4": return "video/mp4";
+        case ".webm": return "video/webm";
+        case ".gif": return "image/gif";
+        case ".png": return "image/png";
+        case ".jpg": case ".jpeg": return "image/jpeg";
+        case ".webp": return "image/webp";
+        default: return null;      // anything else is not served, full stop
+      }
+    }
+
+    static string MediaListJson() {
+      var sb = new StringBuilder();
+      // The folder path rides along so the customizer can say where to put
+      // files instead of describing it in prose.
+      sb.Append("{\"dir\":").Append(Q(MediaDir())).Append(",\"files\":[");
+      bool first = true;
+      try {
+        var names = new List<string>();
+        foreach (var f in Directory.GetFiles(MediaDir())) names.Add(Path.GetFileName(f));
+        names.Sort(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names) {
+          string mime = MediaMime(name);
+          if (mime == null || !MediaNameRe.IsMatch(name)) continue;
+          if (!first) sb.Append(',');
+          first = false;
+          string kind = mime.StartsWith("audio/") ? "audio"
+                      : mime.StartsWith("video/") ? "video" : "image";
+          sb.Append("{\"name\":").Append(Q(name)).Append(",\"kind\":").Append(Q(kind)).Append('}');
+        }
+      } catch { }
+      return sb.Append("]}").ToString();
     }
 
     // Almost everything served here is live state that must never be cached, so

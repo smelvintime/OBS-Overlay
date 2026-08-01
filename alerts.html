@@ -28,6 +28,13 @@
      ?hold=6                       seconds on screen            (default 6)
      ?spins=1.5                    how many turns the shuriken makes while a
                                    slash arrival lands, 0.5-6   (default 1.5)
+     ?sound=ding.mp3               plays when an alert lands. Files live in
+                                   the media folder: tray icon -> Open media
+                                   folder (mp3 / wav / ogg / m4a)
+     ?soundvol=70                  sound volume 0-100           (default 70)
+     ?media=hype.webm              a gif, image or looping video (mp4/webm,
+                                   muted) shown centered while the alert is up
+     ?mediah=180                   clip height in px 40-540     (default 180)
      ?demo=1                       cycle fake alerts, no server needed
      ?preview=1                    hold one sample alert on screen permanently;
                                    used by the customizer, never on stream
@@ -74,6 +81,14 @@
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
+  /* The clip layer sits centered in the canvas, independent of where the card
+     is pinned - the card can go in any of nine positions and a clip glued to
+     it would fight every frame style. It fades with the same opacity the card
+     uses so the two always read as one alert. */
+  #medialayer{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    pointer-events:none;opacity:0;transition:opacity .3s ease;z-index:0}
+  #medialayer.on{opacity:var(--overlay-opacity)}
+  #medialayer img,#medialayer video{max-width:82%;border-radius:12px}
   #stage{position:fixed;inset:0;display:flex;padding:32px;box-sizing:border-box;}
   #stage.h-left{justify-content:flex-start}
   #stage.h-center{justify-content:center}
@@ -402,6 +417,62 @@ if(window.NPO) NPO.themeBoot('source');
   if(isFinite(spins) && spins >= 0.5 && spins <= 6)
     root.style.setProperty('--spin', (spins * -360) + 'deg');
 
+  // ---- sound and clip -----------------------------------------------------
+  // Both come from /media/<file>, the user's own media folder. The clip stays
+  // muted always: its audio would double up with ?sound= and, worse, an
+  // unmuted video is exactly what browsers refuse to autoplay.
+  var soundFile = (qs.get('sound') || '').trim();
+  var soundVol = parseFloat(qs.get('soundvol'));
+  if(!isFinite(soundVol) || soundVol < 0 || soundVol > 100) soundVol = 70;
+  var mediaFile = (qs.get('media') || '').trim();
+  var mediaH = parseInt(qs.get('mediah'), 10);
+  if(!isFinite(mediaH) || mediaH < 40 || mediaH > 540) mediaH = 180;
+
+  var sndEl = null;
+  if(soundFile){
+    sndEl = new Audio('/media/' + encodeURIComponent(soundFile));
+    sndEl.preload = 'auto';
+    sndEl.volume = soundVol / 100;
+  }
+
+  var mediaLayer = null, mediaEl = null;
+  if(mediaFile){
+    mediaLayer = document.createElement('div');
+    mediaLayer.id = 'medialayer';
+    var mUrl = '/media/' + encodeURIComponent(mediaFile);
+    var mExt = (mediaFile.split('.').pop() || '').toLowerCase();
+    if(mExt === 'mp4' || mExt === 'webm'){
+      mediaEl = document.createElement('video');
+      mediaEl.muted = true; mediaEl.loop = true; mediaEl.playsInline = true;
+      mediaEl.preload = 'auto'; mediaEl.src = mUrl;
+    } else {
+      mediaEl = document.createElement('img');
+      mediaEl.src = mUrl;
+    }
+    mediaEl.style.height = mediaH + 'px';
+    mediaLayer.appendChild(mediaEl);
+    document.body.appendChild(mediaLayer);
+  }
+
+  function mediaShow(){
+    if(sndEl){
+      // Outside OBS, browsers refuse sound before the page has been clicked
+      // once; failing silently is right for something meant to be invisible.
+      try { sndEl.currentTime = 0; var p = sndEl.play(); if(p && p.catch) p.catch(function(){}); } catch(e){}
+    }
+    if(mediaLayer){
+      mediaLayer.classList.add('on');
+      if(mediaEl.play){ try { var q = mediaEl.play(); if(q && q.catch) q.catch(function(){}); } catch(e){} }
+    }
+  }
+  function mediaHide(){
+    if(mediaLayer){
+      mediaLayer.classList.remove('on');
+      if(mediaEl.pause){ try { mediaEl.pause(); mediaEl.currentTime = 0; } catch(e){} }
+    }
+    if(sndEl){ try { sndEl.pause(); } catch(e){} }
+  }
+
   // ---- rendering --------------------------------------------------------
   function tierName(t){
     if(!t) return '';
@@ -526,7 +597,13 @@ if(window.NPO) NPO.themeBoot('source');
     void card.offsetWidth;
     document.body.classList.remove('st-none');
 
-    function enter(){ card.classList.remove('pre'); card.classList.add('in'); }
+    // Sound and clip start with the arrival, once per alert - enter can fire
+    // twice (rAF plus its safety-net timer) and a restarted sound would stutter.
+    var mediaStarted = false;
+    function enter(){
+      card.classList.remove('pre'); card.classList.add('in');
+      if(!mediaStarted){ mediaStarted = true; mediaShow(); }
+    }
     requestAnimationFrame(enter);
     // An OBS browser source that is not compositing never fires rAF, which
     // would leave the alert staged off-screen forever. The timer is the net.
@@ -539,6 +616,7 @@ if(window.NPO) NPO.themeBoot('source');
     exitTimer = setTimeout(function(){
       card.classList.remove('in');
       card.classList.add('out');
+      mediaHide();
       offTimer = setTimeout(function(){
         card.classList.remove('out');
         gapTimer = setTimeout(playNext, 380);   // breathing room between alerts

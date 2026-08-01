@@ -105,6 +105,9 @@
   .seg button:not([aria-pressed=true]):hover{color:var(--fg)}
 
   input[type=range]{flex:1 1 auto;min-width:90px;accent-color:var(--accent);cursor:pointer}
+  .ctl select{flex:1 1 auto;min-width:120px;max-width:280px;background:var(--input);
+    border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:7px 9px;
+    font:inherit;font-size:12.5px;cursor:pointer}
   .val{color:var(--fg);font-size:12.5px;font-variant-numeric:tabular-nums;
     min-width:52px;text-align:right;font-weight:700}
 
@@ -323,7 +326,8 @@
       defaults:{
         style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
-        radius:16, opacity:100, hold:6, spins:1.5
+        radius:16, opacity:100, hold:6, spins:1.5,
+        sound:'', soundvol:70, media:'', mediah:180
       },
       size:function(){ return {w:1920, h:1080}; },
       actions:[
@@ -368,6 +372,18 @@
           { key:'subColor', label:'Sub', type:'color' },
           { key:'giftColor', label:'Gift', type:'color',
             note:'Each kind of event gets its own colour so they are told apart at a glance.' }
+        ]},
+        { title:'Sound and clip', controls:[
+          { key:'sound', label:'Sound', type:'media', kind:'audio',
+            note:'Plays each time an alert lands. Drop mp3 / wav / ogg files into the media '
+               + 'folder (tray icon → Open media folder), then pick one here. In a normal '
+               + 'browser tab the preview stays silent until you click the page once - '
+               + 'that is a browser rule; OBS plays it every time.' },
+          { key:'soundvol', label:'Volume', type:'range', min:0, max:100, step:5, unit:'%' },
+          { key:'media', label:'Clip', type:'media', kind:'visual',
+            note:'A gif, image or looping video (mp4 / webm, always muted) shown centered '
+               + 'over the canvas while each alert is up.' },
+          { key:'mediah', label:'Clip size', type:'range', min:40, max:540, step:10, unit:'px' }
         ]},
         { title:'Timing', controls:[
           { key:'hold', label:'On screen', type:'range', min:2, max:20, step:1, unit:'s' }
@@ -758,6 +774,18 @@
   // ---- control rendering -----------------------------------------------------
   var refresh = [];    // re-sync every control's visual state after a reset
 
+  // One fetch of the user's media folder, shared by every media picker. The
+  // answer changes only when someone drops a file in, and switching tabs
+  // rebuilds the controls anyway - so refetching per control is pure noise.
+  var _mediaCache;
+  function mediaList(cb){
+    if(_mediaCache !== undefined){ cb(_mediaCache); return; }
+    fetch('/media-list', {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(j){ _mediaCache = j; cb(j); })
+      .catch(function(){ _mediaCache = null; cb(null); });
+  }
+
   function buildControls(){
     groupsEl.innerHTML = '';
     refresh = [];
@@ -843,6 +871,42 @@
             });
             refresh.push(function(){ rng.value = state[C.key]; show(); });
             ctl.appendChild(rng); ctl.appendChild(val);
+
+          } else if(C.type === 'media'){
+            (function(){
+              // A dropdown of what is actually in the media folder, so nobody
+              // types filenames. kind:'audio' lists sounds; anything else
+              // lists the visual files (gif / video / image).
+              var sel = document.createElement('select');
+              function fill(list){
+                var files = ((list && list.files) || []).filter(function(f){
+                  return C.kind === 'audio' ? f.kind === 'audio' : f.kind !== 'audio';
+                });
+                sel.innerHTML = '';
+                var none = document.createElement('option');
+                none.value = '';
+                none.textContent = files.length ? 'None' : 'None - the media folder is empty';
+                sel.appendChild(none);
+                files.forEach(function(f){
+                  var o = document.createElement('option');
+                  o.value = f.name; o.textContent = f.name;
+                  sel.appendChild(o);
+                });
+                // A picked file that has since been deleted stays visible and
+                // marked, rather than silently reading back as None.
+                if(state[C.key] && !files.some(function(f){ return f.name === state[C.key]; })){
+                  var miss = document.createElement('option');
+                  miss.value = state[C.key];
+                  miss.textContent = state[C.key] + ' (missing from folder)';
+                  sel.appendChild(miss);
+                }
+                sel.value = state[C.key] || '';
+              }
+              mediaList(fill);
+              sel.addEventListener('change', function(){ set(C.key, sel.value, live); });
+              refresh.push(function(){ sel.value = state[C.key] || ''; });
+              ctl.appendChild(sel);
+            })();
 
           } else if(C.type === 'color'){
             (function(){

@@ -106,6 +106,30 @@ Two things worth knowing:
   queues them: a gift bomb that also lands a follow would otherwise animate two panels
   against each other in the same stack.
 
+## Sounds and clips on alerts
+
+Alerts can play a sound and show a gif, image or looping video each time one lands.
+
+1. **Right-click the tray icon → Open media folder** and drop your files in:
+   `mp3` / `wav` / `ogg` / `m4a` for sounds, `gif` / `png` / `jpg` / `webp` /
+   `mp4` / `webm` for visuals.
+2. In the **Customize** tab, pick the alerts source — the **Sound and clip**
+   section lists whatever is in the folder. Pick, set the volume and clip size,
+   copy the URL into OBS as usual.
+
+Details worth knowing:
+
+- **Videos always play muted and looping** while the alert is on screen; the
+  sound comes from the separate sound setting, so the two can be mixed freely.
+- **Hearing it in OBS**: browser sources output audio through OBS. If you don't
+  hear it, check the source's *Control audio via OBS* setting and the Audio
+  Mixer — the browser source has its own fader there.
+- **The dashboard preview may stay silent** until you click somewhere on the
+  page once. That is a browser autoplay rule, not a fault; OBS has no such rule
+  and plays it every time.
+- Keep clips short and reasonably sized — the file is read fresh from disk and
+  a multi-hundred-MB video as an alert clip will stutter.
+
 ## Testing it with a second account
 
 You can't follow your own channel, so a real end-to-end test needs another account.
