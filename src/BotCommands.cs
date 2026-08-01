@@ -59,6 +59,9 @@ namespace NowPlaying {
         new Cmd { Name = "followage", Builtin = "followage", Aliases = "followtime", Cooldown = 10 },
         new Cmd { Name = "commands",  Builtin = "commands",  Aliases = "help,cmds", Cooldown = 20 },
         new Cmd { Name = "so",        Builtin = "shoutout",  Aliases = "shoutout", Cooldown = 0, ModOnly = true },
+        // Answers from the League client running on this PC (see LeagueStats)
+        // - the one League command that can be live data without a Riot key.
+        new Cmd { Name = "record",    Builtin = "record",    Aliases = "last5,wl", Cooldown = 15 },
 
         // League. Links and text beat a Riot API key that expires every 24 hours
         // and takes an approved application to make permanent.
@@ -251,6 +254,7 @@ namespace NowPlaying {
         case "uptime":    text = UptimeLine(); break;
         case "followage": text = FollowAgeLine(ev); break;
         case "shoutout":  text = ShoutoutLine(rest); break;
+        case "record":    text = LeagueStats.CommandLine(); break;
         case "commands":  text = CommandsLine(); break;
         default:
           text = cmd.Response

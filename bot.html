@@ -201,6 +201,35 @@
   </div>
 
   <div class="panel">
+    <div class="phead">
+      <h2>Game stats (League)</h2>
+      <span class="sub">Reads results straight from the League client on this PC &mdash; no account
+        linking, no API keys. Viewers get <code>!record</code>, and the bot can post the result
+        when a game ends.</span>
+      <span class="spacer"></span>
+      <label class="toggle" title="Track League results">
+        <input type="checkbox" id="gsOn" /><span class="track"></span>
+      </label>
+    </div>
+    <div class="addrow" style="align-items:center">
+      <label class="toggle" title="Post the result when a game ends">
+        <input type="checkbox" id="gsAnnounce" /><span class="track"></span>
+      </label>
+      <span class="sub" style="font-size:12.5px;color:var(--dim)">Announce when a game ends</span>
+      <span class="spacer"></span>
+      <span class="sub" style="font-size:12.5px;color:var(--dim)">Repeat on a timer</span>
+      <select id="gsTimer" style="background:var(--input);border:1px solid var(--line);
+        border-radius:7px;color:var(--fg);padding:7px 9px;font:inherit;font-size:12.5px">
+        <option value="0">Off</option>
+        <option value="5">Every 5 min</option>
+        <option value="10">Every 10 min</option>
+        <option value="15">Every 15 min</option>
+      </select>
+    </div>
+    <div class="tryout" id="gsStatus"></div>
+  </div>
+
+  <div class="panel">
     <div class="phead"><h2>Recently answered</h2>
       <span class="sub">The last few things it actually said in chat.</span></div>
     <div class="feed" id="feed"></div>
@@ -293,6 +322,7 @@
     renderSetup();
     if(!editing) renderRows();
     renderThanks();
+    renderGameStats();
     renderFeed();
   }
 
@@ -428,6 +458,46 @@
   document.getElementById('ftSave').addEventListener('click', function(){ saveThanks(); });
   ftMsg.addEventListener('keydown', function(e){ if(e.key === 'Enter') saveThanks(); });
   ftMsg.addEventListener('input', function(){ if(data) renderThanks(); });
+
+  // ---- game stats (League) ---------------------------------------------------
+  var gsOn = document.getElementById('gsOn'), gsAnnounce = document.getElementById('gsAnnounce'),
+      gsTimer = document.getElementById('gsTimer'), gsStatus = document.getElementById('gsStatus');
+
+  function renderGameStats(){
+    gsOn.checked = !!data.gameStats;
+    gsAnnounce.checked = !!data.gameAnnounce;
+    gsAnnounce.disabled = gsTimer.disabled = !data.gameStats;
+    if(document.activeElement !== gsTimer) gsTimer.value = String(data.gameTimerMin || 0);
+    var lg = data.league || {};
+    var line = '';
+    if(!data.gameStats){
+      line = 'Switched off.';
+    } else if(lg.status === 'live'){
+      line = 'Watching the League client'
+        + (lg.summoner ? ' (<b>' + esc(lg.summoner) + '</b>)' : '') + '.'
+        + (lg.record ? ' Current answer: <span class="said">'
+            + esc((lg.last ? 'Last game: ' + lg.last + ' - ' : '')
+                + 'past ' + lg.record.split(' ').length + ': ' + lg.record)
+            + '</span>' : ' No games seen yet this session.');
+    } else if(lg.status === 'no-client'){
+      line = 'Waiting for the League client to be running on this PC. '
+           + 'It connects by itself the moment it is.';
+    } else if(lg.status === 'error'){
+      line = 'Problem reading the League client: ' + esc(lg.detail || 'unknown') + '.';
+    } else {
+      line = 'Starting up…';
+    }
+    gsStatus.innerHTML = line;
+  }
+
+  function saveGameStats(){
+    set('what=gamestats&value=' + (gsOn.checked ? '1' : '0')
+      + '&announce=' + (gsAnnounce.checked ? '1' : '0')
+      + '&timer=' + encodeURIComponent(gsTimer.value));
+  }
+  gsOn.addEventListener('change', saveGameStats);
+  gsAnnounce.addEventListener('change', saveGameStats);
+  gsTimer.addEventListener('change', saveGameStats);
 
   document.getElementById('restoreBtn').addEventListener('click', function(){
     set('what=restore');

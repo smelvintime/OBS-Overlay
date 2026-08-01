@@ -285,6 +285,26 @@ Three things trip up nearly every fresh bot account, and none of them are bugs:
   tokens — the tab will report an authentication failure. Nothing is broken: press
   **Reconnect** on the Chat bot tab and it's back in one click.
 
+## League game stats in chat
+
+The bot can read results straight from the **League client running on the
+streaming PC** — no Riot API key, no account linking, nothing to sign into.
+It connects by itself whenever the client is open.
+
+- **`!record`** (also `!last5`, `!wl`) answers with the last game and the
+  recent record: *"Last game: Victory (12/3/8) - past 5: W W L W L"*.
+- **Announce when a game ends** posts that line automatically as the game
+  finishes (on by default; switch it on the bot tab's Game stats panel).
+- **Repeat on a timer** re-posts it every 5/10/15 minutes — but only when a
+  new game has finished since it last spoke, so it never spams an unchanged
+  record.
+
+The panel on the bot tab shows what it is currently watching and the exact
+line it would say. If it shows "waiting for the League client", start League —
+there is nothing else to configure. The League client's local data service is
+unofficial, so a big League patch could interrupt this feature until an app
+update; if that happens the panel says so and everything else keeps working.
+
 ## Setting it up by hand instead
 
 If you'd rather not use the wizard, everything it does can be done manually.

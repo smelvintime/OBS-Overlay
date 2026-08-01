@@ -786,6 +786,7 @@ namespace NowPlaying {
       "_comment_chat", "botUsername", "oauthToken", "botRefreshToken", "command", "cooldownSeconds", "npUrl",
       "responseTemplate", "pausedTemplate", "notPlayingMessage",
       "followThanks", "followThanksTemplate",
+      "gameStats", "gameStatsAnnounce", "gameStatsTimerMinutes",
       "_comment_api", "clientId", "clientSecret", "apiToken", "refreshToken",
       "_comment_goals", "followerGoal", "subGoal"
     };
@@ -837,6 +838,24 @@ namespace NowPlaying {
         cfg["oauthToken"] = access;
         if (refresh.Length > 0) cfg["botRefreshToken"] = refresh;
       }, "refreshed bot token");
+    }
+
+    // The game-stats switches, written by the bot dashboard. Same ownership
+    // rule as SaveBotFollowThanks below.
+    internal static void SaveGameStats(bool on, bool announce, int timerMin) {
+      string p = _configPath;
+      if (p == null) p = FindConfigPath();
+      if (p == null) return;
+      try {
+        var cfg = ReadConfig(p);
+        if (cfg == null) return;
+        cfg["gameStats"] = on;
+        cfg["gameStatsAnnounce"] = announce;
+        cfg["gameStatsTimerMinutes"] = timerMin;
+        Files.WriteAtomic(p, WriteConfig(cfg));
+      } catch (Exception ex) {
+        AppLog.Write("chat: could not save game-stats settings: " + ex.Message);
+      }
     }
 
     // The follow thank-you's two settings, written by the bot dashboard. Lives

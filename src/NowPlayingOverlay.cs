@@ -633,6 +633,7 @@ namespace NowPlaying {
       else AppLog.Write("equaliser: not started - switched off on the Features page");
       TwitchEvents.Start();    // loads config always (bot shares it); network only if the feature is on
       TwitchChat.Start();      // no-op unless configured AND switched on
+      LeagueStats.Start();     // idle unless the bot's Game stats switch is on
 
       var accept = new Thread(() => {
         while (true) {
@@ -1273,6 +1274,9 @@ namespace NowPlaying {
             } else if (what == "followthanks") {
               // value flips it; template (optional) rewrites the message.
               TwitchChat.SetFollowThanks(on, QueryParam(path, "template"));
+            } else if (what == "gamestats") {
+              int gtm; if (!int.TryParse(QueryParam(path, "timer") ?? "", out gtm)) gtm = 0;
+              TwitchChat.SetGameStats(on, (QueryParam(path, "announce") ?? "1") == "1", gtm);
             }
             Send(ns, 200, "application/json; charset=utf-8",
                  Encoding.UTF8.GetBytes(TwitchChat.StatusJson()));
@@ -1429,6 +1433,14 @@ namespace NowPlaying {
             SendResource(ns, "alerts.html");
           } else if (route == "/stats" || route == "/stats/") {
             SendResource(ns, "stats.html");
+          } else if (route == "/league") {
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(LeagueStats.StatusJson()));
+          } else if (route == "/league/test") {
+            // Pure: a canned match history through the real parser, touching
+            // no state - so the formatting is provable with no League installed.
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(LeagueStats.TestParse()));
           } else if (route == "/media-list") {
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(MediaListJson()));

@@ -120,6 +120,10 @@ namespace NowPlaying {
       _thanksThread.Start();
     }
 
+    // The side-channel loop: everything the bot says that is NOT a reply to a
+    // chat message goes out from here - follow thank-yous and game results -
+    // because the read loop is parked in a blocking ReadLine and cannot speak
+    // on its own schedule.
     static void ThanksLoop() {
       while (true) {
         Thread.Sleep(1000);
@@ -136,35 +140,98 @@ namespace NowPlaying {
             }
             continue;
           }
-          string msg = null;
-          lock (_thanksLock) {
-            if (_pendingThanks.Count == 0) continue;
-            // Linger a few seconds so a burst lands as one message, and never
-            // thank more often than every 15s no matter what Twitch sends.
-            if ((DateTime.UtcNow - _oldestPendingAt).TotalSeconds < 4) continue;
-            if ((DateTime.UtcNow - _lastThanksAt).TotalSeconds < 15) continue;
-            msg = BuildThanks(_pendingThanks);
-            foreach (var n in _pendingThanks) {
-              if (!_thanked.Add(n)) continue;
-              _thankedOrder.Enqueue(n);
-              while (_thankedOrder.Count > 500) _thanked.Remove(_thankedOrder.Dequeue());
-            }
-            _pendingThanks.Clear();
-            _lastThanksAt = DateTime.UtcNow;
-          }
-          var wr = _wr;
-          if (wr != null && msg.Length > 0) {
-            lock (_sendLock) {
-              wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(msg));
-              _lastSent = msg;
-            }
-            _sent++;
-            Note("(new follower)", "follow-thanks", msg);
-          }
+          FlushThanks();
+          FlushGameLine();
         } catch {
           // a socket dying mid-write is the reconnect loop's problem, not ours
         }
       }
+    }
+
+    static void FlushThanks() {
+      string msg = null;
+      lock (_thanksLock) {
+        if (_pendingThanks.Count == 0) return;
+        // Linger a few seconds so a burst lands as one message, and never
+        // thank more often than every 15s no matter what Twitch sends.
+        if ((DateTime.UtcNow - _oldestPendingAt).TotalSeconds < 4) return;
+        if ((DateTime.UtcNow - _lastThanksAt).TotalSeconds < 15) return;
+        msg = BuildThanks(_pendingThanks);
+        foreach (var n in _pendingThanks) {
+          if (!_thanked.Add(n)) continue;
+          _thankedOrder.Enqueue(n);
+          while (_thankedOrder.Count > 500) _thanked.Remove(_thankedOrder.Dequeue());
+        }
+        _pendingThanks.Clear();
+        _lastThanksAt = DateTime.UtcNow;
+      }
+      SendSide(msg, "(new follower)", "follow-thanks");
+    }
+
+    static void FlushGameLine() {
+      // The end-of-game announcement first, then the optional repeating
+      // timer. The timer only speaks when a game has finished since it last
+      // spoke, and the announcement counts as having spoken - one game must
+      // never produce two nearly-identical lines.
+      string line = _pendingGameLine;
+      if (line != null) {
+        _pendingGameLine = null;
+        if (_gameStats && _gameAnnounce) {
+          SendSide(line, "(game over)", "record");
+          _timerSeqSent = LeagueStats.ResultSeq;
+          _lastTimerPost = DateTime.UtcNow;
+        }
+      }
+      if (_gameTimerMin <= 0 || !_gameStats) return;
+      if ((DateTime.UtcNow - _lastTimerPost).TotalMinutes < _gameTimerMin) return;
+      long seq = LeagueStats.ResultSeq;
+      if (seq == _timerSeqSent) return;          // nothing new since the last post
+      string rec = LeagueStats.ChatLine();
+      if (rec.Length == 0) return;
+      SendSide(rec, "(timer)", "record");
+      _timerSeqSent = seq;
+      _lastTimerPost = DateTime.UtcNow;
+    }
+
+    // One writer for the side channel, under the same lock every other IRC
+    // write takes - two writers interleaving on one SslStream corrupt it.
+    static void SendSide(string text, string who, string cmd) {
+      var wr = _wr;
+      if (wr == null || string.IsNullOrEmpty(text)) return;
+      lock (_sendLock) {
+        wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(text));
+        _lastSent = text;
+      }
+      _sent++;
+      Note(who, cmd, text);
+    }
+
+    // ---------------------------------------------------------- game stats
+    // League results in chat, fed by LeagueStats. Two mouths, both optional:
+    // an announcement when a game ends, and a repeating timer that only
+    // speaks when there is a new game since it last spoke - a bot repeating
+    // an unchanged record every five minutes reads as broken.
+    static volatile bool _gameStats = true;
+    static volatile bool _gameAnnounce = true;
+    static volatile int _gameTimerMin;             // 0 = off, else 5/10/15
+    static volatile string _pendingGameLine;       // set by OnGameEnded, sent by the loop
+    static long _timerSeqSent;                     // LeagueStats.ResultSeq last posted by the timer
+    static DateTime _lastTimerPost = DateTime.MinValue;
+
+    public static void OnGameEnded(string line) {
+      if (!_enabled || !_gameStats || !_gameAnnounce) return;
+      if (string.IsNullOrEmpty(line)) return;
+      _pendingGameLine = line;
+    }
+
+    public static void SetGameStats(bool on, bool announce, int timerMin) {
+      _gameStats = on;
+      _gameAnnounce = announce;
+      _gameTimerMin = (timerMin == 5 || timerMin == 10 || timerMin == 15) ? timerMin : 0;
+      LeagueStats.SetEnabled(on);
+      TwitchEvents.SaveGameStats(on, announce, _gameTimerMin);
+      AppLog.Write("chat: game stats " + (on ? "on" : "off")
+                 + " announce=" + (announce ? "on" : "off") + " timer=" + _gameTimerMin + "m");
     }
 
     public static void SetFollowThanks(bool on, string template) {
@@ -216,6 +283,17 @@ namespace NowPlaying {
         _followThanks = !(ft == "0" || ft == "false" || ft == "off");
         string ftt = Cfg(cfg, "followThanksTemplate").Trim();
         if (ftt.Length > 0) _followTemplate = ftt;
+
+        // Game stats: same on-by-default reasoning. Tracking is a 10-second
+        // local probe; nothing posts unless the bot is on too.
+        string gs = Cfg(cfg, "gameStats").Trim().ToLowerInvariant();
+        _gameStats = !(gs == "0" || gs == "false" || gs == "off");
+        string ga = Cfg(cfg, "gameStatsAnnounce").Trim().ToLowerInvariant();
+        _gameAnnounce = !(ga == "0" || ga == "false" || ga == "off");
+        int tm;
+        if (!int.TryParse(Cfg(cfg, "gameStatsTimerMinutes").Trim(), out tm)) tm = 0;
+        _gameTimerMin = (tm == 5 || tm == 10 || tm == 15) ? tm : 0;
+        LeagueStats.SetEnabled(_gameStats);
 
         // Chat wants the oauth: prefix; the Helix token must not have it. Accept
         // either spelling here and normalise, because the two tokens sit next to
@@ -740,6 +818,10 @@ namespace NowPlaying {
       sb.Append("\"enabled\":").Append(_enabled ? "true" : "false").Append(',');
       sb.Append("\"followThanks\":").Append(_followThanks ? "true" : "false").Append(',');
       sb.Append("\"followTemplate\":").Append(Qs(_followTemplate)).Append(',');
+      sb.Append("\"gameStats\":").Append(_gameStats ? "true" : "false").Append(',');
+      sb.Append("\"gameAnnounce\":").Append(_gameAnnounce ? "true" : "false").Append(',');
+      sb.Append("\"gameTimerMin\":").Append(_gameTimerMin).Append(',');
+      sb.Append("\"league\":").Append(LeagueStats.StatusJson()).Append(',');
       sb.Append("\"configured\":").Append(Configured ? "true" : "false").Append(',');
       sb.Append("\"channel\":").Append(Qs(_channel)).Append(',');
       sb.Append("\"botUser\":").Append(Qs(_botUser)).Append(',');
