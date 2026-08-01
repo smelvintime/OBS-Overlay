@@ -15,6 +15,8 @@ There's no window. Everything lives on the tray icon (a green ♫). **Right-clic
 - **Copy OBS browser source URL** — straight to the clipboard
 - **Start with Windows** — tick to launch automatically at login
 - **Open log folder** — where to look if something needs troubleshooting
+- **Restart** — restarts the app in place, no hunting for the exe. Safe mid-stream:
+  the overlays go quiet for a second or two and reconnect on their own
 - **Exit** — this is how you stop it
 
 **Double-click** the icon to jump to the dashboard. Hovering shows the current

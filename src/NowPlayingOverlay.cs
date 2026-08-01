@@ -389,6 +389,10 @@ namespace NowPlaying {
         } catch { }
       });
       menu.Items.Add(new ToolStripSeparator());
+      // Sits beside Exit because they are the same kind of thing, and it is
+      // the safer of the two: Exit means going to find the exe again, which
+      // is the errand this exists to remove.
+      menu.Items.Add("Restart", null, (s, e) => { Restart(0, "tray menu"); });
       menu.Items.Add("Exit", null, (s, e) => { Shutdown(); });
 
       // Keep the tooltip showing whatever is on screen right now.
@@ -412,11 +416,47 @@ namespace NowPlaying {
       _tray.DoubleClick += (s, e) => OpenUrl("/app");
     }
 
+    static void HideTray() {
+      try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; } } catch { }
+    }
+
     static void Shutdown() {
       AppLog.Write("shutdown requested from tray menu");
-      try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); } } catch { }
+      HideTray();
       try { Application.Exit(); } catch { }
       Environment.Exit(0);
+    }
+
+    // One restart, two doors: the tray menu and /setup/restart. The old copy
+    // spawns a fresh one and lets go of the port; Main's bind retry loop on
+    // the new side absorbs the moment it is still held, and every page
+    // already reconnects on its own, so OBS sources come back within a couple
+    // of seconds without anyone touching OBS.
+    //
+    // Order matters. The spawn happens FIRST and a failure means this copy
+    // stays exactly as it was - exiting into a failed spawn (antivirus, the
+    // exe renamed while running) would leave a live stream with no overlay
+    // and no obvious way back. Only once a replacement is genuinely starting
+    // does the icon go, and it must go before the process does: Windows
+    // leaves a dead icon in the tray until something repaints it, and the
+    // fresh copy adds its own straight away - two icons, one a corpse, looks
+    // worse than no restart button at all.
+    internal static void Restart(int delayMs, string why) {
+      AppLog.Write("restart requested from " + why);
+      var t = new Thread(() => {
+        if (delayMs > 0) Thread.Sleep(delayMs);
+        try {
+          System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+            ExePath(), string.Join(" ", _relaunchArgs)) { UseShellExecute = true });
+        } catch (Exception ex) {
+          AppLog.Write("restart: spawn failed, staying up: " + ex.Message);
+          return;
+        }
+        HideTray();
+        Environment.Exit(0);
+      });
+      t.IsBackground = true;
+      t.Start();
     }
 
     static void Fatal(string message) {
@@ -1368,18 +1408,9 @@ namespace NowPlaying {
             // live stream's overlays restarting for as long as the tab is open.
             if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
-            // Reply first, then hand over: the fresh copy binds the port as
-            // soon as this one lets it go, and every page already retries.
-            var t = new Thread(() => {
-              Thread.Sleep(600);
-              try {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
-                  ExePath(), string.Join(" ", _relaunchArgs)) { UseShellExecute = true });
-              } catch (Exception ex) { AppLog.Write("setup: restart spawn failed: " + ex.Message); }
-              Environment.Exit(0);
-            });
-            t.IsBackground = true;
-            t.Start();
+            // Reply first, then hand over - the delay is for this response to
+            // reach the browser, not for the handover itself.
+            Restart(600, "dashboard");
           } else if (route == "/shared.js") {
             SendResource(ns, "shared.js", "application/javascript; charset=utf-8");
           } else if (route == "/themes") {
