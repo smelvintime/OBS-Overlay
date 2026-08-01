@@ -144,6 +144,15 @@
   .eq.live span{animation:none !important;
     height:100%;transform-origin:bottom;
     transition:transform .045s linear,background-color .45s ease;
+    /* A permanent compositor layer per bar. Without it, each 45ms transform
+       transition promotes the bar to a GPU layer and tears it down again -
+       thirty times a second, per bar, over a frosted (and possibly
+       art-washed) surface - and that churn is where "the peak leaves a
+       ghost bar behind" comes from: pixels the bar covered at its tallest
+       are not reliably repainted when it shrinks. A promoted layer is
+       composited, never painted into the card, so there is nothing to
+       leave behind. ~30 tiny layers; the memory cost rounds to zero. */
+    will-change:transform;
     /* Top corners only. Live bars grow from the baseline, and full-corner
        rounding turned a quiet bar's floor stub (about a pixel tall) into a
        detached-looking ball - the stray "particles" dotted along the row.
