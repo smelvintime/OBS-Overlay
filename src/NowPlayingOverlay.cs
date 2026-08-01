@@ -1439,9 +1439,11 @@ namespace NowPlaying {
             string mime = MediaNameRe.IsMatch(mname) ? MediaMime(mname) : null;
             string mfile = mime == null ? null : Path.Combine(MediaDir(), mname);
             if (mfile != null && File.Exists(mfile)) {
-              // max-age 60: the alerts page preloads these; replacing a file
+              // Private (no CORS wildcard): the alerts page is same-origin, and
+              // the wildcard would let any website the user visits read their
+              // media files by guessing names. max-age 60 so replacing a file
               // under the same name shows up within a minute.
-              Send(ns, 200, mime, File.ReadAllBytes(mfile), "public, max-age=60");
+              SendPrivate(ns, 200, mime, File.ReadAllBytes(mfile), "max-age=60");
             } else {
               Send(ns, 404, "text/plain", Encoding.UTF8.GetBytes("no such media file"));
             }
@@ -2174,11 +2176,17 @@ namespace NowPlaying {
     // another origin; the setup routes never need that, and the wildcard would
     // otherwise let any site read setup state cross-origin.
     static void SendPrivate(NetworkStream ns, int code, string contentType, byte[] body) {
+      SendPrivate(ns, code, contentType, body, null);
+    }
+
+    static void SendPrivate(NetworkStream ns, int code, string contentType, byte[] body,
+                            string cacheControl) {
       var sb = new StringBuilder();
       sb.Append("HTTP/1.1 ").Append(code).Append(code == 200 ? " OK" : " Error").Append("\r\n");
       sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
       sb.Append("Content-Length: ").Append(body == null ? 0 : body.Length).Append("\r\n");
-      sb.Append("Cache-Control: no-cache, no-store, must-revalidate\r\n");
+      sb.Append("Cache-Control: ")
+        .Append(cacheControl ?? "no-cache, no-store, must-revalidate").Append("\r\n");
       sb.Append("Connection: close\r\n\r\n");
       var head = Encoding.ASCII.GetBytes(sb.ToString());
       ns.Write(head, 0, head.Length);

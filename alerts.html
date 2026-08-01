@@ -89,7 +89,10 @@
     pointer-events:none;opacity:0;transition:opacity .3s ease;z-index:0}
   #medialayer.on{opacity:var(--overlay-opacity)}
   #medialayer img,#medialayer video{max-width:82%;border-radius:12px}
-  #stage{position:fixed;inset:0;display:flex;padding:32px;box-sizing:border-box;}
+  /* z-index 1: the clip layer below is appended to <body> after this, and two
+     fixed elements at the same level paint in DOM order - without this the
+     clip covers the card whenever the two overlap. */
+  #stage{position:fixed;inset:0;display:flex;padding:32px;box-sizing:border-box;z-index:1}
   #stage.h-left{justify-content:flex-start}
   #stage.h-center{justify-content:center}
   #stage.h-right{justify-content:flex-end}
