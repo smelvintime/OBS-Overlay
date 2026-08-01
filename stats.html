@@ -242,7 +242,13 @@
      faces after layout and sets the real height, which means the frames, the
      mark size and the machine's font metrics can all move without anyone
      having to remember to retune three constants. */
-  .faces{position:relative;height:46px}
+  /* overflow hidden: the takeover and the slash cycle stage their faces
+     140px outside the card and travel in. Unclipped, that text rendered
+     beside the card - and an OBS source cropped to the box made it
+     materialise at the crop edge mid-flight, which read as a glitch rather
+     than an arrival. Clipped, faces slide in from behind the card's own
+     edge, the way the alert card's slash reads on its full canvas. */
+  .faces{position:relative;height:46px;overflow:hidden}
   .face{position:absolute;inset:0;opacity:0;pointer-events:none;
     transition:transform .34s cubic-bezier(.22,1.28,.35,1),opacity .28s ease}
   .face.on{opacity:1}
@@ -677,6 +683,7 @@ if(window.NPO) NPO.themeBoot('source');
     var next = faceEl(box, which);
     var prev = faceEl(box, box.current);
     if(!next) return;
+    var handback = prev === box.alertFace;
     box.current = which;
 
     if(prev){
@@ -686,11 +693,21 @@ if(window.NPO) NPO.themeBoot('source');
       // which is more than twice as long as an ordinary cycle change. Stripping
       // .leaving on the shorter clock would cut the retreat off partway and
       // drop the face the rest of the way in one frame.
-      var settle = (prev === box.alertFace || tr === 'slash') ? 760 : 340;
+      var settle = (handback || tr === 'slash') ? 760 : 340;
       setTimeout(function(){ prev.classList.remove('leaving'); }, settle);
     }
     function on(){ next.classList.add('on'); }
     next.classList.remove('leaving');
+    // A takeover hands back in sequence, not in a pile: the announcement
+    // slashes out the way it came, and the standby face walks in only once
+    // it has all but left. Entering together stacked two texts mid-flight,
+    // which is exactly what "doesn't return smoothly" looked like. On
+    // toTimers so a new event mid-handback cancels the entry cleanly -
+    // playTakeover restages whatever it needs.
+    if(handback){
+      toTimers.push(setTimeout(on, 560));
+      return;
+    }
     requestAnimationFrame(on);
     setTimeout(on, 60);
   }
@@ -818,6 +835,20 @@ if(window.NPO) NPO.themeBoot('source');
     if(a.test){
       clearToTimers();
       toQueue.length = 0;
+      // A second test while one is still up must restage, not rewrite the
+      // words in place - showFace's early-out would otherwise swap the name
+      // with no motion at all. The click meant "show me this one NOW", so
+      // the current announcement is dropped cold with transitions off for a
+      // beat (body.resync already means exactly "snap, don't animate") and
+      // the fresh one slashes in from a clean stage.
+      [follow, subs].forEach(function(b){
+        if(b.current !== 'alert') return;
+        document.body.classList.add('resync');
+        clearFaces(b);
+        b.current = null;
+        void b.el.offsetWidth;
+        document.body.classList.remove('resync');
+      });
       toQueue.push([box, a]);
       toActive = false;
       playTakeover();
