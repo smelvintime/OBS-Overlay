@@ -659,6 +659,55 @@
       ]
     },
 
+    socials: {
+      label:'Socials', path:'/socials', store:'nowplaying.customize.socials',
+      sizeToContent:true,
+      blurb:'Your handles as their own OBS <strong>Browser Source</strong>. <em>Rotating icon</em> '
+          + 'keeps the name written once and cycles only the platform mark &mdash; the compact '
+          + 'one for a gameplay scene. <em>Show them all</em> puts every platform on screen at '
+          + 'once for a starting-soon or webcam scene. Same handle everywhere? It is written '
+          + 'once with the icons grouped beside it.',
+      live:[],
+      defaults:{
+        handle:'', tiktok:'', youtube:'', instagram:'',
+        mode:'rotate', cycle:5, prefix:'@', brand:0,
+        frame:'blade', accent:'9bd4f5', scale:1, radius:12, opacity:100
+      },
+      size:function(){ return {w:420, h:80}; },
+      groups:[
+        { title:'Handles', controls:[
+          { key:'handle', label:'Name', type:'text',
+            note:'Used for every platform. If one of them differs, fill that one in below '
+               + 'and it wins for that platform only.' },
+          { key:'tiktok', label:'TikTok', type:'text' },
+          { key:'youtube', label:'YouTube', type:'text' },
+          { key:'instagram', label:'Instagram', type:'text' },
+          { key:'prefix', label:'Prefix', type:'text',
+            note:'Drawn before the name. Empty for none.' }
+        ]},
+        { title:'How it shows', controls:[
+          { key:'mode', label:'Mode', type:'seg', options:[
+            ['rotate','Rotating icon'],['all','Show them all']],
+            note:'Rotating writes the name once and only swaps the platform mark, so the '
+               + 'box never changes width &mdash; the one to use over gameplay.' },
+          { key:'cycle', label:'Each icon', type:'range', min:2, max:30, step:1, unit:'s',
+            note:'Rotating mode only.' },
+          { key:'brand', label:'', type:'toggle', text:'Brand colours on the icons',
+            note:'Off keeps them in your accent so they match the rest of the overlays.' }
+        ]},
+        { title:'Look', controls:[
+          { key:'frame', label:'Frame', type:'seg',
+            options:[['blade','Blade'],['soft','Plain'],['none','No plate']],
+            note:'No plate drops the background entirely &mdash; just the icon and the name '
+               + 'over your scene.' },
+          { key:'accent', label:'Accent', type:'color' },
+          { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
+          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+        ]}
+      ]
+    },
+
     webcam: {
       label:'Webcam frame', path:'/webcam', store:'nowplaying.customize.webcam',
       blurb:'A themed frame that sits exactly over the camera: add it as its own OBS '
@@ -696,7 +745,7 @@
     }
   };
 
-  var ORDER = ['overlay','alerts','stats','session','draft','webcam'];
+  var ORDER = ['overlay','alerts','stats','session','draft','socials','webcam'];
 
   // ---- state -----------------------------------------------------------------
   var states = {};

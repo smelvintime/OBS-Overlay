@@ -233,3 +233,27 @@ speaks one visual language.
 
 It follows the app theme like every other source, and because the page is
 pure chrome — no polling, no audio, no data — it costs effectively nothing.
+
+## The socials overlay
+
+**`http://127.0.0.1:8787/socials`** puts your handles on stream, dressed from
+the **Socials** tab in the customizer. It has two modes because a gameplay
+scene and a starting-soon scene want different things:
+
+- **Rotating icon** (the default, and the compact one) writes your name
+  **once** and cycles only the platform mark — TikTok, then YouTube, then
+  Instagram. Because the name never changes, the box never changes width, so
+  it can sit in a tight corner of a gameplay scene without ever reflowing.
+- **Show them all** puts every platform on screen at once, for a scene with
+  room. When the handle is the same everywhere — the usual case — it is
+  written once with the icons grouped beside it rather than repeated three
+  times.
+
+Fill in **Name** for the handle you use everywhere; the per-platform boxes
+below it are only for the odd one out. The icons take your accent colour by
+default so they match the rest of the overlays, or switch on **Brand colours**
+for the real TikTok/YouTube/Instagram hues. **No plate** drops the background
+entirely if you just want the mark and the name floating over your scene.
+
+The page draws nothing at all until a handle is set, so an unconfigured source
+is invisible rather than an empty box.
