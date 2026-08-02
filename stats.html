@@ -47,6 +47,11 @@
      ?showSubs=0|1                 show the subscriber box      (default 1)
      ?followGoal=500               override the automatic goal
      ?subGoal=50
+     ?followStep=5                 keep the next goal a fixed stride past the
+     ?subStep=2                    count instead of the automatic round
+                                   numbers: 2 climbs in twos (7 followers ->
+                                   goal 8), 5 in fives (7 -> 10). A fixed
+                                   ?followGoal=/?subGoal= still wins
      ?demo=1                       fake data, no server needed
 
      Each box alternates two faces: who was most recent, and how far the count
@@ -561,6 +566,21 @@ if(window.NPO) NPO.themeBoot('source');
   var followGoalOverride = goalOverride('followGoal');
   var subGoalOverride    = goalOverride('subGoal');
 
+  // Step rounding: the goal rides a fixed stride ahead of the count (+2, +5)
+  // instead of the automatic round numbers, whose first stop is "next 10" - a
+  // long way from home for a channel at 3 followers. A fixed ?followGoal=
+  // still wins: a number someone typed is more deliberate than a stride.
+  function goalStep(name){
+    var v = parseInt(qs.get(name),10);
+    return (isFinite(v) && v >= 1 && v <= 1000) ? v : 0;
+  }
+  var followStep = goalStep('followStep');
+  var subStep    = goalStep('subStep');
+  function steppedGoal(total, step){
+    if(!step || !isFinite(total) || total < 0) return 0;
+    return (Math.floor(total / step) + 1) * step;
+  }
+
   // ---- boxes ------------------------------------------------------------
   function Box(id, colourVar, want){
     var el = document.getElementById(id);
@@ -1020,7 +1040,9 @@ if(window.NPO) NPO.themeBoot('source');
     follow.live = ok && d.followers && d.followers.total >= 0;
     if(d.followers){
       follow.total  = d.followers.total;
-      follow.goal   = followGoalOverride || d.followers.goal;
+      follow.goal   = followGoalOverride
+                   || steppedGoal(d.followers.total, followStep)
+                   || d.followers.goal;
       follow.latest = d.followers.latest || '';
     }
 
@@ -1029,7 +1051,9 @@ if(window.NPO) NPO.themeBoot('source');
     subs.live = ok && d.subs && d.subs.total >= 0;
     if(d.subs){
       subs.total  = d.subs.total;
-      subs.goal   = subGoalOverride || d.subs.goal;
+      subs.goal   = subGoalOverride
+                 || steppedGoal(d.subs.total, subStep)
+                 || d.subs.goal;
       subs.latest = d.subs.latest || '';
     }
 
@@ -1062,19 +1086,29 @@ if(window.NPO) NPO.themeBoot('source');
     // The poll is only every 5s and the totals it reads lag Twitch by up to a
     // minute, so events drive the visible change and the poll corrects drift.
     if(window.NPO){
+      // With step rounding on, the goal rolls forward the moment an event
+      // crosses it, rather than waiting up to 5s for the next poll - "8 / 8"
+      // becoming "8 / 10" is the payoff moment of a small stride, and it
+      // should land with the follow that earned it.
+      var restep = function(box, step, fixed){
+        if(step && !fixed) box.goal = steppedGoal(box.total, step) || box.goal;
+      };
       var onTwitchEvent = function(d){
         if(d.kind === 'follow'){
           follow.latest = d.user || follow.latest;
           if(follow.total >= 0) follow.total++;
+          restep(follow, followStep, followGoalOverride);
           follow.live = true;
           refreshBox(follow); bump(follow);
         } else if(d.kind === 'sub' || d.kind === 'resub'){
           subs.latest = d.user || subs.latest;
           if(subs.total >= 0 && d.kind === 'sub') subs.total++;
+          restep(subs, subStep, subGoalOverride);
           subs.live = subs.live || subs.total >= 0;
           refreshBox(subs); bump(subs);
         } else if(d.kind === 'gift'){
           if(subs.total >= 0) subs.total += (d.count || 1);
+          restep(subs, subStep, subGoalOverride);
           refreshBox(subs); bump(subs);
         }
         afterData();

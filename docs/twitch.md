@@ -87,6 +87,17 @@ those two phases rather than cycling to blank ones.
 `arrange=row` puts the two boxes side by side instead of stacked. It has nothing to
 arrange in rotate mode, where only one is ever up.
 
+### How the next goal is chosen
+
+Left alone, an unmet goal is the next **round number** above the count, on a ladder
+that grows with the channel — next 10, then 50, then 100. For a small channel that
+first stop is a long way from home, so the **Next goal** sliders in the customizer
+(`followStep=` / `subStep=` in the URL) keep the goal a fixed stride ahead instead:
+a step of 2 climbs in twos (7 followers → goal 8), a step of 5 in fives (7 → 10).
+Each goal has its own slider, the goal rolls forward the moment it is reached, and
+a fixed `followGoal=`/`subGoal=` in the URL still beats everything — a number you
+typed is more deliberate than a stride.
+
 ### Announcing events in the goal box
 
 `takeover=1` makes the goal boxes and the alerts one thing. Instead of the box cycling

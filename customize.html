@@ -486,7 +486,8 @@
         frame:'blade', slant:1, mark:2, align:'left', valign:'top', scale:1, radius:14,
         opacity:100, cycle:8, mode:'pair', faces:'all', order:'subs', arrange:'stack',
         takeover:0, hold:6,
-        transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1
+        transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1,
+        followStep:0, subStep:0
       },
       size:function(){ return {w:360, h:240}; },
       // Same envelope the alerts page takes, so one button drives whichever of
@@ -545,6 +546,16 @@
                + 'the shuriken spinning to a stop. It runs close to a second, so give it a '
                + 'longer face time than you would the others. '
                + 'A box with only one thing to show holds it instead of cycling to a blank face.' }
+        ]},
+        { title:'Next goal', controls:[
+          { key:'followStep', label:'Followers', type:'range', min:0, max:50, step:1,
+            unit:' at a time', zeroText:'Automatic' },
+          { key:'subStep', label:'Subs', type:'range', min:0, max:50, step:1,
+            unit:' at a time', zeroText:'Automatic',
+            note:'How far past the count the next goal sits: 2 climbs in twos (7 followers '
+               + '→ goal 8), 5 in fives (7 → 10). Automatic uses round numbers that grow '
+               + 'with the channel — next 10, then 50, then 100. The goal rolls forward '
+               + 'the moment it is reached.' }
         ]},
         { title:'When someone follows or subscribes', controls:[
           { key:'takeover', label:'', type:'toggle', text:'Break the cycle and announce it here',
