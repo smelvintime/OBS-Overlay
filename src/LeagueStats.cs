@@ -649,7 +649,13 @@ namespace NowPlaying {
           phase = ph;
           if (gameJustEnded) {
             AppLog.Write("league: game ended (phase -> " + ph + ")");
-            freshPolls = 9;      // history lags the end screen; chase it ~90s
+            // History lags the end screen by anywhere up to a minute, and the
+            // announcement is only as fast as the poll that finds it. 45
+            // attempts at the 2s chase cadence below is the same ~90s of
+            // patience as before, checked five times as often, so the line
+            // lands within a couple of seconds of the result existing
+            // instead of within ten.
+            freshPolls = 45;
           }
 
           if (_summoner.Length == 0) {
@@ -708,7 +714,11 @@ namespace NowPlaying {
         } catch (Exception ex) {
           _status = "error"; _detail = ex.Message;
         }
-        Thread.Sleep(10000);
+        // Three speeds, because the cost of a poll and the value of a poll
+        // are not constant. Chasing a just-finished result is worth 2s;
+        // watching a game that is going to end soon is worth 4s so the
+        // transition is not sat on; idling between games is worth 10s.
+        Thread.Sleep(freshPolls > 0 ? 2000 : (phase == "InProgress" ? 4000 : 10000));
       }
     }
 
