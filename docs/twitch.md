@@ -305,21 +305,22 @@ drop the data in wherever you want it with the pieces listed under the box:
 | `!song` | `{song}` `{title}` `{artist}` |
 | `!uptime` | `{uptime}` |
 | `!followage` | `{followage}` |
-| `!record` | `{record}` `{last}` `{today}` `{ranked}` `{normals}` `{aram}` `{other}` |
+| `!record` | `{record}` `{last}` `{ranked}` |
 | `!rank` | `{rank}` `{tier}` `{lp}` `{wins}` `{losses}` |
 
-`{user}` works in every reply — it becomes whoever asked. So `!rank` with the
-template *"{user}, the climb currently sits at {rank} — {wins} wins deep"*
-answers *"chatter42, the climb currently sits at Emerald II - 45 LP — 210 wins
-deep"*. Empty the box to go back to the standard line. When the data isn't
-there (nothing playing, League closed), the bot uses its plain stock answer
-rather than your template with holes in it.
+`{user}` works in every reply but one — it becomes whoever asked. So `!rank`
+with the template *"{user}, the climb currently sits at {rank} — {wins} wins
+deep"* answers *"chatter42, the climb currently sits at Emerald II - 45 LP —
+210 wins deep"*. Empty the box to go back to the standard line. When the data
+isn't there (nothing playing, League closed), the bot uses its plain stock
+answer rather than your template with holes in it.
 
-`!record` counts **ranked games only** — `{record}` and `{last}` are the last
-five ranked results and the last ranked game. The extra pieces are **today's**
-tallies from the same numbers the session tracker shows, if a template ever
-wants a wider line: `{today}` for everything, or `{normals}`/`{aram}`/`{other}`
-for a specific mode. Practice tool and tutorials never count anywhere.
+`!record` is the one exception, and it stays **ranked only**, on purpose —
+three pieces, nothing spare: `{record}` is the last five ranked results,
+`{last}` is the last ranked game, and `{ranked}` is today's ranked win-loss
+tally, the same number the session tracker's Ranked switch shows. No `{user}`
+here — the record is a channel fact, not an answer to whoever typed the
+command. Practice tool and tutorials never count.
 
 The **follow thank-you** works the same way and always has: its message box on
 the bot tab takes `{user}`, which becomes the follower's name — or several

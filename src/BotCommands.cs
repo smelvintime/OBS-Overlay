@@ -280,12 +280,15 @@ namespace NowPlaying {
           text = cmd.Response.Replace("{channel}", "");
           break;
       }
-      // {user} works in every reply, template or stock, so any line can
-      // address whoever asked. "\n" typed in the dashboard becomes a real
-      // newline, and the sender splits on those into separate chat messages -
-      // IRC has no multi-line message, so that is the only form a "newline"
-      // can take in chat.
-      return text == null ? null : text.Replace("{user}", ev.Nick).Replace("\\n", "\n");
+      if (text == null) return null;
+      // {user} works in every reply but this one: the record is a channel
+      // fact, not an answer to whoever typed the command, and this command
+      // is deliberately down to three ranked-only pieces with nothing spare.
+      if (cmd.Builtin != "record") text = text.Replace("{user}", ev.Nick);
+      // "\n" typed in the dashboard becomes a real newline, and the sender
+      // splits on those into separate chat messages - IRC has no multi-line
+      // message, so that is the only form a "newline" can take in chat.
+      return text.Replace("\\n", "\n");
     }
 
     // A builtin's Response, when set, is a template: the streamer's own words
@@ -317,19 +320,12 @@ namespace NowPlaying {
       string record, last;
       LeagueStats.RecordParts(out record, out last);
       if (record.Length == 0) return stock;
-      // The per-mode pieces are today's tallies - the same numbers the
-      // session tracker shows - so "Ranked today: {ranked}" stays honest to
-      // the overlay beside it. The stock line keeps saying everything.
+      // Three pieces, all ranked, nothing spare: the last-five streak, the
+      // last game, and today's ranked tally - the same number the session
+      // tracker's Ranked switch shows. No other mode has ever belonged here.
       int[] w, l;
       LeagueStats.TodayParts(out w, out l);
-      return Fill(tmpl, stock,
-                  "record",  record,
-                  "last",    last,
-                  "ranked",  WL(w[0], l[0]),
-                  "normals", WL(w[1], l[1]),
-                  "aram",    WL(w[2], l[2]),
-                  "other",   WL(w[3], l[3]),
-                  "today",   WL(w[0] + w[1] + w[2] + w[3], l[0] + l[1] + l[2] + l[3]));
+      return Fill(tmpl, stock, "record", record, "last", last, "ranked", WL(w[0], l[0]));
     }
 
     static string WL(int w, int l) { return w + "W " + l + "L"; }
