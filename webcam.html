@@ -22,6 +22,17 @@
      ?mark=1                       put the shuriken on the plate before the
                                    text - or alone, as a corner emblem, when
                                    there is no text at all      (default 0)
+     ?plate=name|socials           what the plate says. name = ?label= and the
+                                   shuriken above. socials = your handle with
+                                   the platform mark cycling beside it, the
+                                   same vocabulary the socials overlay uses:
+                                   ?handle=, per-platform ?tiktok= ?youtube=
+                                   ?instagram=, ?show= to pick the set and
+                                   order, ?prefix=@, ?cycle=5 seconds per
+                                   mark, ?brand=1 for platform colours. With
+                                   no handle set it falls back to the plain
+                                   label rather than drawing an empty plate
+                                                                (default name)
      ?slant=0|1                    lean the plate's right edge along the house
                                    diagonal (blade frame only); 0 squares it
                                    off for a rectangular scene  (default 1)
@@ -111,6 +122,17 @@
   /* The house mark, same masked-span recipe as every other page. It takes
      the accent for free and sits before the name - or alone, when the plate
      is just an emblem. */
+  /* The rotating social mark, when the plate is showing handles. A fixed box
+     with the icons stacked inside it out of flow: the plate's width is then
+     set by the handle alone, so swapping marks cannot make the frame's plate
+     twitch. Same trick, and the same reason, as the socials overlay. */
+  #label .stack{position:relative;width:14px;height:14px;flex:0 0 auto}
+  #label .stack svg{position:absolute;left:0;top:0;width:14px;height:14px;
+    color:var(--c);opacity:0;transition:opacity .45s ease}
+  #label .stack svg.on{opacity:1}
+  body.brand-on #label .stack svg[data-p=tiktok]{color:#25F4EE}
+  body.brand-on #label .stack svg[data-p=youtube]{color:#FF0000}
+  body.brand-on #label .stack svg[data-p=instagram]{color:#E1306C}
   #label .mark{flex:0 0 auto;width:14px;height:14px;background-color:var(--c);
     -webkit-mask:var(--shuriken) center/contain no-repeat;
             mask:var(--shuriken) center/contain no-repeat}
@@ -179,24 +201,85 @@ if(window.NPO) NPO.themeBoot('source');
   // vanishing entirely would read as the param being broken.
   if(label.length > 40) label = label.slice(0, 40);
   var mark = qs.get('mark') === '1';
-  // Text, mark, or both - a plate with only the shuriken on it is a corner
-  // emblem, which is a look in its own right.
-  if(label || mark){
+
+  // ---- socials on the plate --------------------------------------------------
+  // The plate is already a name in the corner of the camera, which is exactly
+  // where a handle wants to be - so it can carry the social handle instead,
+  // with the platform mark cycling beside it the way the socials overlay
+  // does. The handle vocabulary comes from shared.js, so ?handle=,
+  // ?tiktok=/?youtube=/?instagram= and ?show= mean the same thing here as
+  // they do there.
+  var plateMode = (qs.get('plate') || 'name').toLowerCase();
+  if(['name','socials'].indexOf(plateMode) < 0) plateMode = 'name';
+  if(qs.get('brand') === '1') document.body.classList.add('brand-on');
+
+  var socials = [];
+  if(plateMode === 'socials' && window.NPO){
+    var pfx = qs.get('prefix');
+    if(pfx === null) pfx = '@';
+    if(pfx.length > 4) pfx = pfx.slice(0, 4);
+    socials = NPO.socialList(qs, pfx);
+    // A socials plate with no handle set has nothing to say; fall back to the
+    // plain label rather than drawing an empty box on the camera.
+    if(!socials.length) plateMode = 'name';
+  } else if(plateMode === 'socials') {
+    plateMode = 'name';
+  }
+
+  var showPlate = plateMode === 'socials' ? true : (label || mark);
+  if(showPlate){
     var holder = document.createElement('div');
     holder.id = 'label';
     var plate = document.createElement('span');
     plate.className = 'plate';
-    if(mark){
-      var mk = document.createElement('span');
-      mk.className = 'mark';
-      plate.appendChild(mk);
+
+    if(plateMode === 'socials'){
+      var stack = document.createElement('span');
+      stack.className = 'stack';
+      var svgs = [];
+      for(var i = 0; i < socials.length; i++){
+        var svg = NPO.socialMark(socials[i].p);
+        if(!svg) continue;
+        if(svgs.length === 0) svg.setAttribute('class', 'on');
+        stack.appendChild(svg);
+        svgs.push(svg);
+      }
+      plate.appendChild(stack);
+      var handle = document.createElement('span');
+      handle.className = 'text';
+      handle.textContent = socials[0].h;   // the query string is not trusted markup
+      plate.appendChild(handle);
+
+      // One platform is not a rotation, and the handle only changes with the
+      // platform when they actually differ - the usual case is one name
+      // everywhere, where the text should simply never move.
+      if(svgs.length > 1){
+        var secs = parseFloat(qs.get('cycle'));
+        if(!isFinite(secs) || secs < 2 || secs > 30) secs = 5;
+        var at = 0;
+        setInterval(function(){
+          svgs[at].setAttribute('class', '');
+          at = (at + 1) % svgs.length;
+          svgs[at].setAttribute('class', 'on');
+          if(socials[at].h !== handle.textContent) handle.textContent = socials[at].h;
+        }, secs * 1000);
+      }
+    } else {
+      // Text, mark, or both - a plate with only the shuriken on it is a
+      // corner emblem, which is a look in its own right.
+      if(mark){
+        var mk = document.createElement('span');
+        mk.className = 'mark';
+        plate.appendChild(mk);
+      }
+      if(label){
+        var text = document.createElement('span');
+        text.className = 'text';
+        text.textContent = label;   // the query string is not trusted markup
+        plate.appendChild(text);
+      }
     }
-    if(label){
-      var text = document.createElement('span');
-      text.className = 'text';
-      text.textContent = label;   // the query string is not trusted markup
-      plate.appendChild(text);
-    }
+
     holder.appendChild(plate);
     frameEl.appendChild(holder);
   }

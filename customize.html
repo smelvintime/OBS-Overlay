@@ -677,7 +677,9 @@
       live:[],
       defaults:{
         frame:'blade', accent:'9bd4f5', thick:2, cut:22, radius:10, glow:1,
-        opacity:100, label:'', mark:0, slant:1
+        opacity:100, label:'', mark:0, slant:1,
+        plate:'name', handle:'', tiktok:'', youtube:'', instagram:'',
+        prefix:'@', cycle:5, brand:0
       },
       size:function(){ return {w:640, h:360}; },
       groups:[
@@ -693,14 +695,28 @@
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
         ]},
         { title:'Name plate', controls:[
+          { key:'plate', label:'Shows', type:'seg', options:[
+            ['name','Your text'],['socials','Socials']],
+            note:'Socials puts your handle in the corner of the camera with the platform '
+               + 'mark cycling beside it &mdash; the same rotation the Socials source uses, '
+               + 'in the space the frame already has. With no handle filled in it falls '
+               + 'back to your text rather than drawing an empty plate.' },
           { key:'label', label:'Text', type:'text',
-            note:'Optional - a small plate in the bottom-left corner of the frame. A name, '
-               + 'a handle, or empty for none.' },
+            note:'Shown when the plate is set to Your text. A name, a handle, or empty '
+               + 'for no plate at all.' },
           { key:'mark', label:'', type:'toggle', text:'Shuriken on the plate',
-            note:'The mark sits before the text in the accent colour - or stands alone '
-               + 'as a corner emblem when the text is empty.' },
+            note:'Your text only. The mark sits before the text in the accent colour - or '
+               + 'stands alone as a corner emblem when the text is empty.' },
+          { key:'handle', label:'Handle', type:'text',
+            note:'Socials only. Used for every platform; fill a box below to override one.' },
+          { key:'tiktok', label:'TikTok', type:'text' },
+          { key:'youtube', label:'YouTube', type:'text' },
+          { key:'instagram', label:'Instagram', type:'text' },
+          { key:'prefix', label:'Prefix', type:'text' },
+          { key:'cycle', label:'Each mark', type:'range', min:2, max:30, step:1, unit:'s' },
+          { key:'brand', label:'', type:'toggle', text:'Brand colours on the marks' },
           { key:'slant', label:'', type:'toggle', text:'Lean the plate',
-            note:'The house diagonal on the name plate. Blade frame only.' }
+            note:'The house diagonal on the plate. Blade frame only.' }
         ]}
       ]
     }
