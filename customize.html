@@ -628,7 +628,7 @@
       live:[],
       defaults:{
         frame:'blade', accent:'9bd4f5', thick:2, cut:22, radius:10, glow:1,
-        opacity:100, label:'', slant:1
+        opacity:100, label:'', mark:0, slant:1
       },
       size:function(){ return {w:640, h:360}; },
       groups:[
@@ -647,6 +647,9 @@
           { key:'label', label:'Text', type:'text',
             note:'Optional - a small plate in the bottom-left corner of the frame. A name, '
                + 'a handle, or empty for none.' },
+          { key:'mark', label:'', type:'toggle', text:'Shuriken on the plate',
+            note:'The mark sits before the text in the accent colour - or stands alone '
+               + 'as a corner emblem when the text is empty.' },
           { key:'slant', label:'', type:'toggle', text:'Lean the plate',
             note:'The house diagonal on the name plate. Blade frame only.' }
         ]}

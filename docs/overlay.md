@@ -228,7 +228,8 @@ speaks one visual language.
    **exactly over the webcam source** (same X/Y, same width/height).
 2. Dress it from the **Webcam frame** tab in the customizer: blade or plain
    frame, accent colour, border thickness, bracket size, glow, and an
-   optional name plate in the bottom-left corner.
+   optional name plate in the bottom-left corner — with the shuriken on it
+   if you like, or the shuriken alone as a corner emblem with no text.
 
 It follows the app theme like every other source, and because the page is
 pure chrome — no polling, no audio, no data — it costs effectively nothing.

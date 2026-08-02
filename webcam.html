@@ -19,6 +19,9 @@
      ?label=                       name plate text, 40 characters at most,
                                    inside the bottom-left corner
                                                                 (default none)
+     ?mark=1                       put the shuriken on the plate before the
+                                   text - or alone, as a corner emblem, when
+                                   there is no text at all      (default 0)
      ?slant=0|1                    lean the plate's right edge along the house
                                    diagonal (blade frame only); 0 squares it
                                    off for a rectangular scene  (default 1)
@@ -38,6 +41,10 @@
     --card-bg:rgba(18,18,20,.86);
     --card-border:rgba(255,255,255,.10);
     --text:#fff;
+    /* Three blades, matching alerts.html - see the long note there for the
+       load-bearing geometry. alerts.html is the canonical copy and every
+       duplicate must stay byte-identical to it; this is one of the duplicates. */
+    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='2.7' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)' transform='translate(24 0) scale(-1 1)'%3E%3Ccircle cx='12' cy='12' r='4.3'/%3E%3Cpath d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(120 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(240 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3C/g%3E%3C/svg%3E");
   }
   /* Palettes other than this default come from /themes as data - shared.js
      writes them into a <style> tag. */
@@ -93,16 +100,23 @@
      shape from outside it. */
   #label{position:absolute;left:10px;bottom:10px;max-width:calc(100% - 20px);
     filter:drop-shadow(0 0 6px var(--c))}
-  /* 40 characters can still outrun a small camera; clip with an ellipsis
-     rather than poke out of the frame. */
-  #label span{display:block;padding:5px 12px;border-radius:3px;
-    background:var(--card-bg);border-left:3px solid var(--c);
+  #label .plate{display:flex;align-items:center;gap:8px;padding:5px 12px;
+    border-radius:3px;background:var(--card-bg);border-left:3px solid var(--c);
     color:var(--text);font-size:12.5px;font-weight:700;line-height:1.2;
-    letter-spacing:.08em;text-transform:uppercase;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    letter-spacing:.08em;text-transform:uppercase}
+  /* 40 characters can still outrun a small camera; clip with an ellipsis
+     rather than poke out of the frame. overflow:hidden also zeroes the flex
+     item's automatic minimum size, so the text is the part that gives. */
+  #label .text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* The house mark, same masked-span recipe as every other page. It takes
+     the accent for free and sits before the name - or alone, when the plate
+     is just an emblem. */
+  #label .mark{flex:0 0 auto;width:14px;height:14px;background-color:var(--c);
+    -webkit-mask:var(--shuriken) center/contain no-repeat;
+            mask:var(--shuriken) center/contain no-repeat}
   /* Same 10px lean as the twin blades. The extra right padding belongs to
      the lean - it only exists to keep the text clear of the cut. */
-  body.slant-on.frame-blade #label span{padding-right:20px;
+  body.slant-on.frame-blade #label .plate{padding-right:20px;
     clip-path:polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%)}
 
   body.glow-off #frame::before,
@@ -164,13 +178,27 @@ if(window.NPO) NPO.themeBoot('source');
   // Clipped rather than dropped: a name one character over the limit
   // vanishing entirely would read as the param being broken.
   if(label.length > 40) label = label.slice(0, 40);
-  if(label){
-    var plate = document.createElement('div');
-    plate.id = 'label';
-    var text = document.createElement('span');
-    text.textContent = label;   // the query string is not trusted markup
-    plate.appendChild(text);
-    frameEl.appendChild(plate);
+  var mark = qs.get('mark') === '1';
+  // Text, mark, or both - a plate with only the shuriken on it is a corner
+  // emblem, which is a look in its own right.
+  if(label || mark){
+    var holder = document.createElement('div');
+    holder.id = 'label';
+    var plate = document.createElement('span');
+    plate.className = 'plate';
+    if(mark){
+      var mk = document.createElement('span');
+      mk.className = 'mark';
+      plate.appendChild(mk);
+    }
+    if(label){
+      var text = document.createElement('span');
+      text.className = 'text';
+      text.textContent = label;   // the query string is not trusted markup
+      plate.appendChild(text);
+    }
+    holder.appendChild(plate);
+    frameEl.appendChild(holder);
   }
 })();
 </script>
