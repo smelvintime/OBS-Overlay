@@ -219,6 +219,11 @@ namespace NowPlaying {
 
         var letters = new List<string>();
         for (int i = 0; i < list.Count && letters.Count < 5; i++) {
+          // Ranked only. The record is the grind: an ARAM warm-up or a normal
+          // with friends polluting "past 5" is how a 3-0 ranked evening reads
+          // as 3-2 in chat. Everything else already has its own home - the
+          // session tracker counts whatever modes its switches say.
+          if (ModeBucket(list[i]) != "ranked") continue;
           object stats = FirstParticipantStats(list[i]);
           if (stats == null) continue;
           // stats.win is a JSON boolean (verified against the live client);
@@ -655,12 +660,14 @@ namespace NowPlaying {
     }
 
     // ------------------------------------------------------------------ output
-    // The one sentence both the announcer and !record say.
+    // The one sentence both the announcer and !record say. "ranked" is in the
+    // words on purpose: the line filters to ranked games, and a count that
+    // quietly ignores the ARAM someone just watched needs to say what it is.
     public static string ChatLine() {
       lock (_resultLock) {
         if (_record.Length == 0) return "";
         return (_lastLine.Length > 0 ? "Last game: " + _lastLine + " - " : "")
-             + "past " + _record.Split(' ').Length + ": " + _record;
+             + "past " + _record.Split(' ').Length + " ranked: " + _record;
       }
     }
 
@@ -670,8 +677,8 @@ namespace NowPlaying {
       if (line.Length > 0) return line;
       if (!_enabled) return "Game stats are switched off.";
       return _status == "no-client"
-        ? "No games tracked yet - the League client isn't running."
-        : "No games tracked yet this session.";
+        ? "No ranked games tracked yet - the League client isn't running."
+        : "No ranked games tracked yet this session.";
     }
 
     public static string StatusJson() {
@@ -696,10 +703,11 @@ namespace NowPlaying {
     // Canned payloads in the endpoints' real shapes, pushed through the same
     // parsers the live loop uses. The history is deliberately out of
     // chronological order, so a pass also proves the sort; game 103 is the
-    // practice tool, so a pass also proves it never counts toward today.
-    // Expected: record "W W L W L" (the 5-game record still counts every
-    // mode), newest 105, today [ranked W, ranked W, normals W, aram L],
-    // rank "Emerald II - 45 LP (Solo/Duo), 210W 198L this season", abs 2245.
+    // practice tool and 101/102 are aram/normals, so a pass also proves the
+    // record keeps to ranked while today still counts every real mode.
+    // Expected: record "W W" (ranked only: 105 and 104), newest 105, today
+    // [ranked W, ranked W, normals W, aram L], rank "Emerald II - 45 LP
+    // (Solo/Duo), 210W 198L this season", abs 2245.
     public static string TestParse() {
       string fixture = "{\"games\":{\"games\":["
         + FixGame("104", "1700000400000", "true",  "5",  "1", "9", "420", "CLASSIC")
@@ -730,7 +738,7 @@ namespace NowPlaying {
            + ",\"rankOk\":" + (rok ? "true" : "false")
            + ",\"rankLine\":" + TwitchChat.Qs(rline)
            + ",\"absLp\":" + AbsoluteLp(tier, div, lp)
-           + ",\"expected\":\"record W W L W L, newest 105, today ranked W/ranked W/normals W/aram L, abs 2245\"}";
+           + ",\"expected\":\"record W W (ranked only), newest 105, today ranked W/ranked W/normals W/aram L, abs 2245\"}";
     }
 
     const string FixTemplate = "{{\"gameId\":{0},\"gameCreation\":{1},"

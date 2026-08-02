@@ -304,11 +304,11 @@ deep"*. Empty the box to go back to the standard line. When the data isn't
 there (nothing playing, League closed), the bot uses its plain stock answer
 rather than your template with holes in it.
 
-`!record`'s stock answer counts every mode. To narrow it, use the per-mode
-pieces: they are **today's** tallies, the same numbers the session tracker
-shows, so *"Ranked today: {ranked} · ARAM: {aram}"* answers *"Ranked today:
-4W 2L · ARAM: 1W 0L"* and always agrees with the overlay beside it. Practice
-tool and tutorials never count.
+`!record` counts **ranked games only** — `{record}` and `{last}` are the last
+five ranked results and the last ranked game. The extra pieces are **today's**
+tallies from the same numbers the session tracker shows, if a template ever
+wants a wider line: `{today}` for everything, or `{normals}`/`{aram}`/`{other}`
+for a specific mode. Practice tool and tutorials never count anywhere.
 
 The **follow thank-you** works the same way and always has: its message box on
 the bot tab takes `{user}`, which becomes the follower's name — or several
@@ -340,18 +340,22 @@ is open.
 
 In chat:
 
-- **`!record`** (also `!last5`, `!wl`) answers with the last game and the
-  recent record: *"Last game: Victory (12/3/8) - past 5: W W L W L"*.
+- **`!record`** (also `!last5`, `!wl`) answers with the last ranked game and
+  the recent **ranked** record: *"Last game: Victory (12/3/8) - past 5 ranked:
+  W W L W L"*. ARAMs, normals and the practice tool never muddy it — the
+  record is the grind, and only the grind.
 - **`!rank`** (also `!elo`, `!lp`) answers with the real, current rank:
   *"Rank: Emerald II - 45 LP (Solo/Duo), 210W 198L this season"*. It reads the
   ladder from the client when asked, so it is never yesterday's rank. (It used
   to be a fill-in-the-text command; any old text version upgrades itself to
   the live one automatically.)
-- **Announce when a game ends** posts the record line automatically as the
-  game finishes (on by default; switch it on the bot tab's Game stats panel).
+- **Announce when a game ends** posts the record line automatically as a
+  **ranked** game finishes (on by default; switch it on the bot tab's Game
+  stats panel). A finished ARAM or normal says nothing — the ranked record
+  didn't move.
 - **Repeat on a timer** re-posts it every 5/10/15 minutes — but only when a
-  new game has finished since it last spoke, so it never spams an unchanged
-  record.
+  new ranked game has finished since it last spoke, so it never spams an
+  unchanged record.
 
 On screen — the **session tracker** (`/session`), its own OBS Browser Source,
 dressed from the **League tracker** tab in the customizer:

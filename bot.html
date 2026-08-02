@@ -204,18 +204,19 @@
     <div class="phead">
       <h2>Game stats (League)</h2>
       <span class="sub">Reads results straight from the League client on this PC &mdash; no account
-        linking, no API keys. Viewers get <code>!record</code>, and the bot can post the result
-        when a game ends.</span>
+        linking, no API keys. Viewers get <code>!record</code> and <code>!rank</code>, and the bot
+        can post the result when a ranked game ends. The record counts <b>ranked only</b> &mdash;
+        ARAMs and normals never muddy the grind.</span>
       <span class="spacer"></span>
       <label class="toggle" title="Track League results">
         <input type="checkbox" id="gsOn" /><span class="track"></span>
       </label>
     </div>
     <div class="addrow" style="align-items:center">
-      <label class="toggle" title="Post the result when a game ends">
+      <label class="toggle" title="Post the result when a ranked game ends">
         <input type="checkbox" id="gsAnnounce" /><span class="track"></span>
       </label>
-      <span class="sub" style="font-size:12.5px;color:var(--dim)">Announce when a game ends</span>
+      <span class="sub" style="font-size:12.5px;color:var(--dim)">Announce when a ranked game ends</span>
       <span class="spacer"></span>
       <span class="sub" style="font-size:12.5px;color:var(--dim)">Repeat on a timer</span>
       <select id="gsTimer" style="background:var(--input);border:1px solid var(--line);
