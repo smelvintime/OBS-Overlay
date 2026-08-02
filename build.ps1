@@ -145,6 +145,10 @@ $cscArgs = @(
   "/reference:$sysRt"
   "/reference:$fw\Microsoft.CSharp.dll"
   "/reference:$fw\System.Core.dll"
+  # ZipFile lives in the FileSystem assembly and leans on the other; both ship
+  # with .NET 4.5+, which Windows 8 onward always has. Used by the self-updater.
+  "/reference:$fw\System.IO.Compression.dll"
+  "/reference:$fw\System.IO.Compression.FileSystem.dll"
 )
 # Embedded so the .exe needs no files beside it. Resource names are the plain
 # file names; the server's convention route and theme discovery key off them.

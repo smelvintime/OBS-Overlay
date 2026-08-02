@@ -715,6 +715,7 @@ namespace NowPlaying {
       TwitchChat.Start();      // no-op unless configured AND switched on
       LeagueStats.Start();     // idle unless the bot's Game stats switch is on
       LobbyRanks.Start();      // idle unless !ranks asks for it
+      Updater.CleanupAfterSwap();   // sweep the previous build's ".old" leftover, if any
 
       var accept = new Thread(() => {
         while (true) {
@@ -1521,6 +1522,24 @@ namespace NowPlaying {
             LeagueStats.NoteOverlayInterest();
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(LeagueStats.OverlayJson()));
+          } else if (route == "/update/status") {
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(Updater.StatusJson()));
+          } else if (route == "/update/check") {
+            // Read-only in effect, but it makes this app call out to GitHub -
+            // a stranger's tab doesn't get to make this machine phone anywhere.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(Updater.CheckJson(QueryParam(path, "force") == "1")));
+          } else if (route == "/update/run") {
+            // Downloads code, rebuilds and replaces the program - the most
+            // state-changing route in the app, so the same-origin door is
+            // non-negotiable here.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            string uerr;
+            bool uok = Updater.Begin(out uerr);
+            SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
+              "{\"ok\":" + (uok ? "true" : "false") + ",\"error\":" + Q(uerr) + "}"));
           } else if (route == "/league/test") {
             // Pure: a canned match history through the real parser, touching
             // no state - so the formatting is provable with no League installed.

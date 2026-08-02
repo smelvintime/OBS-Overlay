@@ -25,6 +25,13 @@
   .spacer{flex:1 1 auto}
   .obslink{color:var(--dim);font-size:12.5px;text-decoration:none}
   .obslink:hover{color:var(--fg)}
+  /* The update chip. Invisible when the build is current - an "up to date"
+     badge is furniture nobody dusts - and gold when there is something to
+     install, because gold is this app's colour for "look here". */
+  .upd{display:flex;align-items:center;font-size:12.5px;color:var(--dim);white-space:nowrap}
+  .upd button{background:var(--trim);border:1px solid var(--trim);color:var(--on-accent);
+    border-radius:9px;padding:8px 15px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+  .upd button:disabled{opacity:.6;cursor:default}
   .themes{display:flex;gap:5px;align-items:center}
   .themes button{width:22px;height:22px;padding:0;border-radius:50%;cursor:pointer;
     border:2px solid transparent}
@@ -45,6 +52,7 @@
   <nav id="nav"></nav>
   <span class="spacer"></span>
   <div class="themes" id="themes" title="Colour theme"></div>
+  <span class="upd" id="upd"></span>
   <a class="obslink" href="#help">OBS source URLs &amp; setup &rarr;</a>
 </header>
 <div class="content" id="content"></div>
@@ -241,6 +249,65 @@
   });
 
   select(location.hash.slice(1) || TABS[0][0], false);
+
+  // ---- updates --------------------------------------------------------------
+  // One quiet check when the dashboard opens; the app caches the answer for
+  // half an hour, so this is not a GitHub call per page load. When the build
+  // is current, nothing is drawn at all. When it isn't, one gold button:
+  // pressing it makes the app download the latest source, rebuild itself on
+  // this PC (the same thing Build.bat does, nothing downloaded but source)
+  // and restart. The page follows /update/status the whole way through, and
+  // the moment the server stops answering IS the restart - so that fetch
+  // failure is shown as progress, not as an error.
+  var updEl = document.getElementById('upd');
+
+  function updSay(text){ updEl.textContent = text; }
+
+  function updWaitBack(){
+    fetch('/update/status', {cache:'no-store'})
+      .then(function(){ location.reload(); })
+      .catch(function(){ setTimeout(updWaitBack, 1000); });
+  }
+
+  function updPoll(){
+    fetch('/update/status', {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(j.state === 'error'){ updSay(j.detail || 'The update failed - see the log.'); return; }
+        updSay(j.detail || 'Updating...');
+        setTimeout(updPoll, 1000);
+      })
+      .catch(function(){
+        updSay('Restarting on the new build...');
+        updWaitBack();
+      });
+  }
+
+  function updRun(){
+    updSay('Starting the update...');
+    fetch('/update/run', {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(j && j.ok) updPoll();
+        else updSay((j && j.error) || 'Could not start the update.');
+      })
+      .catch(function(){ updSay('Could not start the update.'); });
+  }
+
+  fetch('/update/check', {cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if(!j || !j.update) return;   // current, or the check failed: stay silent
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = 'Update available - install';
+      b.title = (j.latestNote ? 'Latest change: ' + j.latestNote + '\n' : '')
+              + 'Downloads the newest source and rebuilds it on this PC, then restarts.\n'
+              + 'Takes under a minute; overlays in OBS blink once and come back on their own.';
+      b.addEventListener('click', function(){ b.disabled = true; updRun(); });
+      updEl.appendChild(b);
+    })
+    .catch(function(){});   // no answer, no chip - never an error banner for a check
 })();
 </script>
 </body>

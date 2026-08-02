@@ -42,9 +42,16 @@ the music side at all.
    settings are saved in a file next to the exe, so running it from a new folder
    looks like a first run.
 
-> **Updating later:** download the new source, run `Build.bat` **in the folder
-> the exe already lives in**, and it handles the rest — it closes the running
-> overlay, builds, and starts the new one. Settings carry over untouched.
+> **Updating later:** the easy way is built in — when something newer has been
+> published, a gold **Update available — install** button appears at the top of
+> the dashboard. One click and the app downloads the new source, rebuilds
+> itself on your PC (source only, same as ever — no exe travels the internet),
+> and restarts. Settings, Twitch connection and OBS sources all carry over;
+> the overlays blink once and come back on their own.
+>
+> The manual way still works too: download the new source, run `Build.bat`
+> **in the folder the exe already lives in**, and it handles the rest — it
+> closes the running overlay, builds, and starts the new one.
 >
 > If instead you build somewhere else and copy the exe across by hand, **exit
 > the app from the tray first**. Windows refuses to overwrite a program while

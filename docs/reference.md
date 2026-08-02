@@ -105,6 +105,9 @@ one page. When two machines disagree, compare their `/diag` pages first.
 | `GET /layouts` | Side-by-side layout previews |
 | `GET /customize` | Full customizer with a live preview |
 | `GET /control` | Source picker page |
+| `GET /update/status` | JSON: this build's version/date, and the updater's progress while one runs |
+| `GET /update/check` | Asks GitHub whether a newer commit exists (cached 30 min; `?force=1` re-asks). App pages only |
+| `GET /update/run` | Downloads the latest source, rebuilds locally, swaps the exe and restarts. App pages only |
 
 If the overlay ever shows the wrong thing, `/sources` is the fastest way to see why —
 it reports the Windows media session and iTunes separately, plus which one was chosen.
@@ -120,6 +123,13 @@ downloads. Output goes to `dist\`.
 No compiled executable is ever published or committed here, on purpose: everyone
 builds the same few-second way, and a binary you compiled yourself never came from
 the internet, so antivirus reputation checks have nothing to object to.
+
+The dashboard's **Update available — install** button keeps that rule: it
+downloads the newest *source* ZIP from GitHub, runs the same build on your
+machine, then swaps the new exe in over the old one and restarts. If any step
+fails, the running app is left untouched and the reason appears in the header
+and the log. The old exe is kept beside the new one as `NowPlayingOverlay.exe.old`
+until the next successful start, as a just-in-case copy.
 
 ## Notes and limits
 
