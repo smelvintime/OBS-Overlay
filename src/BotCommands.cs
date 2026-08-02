@@ -30,7 +30,7 @@ namespace NowPlaying {
       public string Name = "";          // without the "!"
       public string Aliases = "";       // comma separated, without "!"
       public string Response = "";      // text commands only
-      public string Builtin = "";       // song|uptime|followage|shoutout|commands, else text
+      public string Builtin = "";       // song|uptime|followage|shoutout|commands|record|rank|ranks, else text
       public bool Enabled = true;
       public int Cooldown = 10;         // seconds, per command
       public bool ModOnly;
@@ -345,8 +345,9 @@ namespace NowPlaying {
       if (tmpl == null || tmpl.Trim().Length == 0) return stock;
       // {ranks} is the list without whichever label the stock line led with -
       // "My team: " in champ select, "Us: " once the game is running and both
-      // sides can be named. Anything else is a not-in-a-game sentence and
-      // goes out as it is.
+      // sides can be named. Anything else - the not-in-a-game sentences, and
+      // the "Last game - " answer between games, whose pastness a template
+      // written for the current lobby would misstate - goes out as it is.
       foreach (var prefix in new[] { "My team: ", "Us: " }) {
         if (stock.StartsWith(prefix, StringComparison.Ordinal))
           return Fill(tmpl, stock, "ranks", stock.Substring(prefix.Length));

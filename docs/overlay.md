@@ -231,6 +231,13 @@ speaks one visual language.
    optional name plate in the bottom-left corner — with the shuriken on it
    if you like, or the shuriken alone as a corner emblem with no text.
 
+The name plate can also carry your **socials** instead of fixed text: set
+**Shows** to *Socials* in the customizer, fill in the handle, and the plate
+becomes your handle with the platform mark cycling beside it — the same
+handles and options the socials overlay uses, in space the frame already
+occupies. With no handle filled in it falls back to your text rather than
+drawing an empty plate.
+
 It follows the app theme like every other source, and because the page is
 pure chrome — no polling, no audio, no data — it costs effectively nothing.
 

@@ -272,6 +272,10 @@ namespace NowPlaying {
       lock (_lock) {
         _gameId = gid;
         _gameLine = "Us: " + us + "  |  Them: " + them;
+        // The draft that fed this game is consumed by it: the in-game line
+        // supersedes it, and left alive it could surface later as if it
+        // described a champ select that is long over.
+        _draftLine = "";
       }
     }
 
@@ -282,18 +286,14 @@ namespace NowPlaying {
     }
 
     // ------------------------------------------------------------------ !ranks
+    // Every ask starts from a fresh phase read. This used to trust the cached
+    // phase and lines first, which could serve the PREVIOUS game's ranks as
+    // the current game's: the loop only polls for 30s after an ask, so a
+    // question asked once in game one and next in game two found _phase still
+    // frozen at InProgress and _gameLine still holding game one. One gameflow
+    // GET per ask is cheap (the command has a 30s cooldown), and the caches
+    // below still make repeats fast - they just can no longer make them wrong.
     public static string RanksLine() {
-      string game, draft;
-      lock (_lock) { game = _gameLine; draft = _draftLine; }
-      // In game beats the draft: it is newer, and the only version that can
-      // name the enemy team at all.
-      if (game.Length > 0 && InGame()) return game;
-      if (draft.Length > 0) return "My team: " + draft;
-      if (game.Length > 0) return game;
-
-      // Nothing cached - the loop may never have been asked to run. One
-      // synchronous look is cheap and makes the command work on its own
-      // terms rather than answering "ask me again".
       NoteInterest();
       try {
         int port; string pw;
@@ -304,21 +304,33 @@ namespace NowPlaying {
         _phase = ph.Trim().Trim('"');
 
         if (InGame()) {
+          // Early-outs on a matching gameId, so repeats in the same match
+          // cost one gameflow read, not ten rank lookups.
           EnsureGameRoster(port, pw);
           string built;
           lock (_lock) built = _gameLine;
           return built.Length > 0 ? built : "Reading the lobby - ask again in a moment.";
         }
-        if (_phase != "ChampSelect")
-          return "Not in a game right now - ranks show up in champ select.";
 
-        string session = LeagueStats.LcuGet(port, pw, "/lol-champ-select/v1/session");
-        var team = session == null ? null : Nav(TwitchEvents.NavPublic(session), "myTeam") as object[];
-        if (team == null) return "No champ select right now.";
-        string line = SideLine(port, pw, team);
-        if (line.Length == 0) return "No ranks to read yet - the draft just started.";
-        lock (_lock) _draftLine = line;
-        return "My team: " + line;
+        if (_phase == "ChampSelect") {
+          string session = LeagueStats.LcuGet(port, pw, "/lol-champ-select/v1/session");
+          var team = session == null ? null : Nav(TwitchEvents.NavPublic(session), "myTeam") as object[];
+          if (team != null) SnapshotDraft(port, pw, team);
+          string draft;
+          lock (_lock) draft = _draftLine;
+          return draft.Length > 0 ? "My team: " + draft
+               : "No ranks to read yet - the draft just started.";
+        }
+
+        // Between games a leftover draft line is stale twice over - the game
+        // it fed has finished - so it dies here rather than leaking into the
+        // next champ select's "just started" answer.
+        string game;
+        lock (_lock) { _draftLine = ""; game = _gameLine; }
+        // The finished lobby is still worth an answer ("who did you just play
+        // against?" outlives the post-game screen), honestly labelled as past.
+        if (game.Length > 0) return "Last game - " + game;
+        return "Not in a game right now - ranks show up in champ select.";
       } catch {
         return "Can't read the lobby right now.";
       }
