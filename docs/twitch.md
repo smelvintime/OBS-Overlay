@@ -385,6 +385,24 @@ dressed from the **League tracker** tab in the customizer:
 - It costs nothing while unused: the app only polls the League client while
   the tracker source is actually open (or the bot's Game stats switch is on).
 
+On screen — the **draft board**, live champ select in two forms:
+
+- **`/draft`**, an OBS Browser Source sized to the whole canvas (dress it from
+  the **Draft board** customizer tab): both teams' picks as they lock,
+  **hovers before they lock**, bans with strikes, everyone's summoner spells,
+  assigned roles, skin names, the pick-order strip with the active turn
+  pulsing, and the phase timer counting down in sync with the client. It is
+  invisible except during champ select. Names and portraits come from the
+  League client itself — nothing is fetched from the internet.
+- **A desktop window** in the Blitz style: appears beside the game when champ
+  select starts, disappears when it ends, never steals the keyboard, and
+  drags anywhere. On by default; the tray's **League draft board** menu turns
+  it off, and **Preview the desktop window** shows it on demand with a sample
+  draft. Enemy names stay blank in queues where Riot hides them — that is
+  Riot's rule, not a bug.
+- **Strictly read-only, by design.** The client's champ-select API can also
+  act — pick, ban, trade. This app never calls any of that: it watches.
+
 The panel on the bot tab shows what it is currently watching and the exact
 line it would say. If it shows "waiting for the League client", start League —
 there is nothing else to configure. The League client's local data service is

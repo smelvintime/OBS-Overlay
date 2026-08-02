@@ -63,7 +63,7 @@ namespace NowPlaying {
     // client runs; it carries the local API's port and password. Found via
     // the live process rather than a hard-coded install path, so a D:\ or
     // moved install works the same.
-    static bool FindLockfile(out int port, out string password) {
+    internal static bool FindLockfile(out int port, out string password) {
       port = 0; password = "";
       foreach (var name in new[] { "LeagueClient", "LeagueClientUx" }) {
         System.Diagnostics.Process[] procs = null;
@@ -110,7 +110,15 @@ namespace NowPlaying {
     // "starting up" and "the handshake failed" need different people to act.
     static volatile string _lastHttpError = "";
 
-    static string LcuGet(int port, string password, string path) {
+    // String for JSON, bytes for images - one transport. DraftWatch shares
+    // these; the LCU rules (per-connection trust, byte-domain de-chunking)
+    // are subtle enough that a second copy would drift.
+    internal static string LcuGet(int port, string password, string path) {
+      byte[] body = LcuGetRaw(port, password, path);
+      return body == null ? null : Encoding.UTF8.GetString(body);
+    }
+
+    internal static byte[] LcuGetRaw(int port, string password, string path) {
       try {
         using (var tcp = new System.Net.Sockets.TcpClient("127.0.0.1", port)) {
           tcp.ReceiveTimeout = 5000;
@@ -122,24 +130,48 @@ namespace NowPlaying {
             ssl.AuthenticateAsClient("127.0.0.1", null,
               System.Security.Authentication.SslProtocols.Tls12, false);
 
+            // Accept must be */*: the JSON endpoints don't care, but the
+            // WAD-packaged assets (spell icons, profile icons) stall for
+            // seconds when asked for application/json before answering.
             string reqText = "GET " + path + " HTTP/1.1\r\n"
               + "Host: 127.0.0.1:" + port + "\r\n"
               + "Authorization: Basic " + Convert.ToBase64String(
                   Encoding.ASCII.GetBytes("riot:" + password)) + "\r\n"
-              + "Accept: application/json\r\n"
+              + "Accept: */*\r\n"
               + "User-Agent: NowPlayingOverlay\r\n"
               + "Connection: close\r\n\r\n";
             var reqBytes = Encoding.ASCII.GetBytes(reqText);
             ssl.Write(reqBytes, 0, reqBytes.Length);
             ssl.Flush();
 
-            // Connection: close means "read until the server hangs up" is the
-            // whole framing story, bar chunked encoding handled below.
+            // Read until the response is COMPLETE, not until the server hangs
+            // up: the asset service ignores Connection: close and holds the
+            // socket open after sending everything, which used to cost a full
+            // read-timeout per icon. Content-Length or the chunked terminator
+            // says when done; close remains the fallback for anything else.
             var ms = new MemoryStream();
             var buf = new byte[16384];
-            int n;
-            try { while ((n = ssl.Read(buf, 0, buf.Length)) > 0) ms.Write(buf, 0, n); }
-            catch (IOException) { }      // close without close_notify is normal here
+            int hdrAt = -1; long want = -1; bool isChunked = false;
+            while (true) {
+              int n;
+              try { n = ssl.Read(buf, 0, buf.Length); } catch (IOException) { break; }
+              if (n <= 0) break;
+              ms.Write(buf, 0, n);
+              byte[] soFar = ms.ToArray();
+              if (hdrAt < 0) {
+                hdrAt = IndexOfHeaderEnd(soFar);
+                if (hdrAt >= 0) {
+                  string h = Encoding.ASCII.GetString(soFar, 0, hdrAt);
+                  isChunked = h.IndexOf("chunked", StringComparison.OrdinalIgnoreCase) >= 0;
+                  long cl = ContentLengthOf(h);
+                  if (cl >= 0) want = hdrAt + 4 + cl;
+                }
+              }
+              if (hdrAt >= 0) {
+                if (want >= 0 && ms.Length >= want) break;
+                if (isChunked && EndsWithFinalChunk(soFar)) break;
+              }
+            }
 
             byte[] all = ms.ToArray();
             int hdrEnd = IndexOfHeaderEnd(all);
@@ -158,7 +190,7 @@ namespace NowPlaying {
               body = new byte[all.Length - bodyStart];
               Array.Copy(all, bodyStart, body, 0, body.Length);
             }
-            return Encoding.UTF8.GetString(body);
+            return body;
           }
         }
       } catch (Exception ex) {
@@ -171,6 +203,27 @@ namespace NowPlaying {
       for (int i = 0; i + 3 < b.Length; i++)
         if (b[i] == 13 && b[i + 1] == 10 && b[i + 2] == 13 && b[i + 3] == 10) return i;
       return -1;
+    }
+
+    static long ContentLengthOf(string head) {
+      foreach (var line in head.Split('\n')) {
+        int c = line.IndexOf(':');
+        if (c <= 0) continue;
+        if (!line.Substring(0, c).Trim().Equals("content-length", StringComparison.OrdinalIgnoreCase)) continue;
+        long v;
+        if (long.TryParse(line.Substring(c + 1).Trim(), out v)) return v;
+      }
+      return -1;
+    }
+
+    // The last thing a chunked body sends is a zero-size chunk: CRLF "0" CRLF
+    // CRLF. Trailers would sit between the last two CRLFs, but the LCU sends
+    // none, and if it ever did the close-fallback still finishes the read.
+    static bool EndsWithFinalChunk(byte[] b) {
+      int n = b.Length;
+      return n >= 7
+          && b[n - 7] == 13 && b[n - 6] == 10 && b[n - 5] == (byte)'0'
+          && b[n - 4] == 13 && b[n - 3] == 10 && b[n - 2] == 13 && b[n - 1] == 10;
     }
 
     // Minimal HTTP/1.1 chunked-transfer decoding, walked in BYTES: a chunk
