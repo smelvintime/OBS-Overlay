@@ -307,6 +307,7 @@ drop the data in wherever you want it with the pieces listed under the box:
 | `!followage` | `{followage}` |
 | `!record` | `{record}` `{last}` `{ranked}` |
 | `!rank` | `{rank}` `{tier}` `{lp}` `{wins}` `{losses}` |
+| `!ranks` | `{ranks}` |
 
 `{user}` works in every reply but one — it becomes whoever asked. So `!rank`
 with the template *"{user}, the climb currently sits at {rank} — {wins} wins
@@ -356,6 +357,12 @@ In chat:
   the recent **ranked** record: *"Last game: Victory (12/3/8) - past 5 ranked:
   W W L W L"*. ARAMs, normals and the practice tool never muddy it — the
   record is the grind, and only the grind.
+- **`!ranks`** (also `!lobby`, `!team`) answers with everyone in the current
+  game: *"My team: RockSolid Gold I · KickFlip Platinum IV · 92explorer Gold
+  III …"*. It reads the lobby during champ select and **keeps answering
+  through the game itself**, since that is when chat actually asks. Your own
+  team only — ranked hides the enemy team behind obfuscated ids, so there is
+  nothing to look up there.
 - **`!rank`** (also `!elo`, `!lp`) answers with the real, current rank:
   *"Rank: Emerald II - 45 LP (Solo/Duo), 210W 198L this season"*. It reads the
   ladder from the client when asked, so it is never yesterday's rank. (It used

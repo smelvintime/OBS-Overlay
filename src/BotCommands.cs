@@ -65,6 +65,10 @@ namespace NowPlaying {
         // so it reads the real one now.
         new Cmd { Name = "record",    Builtin = "record",    Aliases = "last5,wl", Cooldown = 15 },
         new Cmd { Name = "rank",      Builtin = "rank",      Aliases = "elo,lp",   Cooldown = 15 },
+        // Everyone in the current game, not just the streamer. Longer
+        // cooldown: it is one long line and the answer only changes once a
+        // draft.
+        new Cmd { Name = "ranks",     Builtin = "ranks",     Aliases = "lobby,team", Cooldown = 30 },
 
         // League. Links and text beat a Riot API key that expires every 24 hours
         // and takes an approved application to make permanent.
@@ -275,6 +279,7 @@ namespace NowPlaying {
         case "shoutout":  text = ShoutoutLine(rest); break;
         case "record":    text = RecordLine(cmd.Response); break;
         case "rank":      text = RankLine(cmd.Response); break;
+        case "ranks":     text = RanksLine(cmd.Response); break;
         case "commands":  text = CommandsLine(); break;
         default:
           text = cmd.Response.Replace("{channel}", "");
@@ -329,6 +334,19 @@ namespace NowPlaying {
     }
 
     static string WL(int w, int l) { return w + "W " + l + "L"; }
+
+    // Every rank in the current game. The stock line already says whose team
+    // it is; a template gets the bare list as {ranks} so it can say it
+    // differently. The not-in-a-game answers come back as-is - a template
+    // wrapped round "no champ select right now" reads worse than the plain
+    // sentence, the same rule the other live commands follow.
+    static string RanksLine(string tmpl) {
+      string stock = DraftWatch.RanksLine();
+      if (tmpl == null || tmpl.Trim().Length == 0) return stock;
+      const string prefix = "My team: ";
+      if (!stock.StartsWith(prefix, StringComparison.Ordinal)) return stock;
+      return Fill(tmpl, stock, "ranks", stock.Substring(prefix.Length));
+    }
 
     static string RankLine(string tmpl) {
       // Stock first on purpose: RankCommandLine refreshes the cache when it

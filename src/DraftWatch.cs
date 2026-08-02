@@ -132,8 +132,10 @@ namespace NowPlaying {
         _spellPng.Clear();
         // Who you were drafting with belongs to that client run, not the next.
         _rankLine.Clear();
+        _rankShort.Clear();
         _mastery.Clear();
         _looked.Clear();
+        _roster = "";
       }
     }
 
@@ -202,6 +204,9 @@ namespace NowPlaying {
     class Mastery { public int Level; public long Points; public string Grade = ""; }
 
     static readonly Dictionary<string, string> _rankLine = new Dictionary<string, string>();
+    // Tier and division without the LP: chat wants "Gold I", the overlay
+    // wants "Gold I · 62 LP", and neither should have to edit the other's.
+    static readonly Dictionary<string, string> _rankShort = new Dictionary<string, string>();
     static readonly Dictionary<string, Dictionary<long, Mastery>> _mastery =
       new Dictionary<string, Dictionary<long, Mastery>>();
     static readonly HashSet<string> _looked = new HashSet<string>();
@@ -219,10 +224,13 @@ namespace NowPlaying {
             string tier, div, queue; int lp, w, l;
             if (LeagueStats.ParseRankedStats(rj, out tier, out div, out lp, out w, out l, out queue)
                 && tier.Length > 0) {
-              string line = tier + (div.Length > 0 ? " " + div : "") + " · " + lp + " LP";
-              lock (_lock) _rankLine[puuid] = line;
+              string shortRank = tier + (div.Length > 0 ? " " + div : "");
+              lock (_lock) {
+                _rankShort[puuid] = shortRank;
+                _rankLine[puuid] = shortRank + " · " + lp + " LP";
+              }
             } else {
-              lock (_lock) _rankLine[puuid] = "Unranked";
+              lock (_lock) { _rankShort[puuid] = "Unranked"; _rankLine[puuid] = "Unranked"; }
             }
           }
 
@@ -250,6 +258,10 @@ namespace NowPlaying {
       if (string.IsNullOrEmpty(puuid)) return "";
       lock (_lock) { string s; return _rankLine.TryGetValue(puuid, out s) ? s : ""; }
     }
+    static string RankShortOf(string puuid) {
+      if (string.IsNullOrEmpty(puuid)) return "";
+      lock (_lock) { string s; return _rankShort.TryGetValue(puuid, out s) ? s : ""; }
+    }
 
     static Mastery MasteryOf(string puuid, long champId) {
       if (string.IsNullOrEmpty(puuid) || champId <= 0) return null;
@@ -258,6 +270,85 @@ namespace NowPlaying {
         if (!_mastery.TryGetValue(puuid, out map)) return null;
         Mastery m;
         return map.TryGetValue(champId, out m) ? m : null;
+      }
+    }
+
+    // ------------------------------------------------------------- !ranks
+    // The roster line, rebuilt every champ-select poll and then KEPT once
+    // the draft ends. Chat asks "!ranks" mid-game far more than mid-draft,
+    // and by then the champ-select session is gone from the client - so the
+    // last one seen is the answer until the next draft replaces it.
+    static string _roster = "";
+
+    static void SnapshotRoster(object[] team) {
+      if (team == null || team.Length == 0) return;
+      var bits = new List<string>();
+      foreach (var p in team) {
+        string puuid = TwitchEvents.SNavPublic(p, "puuid");
+        string rank = RankShortOf(puuid);
+        if (rank.Length == 0) return;      // lookups still in flight; keep the old line
+        string who = TwitchEvents.SNavPublic(p, "gameName");
+        if (who.Length == 0) who = ChampName(LNum(p, "championId"));
+        if (who.Length == 0) continue;
+        bits.Add(who + " " + rank);
+      }
+      if (bits.Count == 0) return;
+      lock (_lock) _roster = string.Join(" · ", bits.ToArray());
+    }
+
+    // What !ranks answers. Allies only - ranked hides the enemy team behind
+    // obfuscated puuids, so there is genuinely nothing to look up there, and
+    // saying "my team" is more honest than implying the list is everyone.
+    public static string RanksLine() {
+      string snap;
+      lock (_lock) snap = _roster;
+      if (snap.Length > 0) return "My team: " + snap;
+
+      // Nothing cached: either the draft watcher was never asked to run (no
+      // overlay open, window switched off) or the client just started. One
+      // synchronous look is cheap and makes the command work on its own
+      // terms rather than depending on an overlay being open somewhere.
+      NoteInterest();
+      try {
+        int port; string pw;
+        if (!LeagueStats.FindLockfile(out port, out pw))
+          return "The League client isn't running on the stream PC.";
+        string ph = LeagueStats.LcuGet(port, pw, "/lol-gameflow/v1/gameflow-phase");
+        if (ph == null) return "Can't reach the League client right now.";
+        if (ph.Trim().Trim('"') != "ChampSelect")
+          return "No champ select right now - ranks show up once a draft starts.";
+        EnsureAssets(port, pw);
+        string session = LeagueStats.LcuGet(port, pw, "/lol-champ-select/v1/session");
+        var team = session == null ? null : Nav(TwitchEvents.NavPublic(session), "myTeam") as object[];
+        if (team == null) return "No champ select right now.";
+        // Fetch inline rather than firing the async lookups and returning
+        // nothing: a chat command that answers "ask me again" is a worse
+        // answer than one that takes a second.
+        var bits = new List<string>();
+        foreach (var p in team) {
+          string puuid = TwitchEvents.SNavPublic(p, "puuid");
+          if (puuid.Length == 0) continue;
+          string rank = RankShortOf(puuid);
+          if (rank.Length == 0) {
+            string rj = LeagueStats.LcuGet(port, pw, "/lol-ranked/v1/ranked-stats/" + puuid);
+            string tier, div, queue; int lp, w, l;
+            if (rj != null
+                && LeagueStats.ParseRankedStats(rj, out tier, out div, out lp, out w, out l, out queue)) {
+              rank = tier.Length > 0 ? tier + (div.Length > 0 ? " " + div : "") : "Unranked";
+              lock (_lock) { _rankShort[puuid] = rank; _rankLine[puuid] = rank + " · " + lp + " LP"; }
+            }
+          }
+          if (rank.Length == 0) continue;
+          string who = TwitchEvents.SNavPublic(p, "gameName");
+          if (who.Length == 0) who = ChampName(LNum(p, "championId"));
+          if (who.Length > 0) bits.Add(who + " " + rank);
+        }
+        if (bits.Count == 0) return "No ranks to read yet - the draft just started.";
+        string line = string.Join(" · ", bits.ToArray());
+        lock (_lock) _roster = line;
+        return "My team: " + line;
+      } catch {
+        return "Can't read the lobby right now.";
       }
     }
 
@@ -362,8 +453,10 @@ namespace NowPlaying {
         AppendIdNameArray(sb, Nav(bans, "theirTeamBans") as object[]);
         sb.Append(",\"num\":").Append(LNum(bans, "numBans")).Append('}');
 
+        var myTeam = Nav(s, "myTeam") as object[];
+        SnapshotRoster(myTeam);   // keeps !ranks answerable after the draft ends
         sb.Append(",\"myTeam\":");
-        AppendTeam(sb, Nav(s, "myTeam") as object[], self);
+        AppendTeam(sb, myTeam, self);
         sb.Append(",\"theirTeam\":");
         AppendTeam(sb, Nav(s, "theirTeam") as object[], self);
 
