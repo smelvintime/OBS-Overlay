@@ -41,9 +41,8 @@
     --text:#fff;
     --subtext:rgba(255,255,255,.66);
     /* Session verdict colours, fixed rather than themed: green-for-up and
-       red-for-down is the one code every viewer already reads without being
-       taught, and a theme recolouring wins would break the only glanceable
-       fact on the bar. The loss red doubles for the form squares. */
+       red-for-down is a code viewers arrive already knowing, and a theme
+       recolouring wins would break it. The loss red doubles for the squares. */
     --up:#63d68f;
     --down:#f25c5c;
     /* Three blades, matching alerts.html - see the long note there for the
@@ -116,10 +115,9 @@
   .none{font-size:12.5px;font-weight:600;color:var(--subtext);line-height:1.9}
 
   /* The verdict pill. Sign carries the colour; zero gets the dim treatment
-     because a flat session is information, not an achievement. The tinted
-     backgrounds are the same hues written out at low alpha - deriving them
-     from the vars needs color-mix, which alerts.html already ruled out for
-     dropping whole declarations on Chrome older than 111. */
+     because a flat session is information, not an achievement. The tints are
+     the same hues written out at low alpha - deriving them from the vars
+     needs color-mix, which alerts.html already ruled out for Chrome < 111. */
   .chip{border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:700;
     line-height:1}
   .chip.up{color:var(--up);background:rgba(99,214,143,.12);
@@ -178,16 +176,11 @@ if(window.NPO) NPO.themeBoot('source');
   var qs = new URLSearchParams(location.search);
   var root = document.documentElement;
   var wrap = document.getElementById('wrap'), card = document.getElementById('card');
-  var whoEl    = document.getElementById('who');
-  var rankBlk  = document.getElementById('rankBlk');
-  var queueEl  = document.getElementById('queueEl');
-  var tierEl   = document.getElementById('tierEl');
-  var lpEl     = document.getElementById('lpEl');
-  var chipEl   = document.getElementById('chipEl');
-  var vdivEl   = document.getElementById('vdivEl');
-  var todayBlk = document.getElementById('todayBlk');
-  var todayEl  = document.getElementById('todayEl');
-  var formEl   = document.getElementById('formEl');
+  var whoEl = document.getElementById('who'), rankBlk = document.getElementById('rankBlk');
+  var queueEl = document.getElementById('queueEl'), tierEl = document.getElementById('tierEl');
+  var lpEl = document.getElementById('lpEl'), chipEl = document.getElementById('chipEl');
+  var vdivEl = document.getElementById('vdivEl'), todayBlk = document.getElementById('todayBlk');
+  var todayEl = document.getElementById('todayEl'), formEl = document.getElementById('formEl');
 
   function hex(name, cssVar){
     var v = (qs.get(name) || '').replace('#','');
@@ -233,15 +226,14 @@ if(window.NPO) NPO.themeBoot('source');
       // being dropped: the server adding a bucket must not silently shrink
       // the day's tally out from under a running overlay.
       if(!modes.hasOwnProperty(m)) m = 'other';
-      if(modes[m]) out.push(!!g.win);
+      if(modes[m]) out.push(!!(g && g.win));
     }
     return out;
   }
 
-  // Everything render() paints, reduced to plain data first. The poll fires
-  // every five seconds and most of the time nothing has moved; comparing this
-  // snapshot lets render() skip the DOM entirely then, so OBS is not handed a
-  // repaint for a bar that looks exactly the same.
+  // Everything render() paints, reduced to plain data first: most polls move
+  // nothing, and comparing this snapshot lets render() skip the DOM entirely
+  // then, so OBS is not handed a repaint for a bar that looks the same.
   function viewModel(d){
     var rank = d.rank || {};
     var games = filteredToday(d.today);
@@ -334,10 +326,9 @@ if(window.NPO) NPO.themeBoot('source');
 
   // The visibility contract in one place. Worth showing = a rank to speak of,
   // a game already played today, or the client live right now. A state that
-  // fails the test changes nothing: before the first reveal that means
-  // staying invisible (feature off, nothing to say), after it that means
-  // holding the last known session - the client closing mid-stream must not
-  // blank the bar, because a box vanishing reads as a glitch, not as news.
+  // fails the test changes nothing: before the first reveal that means staying
+  // invisible, after it that means holding the last known session - a bar
+  // blanking when the client closes reads as a glitch, not as news.
   function worth(d){
     if(!d) return false;
     if(d.rank && d.rank.tier) return true;
@@ -356,17 +347,12 @@ if(window.NPO) NPO.themeBoot('source');
     // changes, and a preview should not depend on the League client existing.
     apply({
       running: true, status: 'live', detail: '', summoner: 'SummonerName',
-      rank: { tier: 'Emerald', div: 'II', lp: 45, queue: 'Solo/Duo',
-              wins: 210, losses: 198,
-              line: 'Emerald II - 45 LP (Solo/Duo), 210W 198L this season' },
+      rank: { tier: 'Emerald', div: 'II', lp: 45, queue: 'Solo/Duo', wins: 210,
+              losses: 198, line: 'Emerald II - 45 LP (Solo/Duo), 210W 198L this season' },
       lpToday: 18,
       today: [
-        { m: 'ranked',  win: true  },
-        { m: 'ranked',  win: true  },
-        { m: 'aram',    win: false },
-        { m: 'ranked',  win: true  },
-        { m: 'normals', win: false },
-        { m: 'ranked',  win: true  }
+        {m:'ranked', win:true},  {m:'ranked',  win:true},  {m:'aram',   win:false},
+        {m:'ranked', win:true},  {m:'normals', win:false}, {m:'ranked', win:true}
       ],
       last: 'Victory (12/3/8)', record: 'W W L W L'
     });
@@ -382,10 +368,9 @@ if(window.NPO) NPO.themeBoot('source');
     })();
   }
 
-  // The recommended OBS source size is a guess; the bar's true footprint moves
-  // with the tier name, the game count and ?scale=. Reporting the measured
-  // wrapper lets the customizer show a real number instead - same mechanism as
-  // stats.html, and the wrapper is the zoom target, so the number is painted
+  // The recommended OBS source size is a guess; the true footprint moves with
+  // the tier name, the game count and ?scale=. Same mechanism as stats.html -
+  // and the wrapper is the zoom target, so the measured number is painted
   // pixels with the scale already in it.
   if(window.top !== window.self && window.ResizeObserver){
     var lastReport = '';
