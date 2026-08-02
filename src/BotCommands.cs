@@ -317,8 +317,22 @@ namespace NowPlaying {
       string record, last;
       LeagueStats.RecordParts(out record, out last);
       if (record.Length == 0) return stock;
-      return Fill(tmpl, stock, "record", record, "last", last);
+      // The per-mode pieces are today's tallies - the same numbers the
+      // session tracker shows - so "Ranked today: {ranked}" stays honest to
+      // the overlay beside it. The stock line keeps saying everything.
+      int[] w, l;
+      LeagueStats.TodayParts(out w, out l);
+      return Fill(tmpl, stock,
+                  "record",  record,
+                  "last",    last,
+                  "ranked",  WL(w[0], l[0]),
+                  "normals", WL(w[1], l[1]),
+                  "aram",    WL(w[2], l[2]),
+                  "other",   WL(w[3], l[3]),
+                  "today",   WL(w[0] + w[1] + w[2] + w[3], l[0] + l[1] + l[2] + l[3]));
     }
+
+    static string WL(int w, int l) { return w + "W " + l + "L"; }
 
     static string RankLine(string tmpl) {
       // Stock first on purpose: RankCommandLine refreshes the cache when it

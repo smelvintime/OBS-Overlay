@@ -294,7 +294,7 @@ drop the data in wherever you want it with the pieces listed under the box:
 | `!song` | `{song}` `{title}` `{artist}` |
 | `!uptime` | `{uptime}` |
 | `!followage` | `{followage}` |
-| `!record` | `{record}` `{last}` |
+| `!record` | `{record}` `{last}` `{today}` `{ranked}` `{normals}` `{aram}` `{other}` |
 | `!rank` | `{rank}` `{tier}` `{lp}` `{wins}` `{losses}` |
 
 `{user}` works in every reply — it becomes whoever asked. So `!rank` with the
@@ -303,6 +303,12 @@ answers *"chatter42, the climb currently sits at Emerald II - 45 LP — 210 wins
 deep"*. Empty the box to go back to the standard line. When the data isn't
 there (nothing playing, League closed), the bot uses its plain stock answer
 rather than your template with holes in it.
+
+`!record`'s stock answer counts every mode. To narrow it, use the per-mode
+pieces: they are **today's** tallies, the same numbers the session tracker
+shows, so *"Ranked today: {ranked} · ARAM: {aram}"* answers *"Ranked today:
+4W 2L · ARAM: 1W 0L"* and always agrees with the overlay beside it. Practice
+tool and tutorials never count.
 
 The **follow thank-you** works the same way and always has: its message box on
 the bot tab takes `{user}`, which becomes the follower's name — or several

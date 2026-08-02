@@ -340,6 +340,14 @@ namespace NowPlaying {
       lock (_resultLock) { record = _record; last = _lastLine; }
     }
 
+    // {ranked}/{normals}/{aram}/{other}/{today} tokens: today's per-mode
+    // tallies, the same numbers the session tracker draws. The arrays are
+    // fresh per parse and never written after storing - read, don't touch.
+    public static void TodayParts(out int[] wins, out int[] losses) {
+      lock (_resultLock) { wins = _todayWinsB; losses = _todayLossesB; }
+    }
+    static int[] _todayWinsB = new int[4], _todayLossesB = new int[4];
+
     // ------------------------------------------------------- day LP snapshot
     // "How much LP today" needs to remember where the day started, and that
     // memory has to survive an app restart mid-session - so it lives in a
@@ -441,8 +449,14 @@ namespace NowPlaying {
     // every time rather than counted as the games happen. Practice tool and
     // tutorials are dropped entirely - a practice-tool "win" is not a game,
     // whatever the history endpoint thinks.
-    internal static bool ParseToday(string json, long sinceMs, out string gamesJson) {
+    // wins/losses come back tallied per bucket (ranked, normals, aram, other -
+    // the BucketIx order) so !record templates can say "ranked only" without
+    // re-walking anything. Fresh arrays every parse; readers treat them as
+    // immutable.
+    internal static bool ParseToday(string json, long sinceMs, out string gamesJson,
+                                    out int[] wins, out int[] losses) {
       gamesJson = "[]";
+      wins = new int[4]; losses = new int[4];
       try {
         var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
         if (games == null) return false;
@@ -452,20 +466,31 @@ namespace NowPlaying {
         });
         var sb = new StringBuilder("[");
         int kept = 0;
-        for (int i = 0; i < list.Count && kept < 20; i++) {
+        for (int i = 0; i < list.Count; i++) {
           if (LNav(list[i], "gameCreation") < sinceMs) break;   // newest-first: done
           string bucket = ModeBucket(list[i]);
           if (bucket.Length == 0) continue;
           object stats = FirstParticipantStats(list[i]);
           if (stats == null) continue;
           bool win = TwitchEvents.SNavPublic(stats, "win").Equals("True", StringComparison.OrdinalIgnoreCase);
-          if (kept > 0) sb.Append(',');
-          sb.Append("{\"m\":\"").Append(bucket).Append("\",\"win\":").Append(win ? "true" : "false").Append('}');
-          kept++;
+          int bi = BucketIx(bucket);
+          if (win) wins[bi]++; else losses[bi]++;
+          // The tally counts every game of the day; the list the overlay
+          // draws squares from stays capped, because past twenty the form
+          // row is a barcode.
+          if (kept < 20) {
+            if (kept > 0) sb.Append(',');
+            sb.Append("{\"m\":\"").Append(bucket).Append("\",\"win\":").Append(win ? "true" : "false").Append('}');
+            kept++;
+          }
         }
         gamesJson = sb.Append(']').ToString();
         return true;
       } catch { return false; }
+    }
+
+    static int BucketIx(string bucket) {
+      return bucket == "ranked" ? 0 : bucket == "normals" ? 1 : bucket == "aram" ? 2 : 3;
     }
 
     // Queue IDs are the precise signal (game modes lie: ARAM and URF both
@@ -592,14 +617,17 @@ namespace NowPlaying {
               string record, lastLine, at; long newest;
               if (ParseHistory(hist, out record, out lastLine, out newest, out at)) {
                 bool isNew;
-                string todayJson;
-                if (!ParseToday(hist, LocalMidnightEpochMs(), out todayJson)) todayJson = "[]";
+                string todayJson; int[] tw, tl;
+                if (!ParseToday(hist, LocalMidnightEpochMs(), out todayJson, out tw, out tl)) {
+                  todayJson = "[]"; tw = new int[4]; tl = new int[4];
+                }
                 lock (_resultLock) {
                   isNew = _newestGameId != 0 && newest != 0 && newest != _newestGameId;
                   _record = record; _lastLine = lastLine;
                   if (newest != 0) _newestGameId = newest;
                   _newestAt = at;
                   _todayJson = todayJson;
+                  _todayWinsB = tw; _todayLossesB = tl;
                 }
                 _status = "live"; _detail = "";
                 if (isNew) {
@@ -682,8 +710,8 @@ namespace NowPlaying {
         + "]}}";
       string record, lastLine, at; long newest;
       bool ok = ParseHistory(fixture, out record, out lastLine, out newest, out at);
-      string todayJson;
-      bool tok = ParseToday(fixture, 1700000000000, out todayJson);
+      string todayJson; int[] tw, tl;
+      bool tok = ParseToday(fixture, 1700000000000, out todayJson, out tw, out tl);
 
       string rankFixture = "{\"queueMap\":{\"RANKED_SOLO_5x5\":{\"tier\":\"EMERALD\","
         + "\"division\":\"II\",\"leaguePoints\":45,\"wins\":210,\"losses\":198}}}";
@@ -697,6 +725,8 @@ namespace NowPlaying {
            + ",\"newestGameId\":" + newest
            + ",\"todayOk\":" + (tok ? "true" : "false")
            + ",\"today\":" + todayJson
+           + ",\"tallies\":\"ranked " + tw[0] + "W " + tl[0] + "L, normals " + tw[1] + "W " + tl[1]
+           + "L, aram " + tw[2] + "W " + tl[2] + "L, other " + tw[3] + "W " + tl[3] + "L\""
            + ",\"rankOk\":" + (rok ? "true" : "false")
            + ",\"rankLine\":" + TwitchChat.Qs(rline)
            + ",\"absLp\":" + AbsoluteLp(tier, div, lp)
