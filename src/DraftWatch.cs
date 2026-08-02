@@ -1,5 +1,12 @@
-// Champ select, watched from the League client's local API and served to two
-// consumers: the /draft OBS source and the desktop draft window.
+// Champ select, watched from the League client's local API, feeding the
+// /draft OBS source and the bot's !ranks.
+//
+// There was a desktop companion window here too - a Blitz-style panel over
+// the client during champ select. It was removed on 2026-08-02: everything
+// it showed, the client already had on screen two inches away, so it was a
+// popup that interrupted without informing. The lesson is worth keeping:
+// duplicating a window the user is already looking at is not a feature.
+// The OBS source stayed, because a viewer cannot see the client at all.
 //
 // STRICTLY READ-ONLY, and this is a rule, not a habit. The champ-select API
 // also exposes POSTs that pick, ban, trade and reroll - an overlay that
@@ -27,16 +34,14 @@ namespace NowPlaying {
     static string _stateJson = InactiveJson("None");
     static volatile string _phase = "None";
 
-    // Demand: the OBS page polls /draft-state (30s grace, like the session
-    // tracker), and the desktop window is a standing subscriber while its
-    // tray switch is on. With neither, the League client is left alone.
+    // Demand: the OBS page polls /draft-state every second while it is open,
+    // and !ranks stamps this when it is asked. 30 seconds of grace, like the
+    // session tracker. With nobody asking, the League client is left alone.
     static long _wantedUntilTicks;
-    static volatile bool _windowWanted;
 
     public static void NoteInterest() {
       Interlocked.Exchange(ref _wantedUntilTicks, DateTime.UtcNow.AddSeconds(30).Ticks);
     }
-    public static void SetWindowWanted(bool on) { _windowWanted = on; }
     public static bool InChampSelect { get { return _phase == "ChampSelect"; } }
     // "In a game" for !ranks purposes covers the whole tail of the match, not
     // just the part with a Nexus: chat asks who you played against while the
@@ -64,8 +69,7 @@ namespace NowPlaying {
     static void Loop() {
       while (true) {
         try {
-          bool active = _windowWanted
-                     || DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks);
+          bool active = DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks);
           if (!active) { _phase = "None"; SetInactive("None"); Thread.Sleep(2000); continue; }
 
           int port; string pw;
@@ -379,11 +383,68 @@ namespace NowPlaying {
       return false;
     }
 
-    // Champion rather than summoner name on purpose: in game the champion is
-    // what a viewer is looking at, it is shorter, and it keeps ten people's
-    // account names out of chat for a question that was about ranks.
-    static string SideLine(int port, string pw, object[] team) {
+    // ------------------------------------------------- formatting for chat
+    // Lane order, not lobby order, and ranks abbreviated to two characters.
+    // A chat line is read in one glance or not at all: "TOP E3 · JG E4 · MID
+    // G3" lets a viewer compare lane against lane down the two halves, where
+    // champion names and spelled-out tiers made a wall of text nobody parsed.
+    static readonly string[] RoleOrder = { "TOP", "JG", "MID", "ADC", "SUP" };
+
+    static string RoleTag(string pos) {
+      switch ((pos ?? "").Trim().ToUpperInvariant()) {
+        case "TOP": return "TOP";
+        case "JUNGLE": return "JG";
+        case "MIDDLE": case "MID": return "MID";
+        case "BOTTOM": case "BOT": return "ADC";
+        case "UTILITY": case "SUPPORT": return "SUP";
+        default: return "";
+      }
+    }
+
+    // "Emerald III" -> "E3". Iron and the division numeral never collide
+    // because the tier letter always leads: Iron I is I1.
+    static string RankTag(string rank) {
+      if (rank.Length == 0 || rank == "?") return "?";
+      if (rank.StartsWith("Unranked", StringComparison.OrdinalIgnoreCase)) return "UR";
+      string[] parts = rank.Split(' ');
+      string tier = parts[0];
+      string letter =
+          tier.Equals("Grandmaster", StringComparison.OrdinalIgnoreCase) ? "GM"
+        : tier.Equals("Challenger", StringComparison.OrdinalIgnoreCase) ? "C"
+        : tier.Substring(0, 1).ToUpperInvariant();
+      string div = parts.Length > 1 ? parts[1] : "";
+      string num = div == "I" ? "1" : div == "II" ? "2" : div == "III" ? "3" : div == "IV" ? "4" : "";
+      return letter + num;
+    }
+
+    class Seat { public string Role = ""; public string Rank = "?"; }
+
+    // Five seats, one per lane, in lane order. A player the client gave no
+    // position for (the union recovers those from a list that carries no
+    // role) takes whichever lane is left over - in a 5v5 with one hole and
+    // one roleless player there is exactly one answer, so it is deduction
+    // rather than a guess.
+    static string FormatSide(List<Seat> seats) {
+      var missing = new List<string>(RoleOrder);
+      foreach (var s in seats) missing.Remove(s.Role);
+      foreach (var s in seats) {
+        if (s.Role.Length != 0) continue;
+        if (missing.Count == 1) { s.Role = missing[0]; missing.Clear(); }
+      }
+      seats.Sort(delegate(Seat a, Seat b) {
+        int ia = Array.IndexOf(RoleOrder, a.Role), ib = Array.IndexOf(RoleOrder, b.Role);
+        if (ia < 0) ia = 99;
+        if (ib < 0) ib = 99;
+        return ia.CompareTo(ib);
+      });
       var bits = new List<string>();
+      foreach (var s in seats)
+        bits.Add((s.Role.Length > 0 ? s.Role : "??") + " " + RankTag(s.Rank));
+      return string.Join(" ", bits.ToArray());
+    }
+
+    static string SideLine(int port, string pw, object[] team) {
+      var seats = new List<Seat>();
       foreach (var p in team) {
         string puuid = TwitchEvents.SNavPublic(p, "puuid");
         if (puuid.Length == 0) continue;
@@ -400,27 +461,29 @@ namespace NowPlaying {
         // A failed lookup must not delete the player: a five-man team that
         // silently prints as four is a wrong answer, where an unknown rank
         // is merely an incomplete one.
-        if (rank.Length == 0) rank = "?";
-        string champ = ChampName(LNum(p, "championId"));
-        bits.Add((champ.Length > 0 ? champ + " " : "") + rank);
+        // The two payloads name the same idea differently: the in-game team
+        // arrays say selectedPosition, champ select says assignedPosition.
+        string pos = TwitchEvents.SNavPublic(p, "selectedPosition");
+        if (pos.Length == 0) pos = TwitchEvents.SNavPublic(p, "assignedPosition");
+        seats.Add(new Seat { Role = RoleTag(pos), Rank = rank.Length == 0 ? "?" : rank });
       }
-      return string.Join(" · ", bits.ToArray());
+      return FormatSide(seats);
     }
 
     static void SnapshotRoster(object[] team) {
       if (team == null || team.Length == 0) return;
-      var bits = new List<string>();
+      var seats = new List<Seat>();
       foreach (var p in team) {
         string puuid = TwitchEvents.SNavPublic(p, "puuid");
         string rank = RankShortOf(puuid);
         if (rank.Length == 0) return;      // lookups still in flight; keep the old line
-        string who = TwitchEvents.SNavPublic(p, "gameName");
-        if (who.Length == 0) who = ChampName(LNum(p, "championId"));
-        if (who.Length == 0) continue;
-        bits.Add(who + " " + rank);
+        seats.Add(new Seat {
+          Role = RoleTag(TwitchEvents.SNavPublic(p, "assignedPosition")),
+          Rank = rank
+        });
       }
-      if (bits.Count == 0) return;
-      lock (_lock) _roster = string.Join(" · ", bits.ToArray());
+      if (seats.Count == 0) return;
+      lock (_lock) _roster = FormatSide(seats);
     }
 
     // What !ranks answers. Allies only - ranked hides the enemy team behind
@@ -463,28 +526,10 @@ namespace NowPlaying {
         if (team == null) return "No champ select right now.";
         // Fetch inline rather than firing the async lookups and returning
         // nothing: a chat command that answers "ask me again" is a worse
-        // answer than one that takes a second.
-        var bits = new List<string>();
-        foreach (var p in team) {
-          string puuid = TwitchEvents.SNavPublic(p, "puuid");
-          if (puuid.Length == 0) continue;
-          string rank = RankShortOf(puuid);
-          if (rank.Length == 0) {
-            string rj = LeagueStats.LcuGet(port, pw, "/lol-ranked/v1/ranked-stats/" + puuid);
-            string tier, div, queue; int lp, w, l;
-            if (rj != null
-                && LeagueStats.ParseRankedStats(rj, out tier, out div, out lp, out w, out l, out queue)) {
-              rank = tier.Length > 0 ? tier + (div.Length > 0 ? " " + div : "") : "Unranked";
-              lock (_lock) { _rankShort[puuid] = rank; _rankLine[puuid] = rank + " · " + lp + " LP"; }
-            }
-          }
-          if (rank.Length == 0) continue;
-          string who = TwitchEvents.SNavPublic(p, "gameName");
-          if (who.Length == 0) who = ChampName(LNum(p, "championId"));
-          if (who.Length > 0) bits.Add(who + " " + rank);
-        }
-        if (bits.Count == 0) return "No ranks to read yet - the draft just started.";
-        string line = string.Join(" · ", bits.ToArray());
+        // answer than one that takes a second. SideLine reads assignedPosition
+        // through the same RoleTag, so champ select and in game format alike.
+        string line = SideLine(port, pw, team);
+        if (line.Length == 0) return "No ranks to read yet - the draft just started.";
         lock (_lock) _roster = line;
         return "My team: " + line;
       } catch {

@@ -102,11 +102,6 @@ namespace NowPlaying {
       return Path.Combine(dir, "settings.txt");
     }
 
-    // The Blitz-style draft window: on by default because it only ever
-    // appears during champ select, and one tray untick turns it off for good.
-    static bool _draftWindow = true;
-    internal static bool DraftWindowEnabled { get { return _draftWindow; } }
-
     static void LoadSettings() {
       try {
         string p = SettingsPath();
@@ -122,7 +117,6 @@ namespace NowPlaying {
           else if (k == "feat.overlay") _featOverlay = FeatOn(v);
           else if (k == "feat.eq") _featEq = FeatOn(v);
           else if (k == "feat.twitch") _featTwitch = FeatOn(v);
-          else if (k == "draft.window") _draftWindow = FeatOn(v);
         }
         if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
       } catch { }
@@ -135,8 +129,7 @@ namespace NowPlaying {
           + "bot=" + (TwitchChat.Enabled ? "1" : "0") + "\r\n"
           + "feat.overlay=" + (_featOverlay ? "1" : "0") + "\r\n"
           + "feat.eq=" + (_featEq ? "1" : "0") + "\r\n"
-          + "feat.twitch=" + (_featTwitch ? "1" : "0") + "\r\n"
-          + "draft.window=" + (_draftWindow ? "1" : "0") + "\r\n");
+          + "feat.twitch=" + (_featTwitch ? "1" : "0") + "\r\n");
       } catch { }
     }
 
@@ -372,17 +365,6 @@ namespace NowPlaying {
       menu.Items.Add(new ToolStripSeparator());
 
       var league = new ToolStripMenuItem("League draft board");
-      var draftWin = new ToolStripMenuItem("Desktop window during champ select") {
-        CheckOnClick = true, Checked = _draftWindow
-      };
-      draftWin.CheckedChanged += (s, e) => {
-        _draftWindow = draftWin.Checked;
-        DraftWatch.SetWindowWanted(_draftWindow);
-        SaveSettings();
-      };
-      league.DropDownItems.Add(draftWin);
-      league.DropDownItems.Add("Preview the desktop window", null, (s, e) => DraftWindow.ShowDemo());
-      league.DropDownItems.Add(new ToolStripSeparator());
       league.DropDownItems.Add("Preview the OBS draft source...", null, (s, e) => OpenUrl("/draft?demo=1"));
       league.DropDownItems.Add("Copy draft source URL", null, (s, e) => {
         try { Clipboard.SetText("http://127.0.0.1:" + _port + "/draft"); } catch { }
@@ -739,9 +721,7 @@ namespace NowPlaying {
       TwitchEvents.Start();    // loads config always (bot shares it); network only if the feature is on
       TwitchChat.Start();      // no-op unless configured AND switched on
       LeagueStats.Start();     // idle unless the bot's Game stats switch is on
-      DraftWatch.Start();      // idle unless the draft window or a /draft source wants it
-      DraftWatch.SetWindowWanted(_draftWindow);
-      DraftWindow.Init();      // created hidden on this (the UI) thread; shows itself in champ select
+      DraftWatch.Start();      // idle unless a /draft source or !ranks asks for it
 
       var accept = new Thread(() => {
         while (true) {
@@ -1569,14 +1549,6 @@ namespace NowPlaying {
               : null;
             if (png != null) SendPrivate(ns, 200, "image/png", png, "max-age=3600");
             else Send(ns, 404, "text/plain", Encoding.UTF8.GetBytes("no such icon"));
-          } else if (route == "/draft/preview") {
-            // Pops the DESKTOP window in demo - a state-changing act on the
-            // user's screen, so it sits behind the same-origin door like
-            // every other route with a side effect.
-            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
-            DraftWindow.ShowDemo();
-            SendPrivate(ns, 200, "application/json; charset=utf-8",
-                        Encoding.UTF8.GetBytes("{\"ok\":true}"));
           } else if (route == "/league/test") {
             // Pure: a canned match history through the real parser, touching
             // no state - so the formatting is provable with no League installed.

@@ -357,15 +357,18 @@ In chat:
   the recent **ranked** record: *"Last game: Victory (12/3/8) - past 5 ranked:
   W W L W L"*. ARAMs, normals and the practice tool never muddy it — the
   record is the grind, and only the grind.
-- **`!ranks`** (also `!lobby`, `!team`) answers with everyone's rank, and what
-  it can say depends on where you are:
-  - **In game** (and right through the post-game screen) it names **both
-    teams** by champion: *"Us: Teemo Emerald III · Hecarim Emerald IV · Zed
-    Gold III … | Them: Annie Emerald III · Nocturne Platinum II …"*. Once a
-    match starts the client stops hiding the enemy side, so their ranks
-    become readable — this is the only window where that is true.
-  - **In champ select** it is your own team only, by name: *"My team:
-    RockSolid Gold I · KickFlip Platinum IV …"*. Ranked hides the enemy team
+- **`!ranks`** (also `!lobby`, `!team`) answers with everyone's rank, by lane
+  and abbreviated so it reads in one glance:
+  *"Us: TOP E3 JG E4 MID G3 ADC E2 SUP E3 | Them: TOP E4 JG P2 MID E3 ADC P1
+  SUP E1"*. Always in lane order, so you can compare the two halves straight
+  down: your top against theirs, your jungle against theirs.
+  - Tiers are the first letter plus the division — `E3` is Emerald III, `G1`
+    Gold I, `P4` Platinum IV, `GM` Grandmaster, `UR` unranked, `?` a rank
+    that could not be read.
+  - **In game** (and right through the post-game screen) it shows **both
+    teams**. Once a match starts the client stops hiding the enemy side, so
+    their ranks become readable — this is the only window where that is true.
+  - **In champ select** it is your own team only. Ranked hides the enemy team
     during the draft, so there is genuinely nothing to look up yet.
   - Outside a game it says so plainly rather than answering with a stale
     lobby.
@@ -398,23 +401,24 @@ dressed from the **League tracker** tab in the customizer:
 - It costs nothing while unused: the app only polls the League client while
   the tracker source is actually open (or the bot's Game stats switch is on).
 
-On screen — the **draft board**, live champ select in two forms:
+On screen — the **draft board** (`/draft`), an OBS Browser Source sized to the
+whole canvas and dressed from the **Draft board** customizer tab: both teams'
+picks as they lock, **hovers before they lock**, bans with strikes, everyone's
+summoner spells, assigned roles, skin names, the pick-order strip with the
+active turn pulsing, and the phase timer counting down in sync with the
+client. It is invisible except during champ select. Names and portraits come
+from the League client itself — nothing is fetched from the internet, and
+enemy names stay blank in queues where Riot hides them, which is Riot's rule
+rather than a bug.
 
-- **`/draft`**, an OBS Browser Source sized to the whole canvas (dress it from
-  the **Draft board** customizer tab): both teams' picks as they lock,
-  **hovers before they lock**, bans with strikes, everyone's summoner spells,
-  assigned roles, skin names, the pick-order strip with the active turn
-  pulsing, and the phase timer counting down in sync with the client. It is
-  invisible except during champ select. Names and portraits come from the
-  League client itself — nothing is fetched from the internet.
-- **A desktop window** in the Blitz style: appears beside the game when champ
-  select starts, disappears when it ends, never steals the keyboard, and
-  drags anywhere. On by default; the tray's **League draft board** menu turns
-  it off, and **Preview the desktop window** shows it on demand with a sample
-  draft. Enemy names stay blank in queues where Riot hides them — that is
-  Riot's rule, not a bug.
-- **Strictly read-only, by design.** The client's champ-select API can also
-  act — pick, ban, trade. This app never calls any of that: it watches.
+It is **strictly read-only, by design.** The client's champ-select API can
+also act — pick, ban, trade. This app never calls any of that: it watches.
+
+> There was briefly a desktop companion window here too, in the Blitz style,
+> that popped up over the client during champ select. It was dropped: the
+> client already shows all of it two inches away, so it interrupted without
+> informing anybody. The OBS source stayed, because a viewer cannot see the
+> client at all.
 
 The panel on the bot tab shows what it is currently watching and the exact
 line it would say. If it shows "waiting for the League client", start League —

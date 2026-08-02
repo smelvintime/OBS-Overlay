@@ -23,8 +23,8 @@ the music side at all.
   rank/LP as an OBS source, read straight from the League client on this PC
   (no Riot key), with switches for which game modes count
 - 🗡️ **A live draft board** — champ select on stream: picks, hovers, bans,
-  spells, roles and the phase timer, plus a Blitz-style desktop window that
-  appears beside the client during champ select. Read-only, always
+  spells, roles and the phase timer, read from the League client on this PC.
+  Read-only, always
 - 🎥 **A webcam frame** — a themed border that sits over the camera so the
   whole scene speaks one language
 - 💬 **A chat bot** — `!song` for the current track, `!record` and `!rank`
