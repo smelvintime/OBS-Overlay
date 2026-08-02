@@ -1168,6 +1168,14 @@ namespace NowPlaying {
       if (user.Length == 0) user = SNav(ev, "user_login");
       string at = DateTime.UtcNow.ToString("o");
 
+      // Every event leaves a permanent line, tests included but marked.
+      // "Did that follow ever reach this machine?" has to be answerable from
+      // the log days later - the /diag counters only remember the most recent
+      // event, and only for the life of the process, which is useless for
+      // arguing with Twitch about something that did or did not happen at
+      // 19:22 last Tuesday.
+      AppLog.Write("twitch: event " + type + (test ? " (test)" : "") + " user=" + user);
+
       if (type == "channel.follow") {
         if (!test) {
           lock (_stateLock) { _lastFollower = user; _lastFollowerAt = SNav(ev, "followed_at"); }
