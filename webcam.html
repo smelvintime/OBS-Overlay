@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Webcam frame</title>
+<style>
+  /* ---------------- Options via URL query params (all optional) ----------------
+     ?frame=blade|soft             blade = the neutral chrome with its two cut
+                                   corners and the accent brackets riding the
+                                   diagonal; soft = a plain accent-tinted
+                                   border, no brackets          (default blade)
+     ?accent=9bd4f5                accent colour, hex no #
+     ?thick=2                      border thickness px, 1-8     (default 2)
+     ?cut=22                       bracket arm length px, 12-60 (default 22)
+     ?radius=10                    corner radius px, 0-40       (default 10)
+     ?glow=1                       0 removes the accent glows   (default 1)
+     ?opacity=100                  frame opacity 10-100         (default 100)
+     ?label=                       name plate text, 40 characters at most,
+                                   inside the bottom-left corner
+                                                                (default none)
+     ?slant=0|1                    lean the plate's right edge along the house
+                                   diagonal (blade frame only); 0 squares it
+                                   off for a rectangular scene  (default 1)
+
+     Add this as a browser source placed exactly over the webcam source - same
+     position, same size. The page draws its frame around the camera's picture
+     and nothing else; everything hangs off the viewport edges, so it fits
+     whatever size the source is given.
+  ---------------------------------------------------------------------------- */
+  :root{
+    --accent:#9bd4f5;
+    --frame-opacity:1;
+    --thick:2px;
+    --cut:22px;
+    --radius:10px;
+    --bracket:2px;
+    --card-bg:rgba(18,18,20,.86);
+    --card-border:rgba(255,255,255,.10);
+    --text:#fff;
+  }
+  /* Palettes other than this default come from /themes as data - shared.js
+     writes them into a <style> tag. */
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  /* The page is chrome around a picture it does not own: the camera sits
+     under this source, so nothing here may paint or filter the middle - no
+     background, no backdrop-filter, ever. A frame that tints or blurs the
+     face behind it is a broken frame. */
+  #frame{--c:var(--accent);
+    position:fixed;inset:0;box-sizing:border-box;pointer-events:none;
+    opacity:var(--frame-opacity);
+    border:var(--thick) solid var(--card-border)}
+
+  /* ---- blade frame ---------------------------------------------------------
+     Same brackets as the alert card and the stat boxes - the camera sits on
+     screen beside those sources, so it has to speak the same language. They
+     ride out by the border width the way the card's ride out by its 1px, so
+     bracket and chrome share an outer edge and the accent reads as part of
+     the frame rather than a sticker on it. The outward half of each glow
+     falls off the source and OBS crops it; the half bleeding over the
+     picture is the half that reads anyway. */
+  body.frame-blade #frame{border-radius:var(--radius) 3px var(--radius) 3px}
+  body.frame-blade #frame::before,
+  body.frame-blade #frame::after{
+    content:"";position:absolute;width:var(--cut);height:var(--cut);pointer-events:none}
+  body.frame-blade #frame::before{top:calc(-1*var(--thick));right:calc(-1*var(--thick));
+    border-top:var(--bracket) solid var(--c);border-right:var(--bracket) solid var(--c);
+    border-top-right-radius:3px;filter:drop-shadow(0 0 6px var(--c))}
+  body.frame-blade #frame::after{bottom:calc(-1*var(--thick));left:calc(-1*var(--thick));
+    border-bottom:var(--bracket) solid var(--c);border-left:var(--bracket) solid var(--c);
+    border-bottom-left-radius:3px;filter:drop-shadow(0 0 6px var(--c))}
+
+  /* ---- soft frame ----------------------------------------------------------
+     A plain tinted ring for scenes the brackets would crowd. The tint is a
+     pseudo-element at reduced opacity, not color-mix() - where color-mix is
+     missing the whole declaration is dropped (see alerts.html), and this
+     page would lose its only visible part. */
+  body.frame-soft #frame{border:0;border-radius:var(--radius)}
+  body.frame-soft #frame::before{content:"";position:absolute;inset:0;
+    border-radius:var(--radius);border:var(--thick) solid var(--c);opacity:.55}
+
+  /* ---- name plate ----------------------------------------------------------
+     A child of the frame div, so the padding box does the arithmetic: the
+     plate keys off the border's inner edge whatever ?thick= is, and it fades
+     with the frame's own opacity.
+     Two elements, not one: an element's clip-path clips its own filter
+     output, so a slanted plate would shear its glow off at the cut edge -
+     and a dark plate has no inside for the halo to bleed into. The div casts
+     the glow, the span carries the clip, and the shadow follows the leaned
+     shape from outside it. */
+  #label{position:absolute;left:10px;bottom:10px;max-width:calc(100% - 20px);
+    filter:drop-shadow(0 0 6px var(--c))}
+  /* 40 characters can still outrun a small camera; clip with an ellipsis
+     rather than poke out of the frame. */
+  #label span{display:block;padding:5px 12px;border-radius:3px;
+    background:var(--card-bg);border-left:3px solid var(--c);
+    color:var(--text);font-size:12.5px;font-weight:700;line-height:1.2;
+    letter-spacing:.08em;text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Same 10px lean as the twin blades. The extra right padding belongs to
+     the lean - it only exists to keep the text clear of the cut. */
+  body.slant-on.frame-blade #label span{padding-right:20px;
+    clip-path:polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%)}
+
+  body.glow-off #frame::before,
+  body.glow-off #frame::after,
+  body.glow-off #label{filter:none}
+</style>
+<script src="/shared.js"></script>
+<script>
+/* Shared theme, read from the app rather than this browser - see shared.js for
+   why an OBS source cannot use localStorage for this. ?theme= pins one source. */
+if(window.NPO) NPO.themeBoot('source');
+</script>
+</head>
+<body>
+<div id="frame"></div>
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var root = document.documentElement;
+  var frameEl = document.getElementById('frame');
+
+  function hex(name, cssVar){
+    var v = (qs.get(name) || '').replace('#','');
+    if(/^[0-9a-fA-F]{3,8}$/.test(v)) root.style.setProperty(cssVar, '#'+v);
+  }
+  hex('accent','--accent');
+
+  var frame = (qs.get('frame')||'blade').toLowerCase();
+  if(['blade','soft'].indexOf(frame) < 0) frame = 'blade';
+  document.body.className = 'frame-' + frame;
+
+  // Matches stats.html: one switch for the diagonal.
+  document.body.classList.add(qs.get('slant') === '0' ? 'slant-off' : 'slant-on');
+  if(qs.get('glow') === '0') document.body.classList.add('glow-off');
+
+  // Bad values fall back to the stylesheet defaults rather than letting NaN
+  // anywhere near the CSS.
+  function px(name, cssVar, lo, hi){
+    var v = parseInt(qs.get(name),10);
+    if(isFinite(v) && v >= lo && v <= hi) root.style.setProperty(cssVar, v+'px');
+  }
+  px('cut','--cut',12,60); px('radius','--radius',0,40);
+
+  var t = parseInt(qs.get('thick'),10);
+  if(!isFinite(t) || t < 1 || t > 8) t = 2;
+  root.style.setProperty('--thick', t+'px');
+  // A heavy chrome next to hairline brackets reads as two unrelated frames,
+  // so the brackets step up once the border catches them up.
+  if(t >= 4) root.style.setProperty('--bracket','3px');
+
+  var op = parseFloat(qs.get('opacity'));
+  if(isFinite(op)){
+    if(op > 0 && op <= 1) op *= 100;
+    op = Math.max(10, Math.min(100, op));
+    root.style.setProperty('--frame-opacity', (op/100).toFixed(3));
+  }
+
+  var label = (qs.get('label') || '').trim();
+  // Clipped rather than dropped: a name one character over the limit
+  // vanishing entirely would read as the param being broken.
+  if(label.length > 40) label = label.slice(0, 40);
+  if(label){
+    var plate = document.createElement('div');
+    plate.id = 'label';
+    var text = document.createElement('span');
+    text.textContent = label;   // the query string is not trusted markup
+    plate.appendChild(text);
+    frameEl.appendChild(plate);
+  }
+})();
+</script>
+</body>
+</html>

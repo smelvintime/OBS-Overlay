@@ -283,6 +283,31 @@ Templates support `{title}`, `{artist}`, `{album}`, and `{app}`.
 - If the overlay server isn't running, it replies with a clear message rather than
   going silent.
 
+### Your own words on the live commands
+
+Every live command answers with a sensible standard line out of the box. To
+give one your own voice, type a line into its reply box on the bot tab and
+drop the data in wherever you want it with the pieces listed under the box:
+
+| Command | Pieces |
+|---|---|
+| `!song` | `{song}` `{title}` `{artist}` |
+| `!uptime` | `{uptime}` |
+| `!followage` | `{followage}` |
+| `!record` | `{record}` `{last}` |
+| `!rank` | `{rank}` `{tier}` `{lp}` `{wins}` `{losses}` |
+
+`{user}` works in every reply — it becomes whoever asked. So `!rank` with the
+template *"{user}, the climb currently sits at {rank} — {wins} wins deep"*
+answers *"chatter42, the climb currently sits at Emerald II - 45 LP — 210 wins
+deep"*. Empty the box to go back to the standard line. When the data isn't
+there (nothing playing, League closed), the bot uses its plain stock answer
+rather than your template with holes in it.
+
+The **follow thank-you** works the same way and always has: its message box on
+the bot tab takes `{user}`, which becomes the follower's name — or several
+names at once when a burst of follows is thanked in one line.
+
 ### If the bot seems deaf or mute
 
 Three things trip up nearly every fresh bot account, and none of them are bugs:
@@ -300,19 +325,43 @@ Three things trip up nearly every fresh bot account, and none of them are bugs:
   tokens — the tab will report an authentication failure. Nothing is broken: press
   **Reconnect** on the Chat bot tab and it's back in one click.
 
-## League game stats in chat
+## League: game stats in chat and on screen
 
-The bot can read results straight from the **League client running on the
-streaming PC** — no Riot API key, no account linking, nothing to sign into.
-It connects by itself whenever the client is open.
+Everything League comes straight from the **League client running on the
+streaming PC** — no Riot API key, no account linking, nothing to sign into,
+nothing typed in that can go stale. It connects by itself whenever the client
+is open.
+
+In chat:
 
 - **`!record`** (also `!last5`, `!wl`) answers with the last game and the
   recent record: *"Last game: Victory (12/3/8) - past 5: W W L W L"*.
-- **Announce when a game ends** posts that line automatically as the game
-  finishes (on by default; switch it on the bot tab's Game stats panel).
+- **`!rank`** (also `!elo`, `!lp`) answers with the real, current rank:
+  *"Rank: Emerald II - 45 LP (Solo/Duo), 210W 198L this season"*. It reads the
+  ladder from the client when asked, so it is never yesterday's rank. (It used
+  to be a fill-in-the-text command; any old text version upgrades itself to
+  the live one automatically.)
+- **Announce when a game ends** posts the record line automatically as the
+  game finishes (on by default; switch it on the bot tab's Game stats panel).
 - **Repeat on a timer** re-posts it every 5/10/15 minutes — but only when a
   new game has finished since it last spoke, so it never spams an unchanged
   record.
+
+On screen — the **session tracker** (`/session`), its own OBS Browser Source,
+dressed from the **League tracker** tab in the customizer:
+
+- **Today's record** ("4W – 2L") and **form marks**, one square per game,
+  wins in the accent, losses in red — recounted from the client's own match
+  history, so it survives app restarts.
+- **Current rank and LP**, plus **LP gained or lost today**, measured across
+  promotions and demotions without lying at the border.
+- **Which games count is yours to choose**: ranked, normals, ARAM and
+  everything-else each have a switch. Practice tool and tutorials never
+  count, whatever is ticked.
+- The source stays **invisible until there is something to show**, and keeps
+  the last numbers on screen if the League client closes between games.
+- It costs nothing while unused: the app only polls the League client while
+  the tracker source is actually open (or the bot's Game stats switch is on).
 
 The panel on the bot tab shows what it is currently watching and the exact
 line it would say. If it shows "waiting for the League client", start League —

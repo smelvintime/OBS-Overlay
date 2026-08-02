@@ -108,6 +108,9 @@
   .ctl select{flex:1 1 auto;min-width:120px;max-width:280px;background:var(--input);
     border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:7px 9px;
     font:inherit;font-size:12.5px;cursor:pointer}
+  .ctl input[type=text]{flex:1 1 auto;min-width:120px;max-width:280px;background:var(--input);
+    border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:7px 9px;
+    font:inherit;font-size:12.5px}
   .val{color:var(--fg);font-size:12.5px;font-variant-numeric:tabular-nums;
     min-width:52px;text-align:right;font-weight:700}
 
@@ -565,9 +568,82 @@
         ]}
       ]
     }
+    ,
+
+    session: {
+      label:'League tracker', path:'/session', store:'nowplaying.customize.session',
+      sizeToContent:true,
+      blurb:'Today&rsquo;s record, recent form and the current rank, read straight from the '
+          + 'League client on this PC &mdash; nothing typed in, nothing to update by hand. '
+          + 'Add it as its own OBS <strong>Browser Source</strong>; it stays invisible until '
+          + 'there is something to show. The preview below runs on sample numbers.',
+      live:[],
+      defaults:{
+        accent:'9bd4f5', scale:1, radius:14, opacity:100,
+        showrank:1, showlp:1, showtoday:1, showform:1, showname:0,
+        mranked:1, mnormals:1, maram:1, mother:1
+      },
+      size:function(){ return {w:560, h:130}; },
+      groups:[
+        { title:'Show', controls:[
+          { key:'showrank', label:'', type:'toggle', text:'Current rank and LP' },
+          { key:'showlp', label:'', type:'toggle', text:'LP gained or lost today' },
+          { key:'showtoday', label:'', type:'toggle', text:'Today&rsquo;s wins and losses' },
+          { key:'showform', label:'', type:'toggle', text:'Form marks, one square per game' },
+          { key:'showname', label:'', type:'toggle', text:'Summoner name' }
+        ]},
+        { title:'Which games count', controls:[
+          { key:'mranked', label:'', type:'toggle', text:'Ranked' },
+          { key:'mnormals', label:'', type:'toggle', text:'Normals' },
+          { key:'maram', label:'', type:'toggle', text:'ARAM' },
+          { key:'mother', label:'', type:'toggle', text:'Everything else (arena, URF, customs)',
+            note:'Shapes the today numbers and the form marks. Practice tool and tutorials '
+               + 'never count, whatever is ticked - and the rank is always the real rank.' }
+        ]},
+        { title:'Look', controls:[
+          { key:'accent', label:'Accent', type:'color' },
+          { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
+          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+        ]}
+      ]
+    },
+
+    webcam: {
+      label:'Webcam frame', path:'/webcam', store:'nowplaying.customize.webcam',
+      blurb:'A themed frame that sits exactly over the camera: add it as its own OBS '
+          + '<strong>Browser Source</strong> in the same position and size as the webcam '
+          + 'source, and it draws the border on top. The middle stays fully transparent.',
+      live:[],
+      defaults:{
+        frame:'blade', accent:'9bd4f5', thick:2, cut:22, radius:10, glow:1,
+        opacity:100, label:'', slant:1
+      },
+      size:function(){ return {w:640, h:360}; },
+      groups:[
+        { title:'Look', controls:[
+          { key:'frame', label:'Frame', type:'seg', options:[['blade','Blade'],['soft','Plain']],
+            note:'Blade cuts two corners and brackets them in the accent, matching the '
+               + 'alerts and the goal boxes. Plain is a simple rounded border.' },
+          { key:'accent', label:'Accent', type:'color' },
+          { key:'thick', label:'Border', type:'range', min:1, max:8, step:1, unit:'px' },
+          { key:'cut', label:'Brackets', type:'range', min:12, max:60, step:2, unit:'px' },
+          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'glow', label:'', type:'toggle', text:'Glow on the brackets' },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+        ]},
+        { title:'Name plate', controls:[
+          { key:'label', label:'Text', type:'text',
+            note:'Optional - a small plate in the bottom-left corner of the frame. A name, '
+               + 'a handle, or empty for none.' },
+          { key:'slant', label:'', type:'toggle', text:'Lean the plate',
+            note:'The house diagonal on the name plate. Blade frame only.' }
+        ]}
+      ]
+    }
   };
 
-  var ORDER = ['overlay','alerts','stats'];
+  var ORDER = ['overlay','alerts','stats','session','webcam'];
 
   // ---- state -----------------------------------------------------------------
   var states = {};
@@ -637,6 +713,10 @@
   function frameUrl(){
     var p = params(true);
     if(current === 'stats' && statsDemo) p += (p ? '&' : '') + 'demo=1';
+    // The tracker preview always runs on sample numbers: whether the League
+    // client is up mid-customizing is chance, and a blank rectangle reads as
+    // a broken preview. The copied URL never carries the flag.
+    if(current === 'session') p += (p ? '&' : '') + 'demo=1';
     // Alerts are invisible between events by design, which makes for a blank
     // preview. preview=1 holds one on screen so there is something to dress.
     // Neither flag is ever part of the copied URL - both belong to this page,
@@ -1024,6 +1104,26 @@
               sel.addEventListener('change', function(){ set(C.key, sel.value, live); });
               refresh.push(function(){ sel.value = state[C.key] || ''; });
               ctl.appendChild(sel);
+            })();
+
+          } else if(C.type === 'text'){
+            (function(){
+              var inp = document.createElement('input');
+              inp.type = 'text'; inp.value = state[C.key] || '';
+              inp.spellcheck = false; inp.maxLength = 40;
+              // Settle before reloading: this target has no live channel, so
+              // every change reloads the preview frame - once per pause in
+              // typing, not once per keystroke.
+              var t = null;
+              inp.addEventListener('input', function(){
+                clearTimeout(t);
+                t = setTimeout(function(){ set(C.key, inp.value, live); }, 400);
+              });
+              inp.addEventListener('blur', function(){
+                clearTimeout(t); set(C.key, inp.value, live);
+              });
+              refresh.push(function(){ inp.value = state[C.key] || ''; });
+              ctl.appendChild(inp);
             })();
 
           } else if(C.type === 'color'){

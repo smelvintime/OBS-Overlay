@@ -217,3 +217,18 @@ app over a browser tab, so a paused YouTube tab won't hijack it.
 **iTunes is only queried while iTunes is already running.** This is deliberate: creating the
 iTunes automation object *launches* iTunes, and having the overlay pop iTunes open mid-stream
 would be awful. Close iTunes and the overlay simply ignores it.
+
+## The webcam frame
+
+A bonus source that isn't about music at all: **`http://127.0.0.1:8787/webcam`**
+draws a themed border with a fully transparent middle, so the whole scene
+speaks one visual language.
+
+1. In OBS, add it as its own **Browser Source**, positioned and sized
+   **exactly over the webcam source** (same X/Y, same width/height).
+2. Dress it from the **Webcam frame** tab in the customizer: blade or plain
+   frame, accent colour, border thickness, bracket size, glow, and an
+   optional name plate in the bottom-left corner.
+
+It follows the app theme like every other source, and because the page is
+pure chrome — no polling, no audio, no data — it costs effectively nothing.

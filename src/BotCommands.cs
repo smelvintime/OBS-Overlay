@@ -59,14 +59,16 @@ namespace NowPlaying {
         new Cmd { Name = "followage", Builtin = "followage", Aliases = "followtime", Cooldown = 10 },
         new Cmd { Name = "commands",  Builtin = "commands",  Aliases = "help,cmds", Cooldown = 20 },
         new Cmd { Name = "so",        Builtin = "shoutout",  Aliases = "shoutout", Cooldown = 0, ModOnly = true },
-        // Answers from the League client running on this PC (see LeagueStats)
-        // - the one League command that can be live data without a Riot key.
+        // Answered from the League client running on this PC (see LeagueStats)
+        // - live data with no Riot key. rank was a fill-it-in text command
+        // once; a hand-typed rank is wrong within an hour of playing ranked,
+        // so it reads the real one now.
         new Cmd { Name = "record",    Builtin = "record",    Aliases = "last5,wl", Cooldown = 15 },
+        new Cmd { Name = "rank",      Builtin = "rank",      Aliases = "elo,lp",   Cooldown = 15 },
 
         // League. Links and text beat a Riot API key that expires every 24 hours
         // and takes an approved application to make permanent.
         new Cmd { Name = "opgg",  Response = "https://op.gg/summoners/na/YOUR-NAME-HERE", Enabled = false },
-        new Cmd { Name = "rank",  Aliases = "elo,lp", Response = "Currently: set this in the dashboard", Enabled = false },
         new Cmd { Name = "runes", Response = "Runes for this game: set this in the dashboard", Enabled = false },
         new Cmd { Name = "build", Aliases = "builds,items", Response = "Build: set this in the dashboard", Enabled = false },
         new Cmd { Name = "champ", Aliases = "champion", Response = "Playing: set this in the dashboard", Enabled = false },
@@ -110,6 +112,23 @@ namespace NowPlaying {
         } catch (Exception ex) {
           AppLog.Write("chat: could not read bot-commands.json: " + ex.Message);
         }
+        // !rank shipped as a fill-it-in text command before it became a live
+        // builtin. Any stored text version is upgraded in place - same name,
+        // same aliases, answers from the League client now. The old text is
+        // cleared (a hand-typed rank on top of live data is exactly what is
+        // being retired) but logged first, so nothing vanishes silently.
+        bool upgraded = false;
+        foreach (var c in _cmds) {
+          if (c.Name != "rank" || c.Builtin.Length != 0) continue;
+          if (c.Response.Length > 0
+              && c.Response.IndexOf("set this in the dashboard", StringComparison.OrdinalIgnoreCase) < 0)
+            AppLog.Write("chat: upgraded !rank to live League data; its old text was: " + c.Response);
+          c.Builtin = "rank";
+          c.Response = "";
+          c.Enabled = true;
+          upgraded = true;
+        }
+        if (upgraded) SaveLocked();
         if (_cmds.Count == 0) { _cmds.AddRange(Defaults()); SaveLocked(); }
       }
     }
@@ -250,35 +269,75 @@ namespace NowPlaying {
     static string Render(Cmd cmd, TwitchChat.IrcEvent ev, string rest) {
       string text;
       switch (cmd.Builtin) {
-        case "song":      text = SongLine(); break;
-        case "uptime":    text = UptimeLine(); break;
-        case "followage": text = FollowAgeLine(ev); break;
+        case "song":      text = SongLine(cmd.Response); break;
+        case "uptime":    text = UptimeLine(cmd.Response); break;
+        case "followage": text = FollowAgeLine(ev, cmd.Response); break;
         case "shoutout":  text = ShoutoutLine(rest); break;
-        case "record":    text = LeagueStats.CommandLine(); break;
+        case "record":    text = RecordLine(cmd.Response); break;
+        case "rank":      text = RankLine(cmd.Response); break;
         case "commands":  text = CommandsLine(); break;
         default:
-          text = cmd.Response
-            .Replace("{user}", ev.Nick)
-            .Replace("{channel}", "");
+          text = cmd.Response.Replace("{channel}", "");
           break;
       }
-      // "\n" typed in the dashboard becomes a real newline, and the sender
-      // splits on those into separate chat messages - IRC has no multi-line
-      // message, so that is the only form a "newline" can take in chat.
-      // Done here rather than per-branch so the song templates from
-      // twitch-config.json get it too.
-      return text == null ? null : text.Replace("\\n", "\n");
+      // {user} works in every reply, template or stock, so any line can
+      // address whoever asked. "\n" typed in the dashboard becomes a real
+      // newline, and the sender splits on those into separate chat messages -
+      // IRC has no multi-line message, so that is the only form a "newline"
+      // can take in chat.
+      return text == null ? null : text.Replace("{user}", ev.Nick).Replace("\\n", "\n");
+    }
+
+    // A builtin's Response, when set, is a template: the streamer's own words
+    // with the live data dropped in wherever the tokens sit. Empty means the
+    // stock line, so zero setup keeps working. Plain token replacement, no
+    // syntax - this is chat, not a programming language. Templates only apply
+    // when the data actually exists; every "can't check that" path stays on
+    // the stock wording, because personality wrapped around a hole reads
+    // worse than the plain truth.
+    static string Fill(string template, string stock, params string[] kv) {
+      if (template == null || template.Trim().Length == 0) return stock;
+      string t = template;
+      for (int i = 0; i + 1 < kv.Length; i += 2) t = t.Replace("{" + kv[i] + "}", kv[i + 1]);
+      return t;
     }
 
     // ------------------------------------------------------------- built-ins
-    static string SongLine() {
+    static string SongLine(string tmpl) {
       var np = Program.CurrentSnapshot();
       if (np == null || np.Title.Length == 0) return "Nothing playing right now.";
       string s = np.Title + (np.Artist.Length > 0 ? " - " + np.Artist : "");
-      return (np.Playing ? "Now playing: " : "Paused: ") + s;
+      return Fill(tmpl, (np.Playing ? "Now playing: " : "Paused: ") + s,
+                  "song", s, "title", np.Title, "artist", np.Artist);
     }
 
-    static string UptimeLine() {
+    static string RecordLine(string tmpl) {
+      string stock = LeagueStats.CommandLine();
+      if (tmpl == null || tmpl.Trim().Length == 0) return stock;
+      string record, last;
+      LeagueStats.RecordParts(out record, out last);
+      if (record.Length == 0) return stock;
+      return Fill(tmpl, stock, "record", record, "last", last);
+    }
+
+    static string RankLine(string tmpl) {
+      // Stock first on purpose: RankCommandLine refreshes the cache when it
+      // is stale, so the parts read right after it are the fresh ones.
+      string stock = LeagueStats.RankCommandLine();
+      if (tmpl == null || tmpl.Trim().Length == 0) return stock;
+      string line, tier, div; int lp, wins, losses;
+      LeagueStats.RankParts(out line, out tier, out div, out lp, out wins, out losses);
+      if (tier.Length == 0) return stock;
+      string rank = tier + (div.Length > 0 ? " " + div : "");
+      return Fill(tmpl, stock,
+                  "rank", rank + " - " + lp + " LP",
+                  "tier", rank,
+                  "lp", lp.ToString(),
+                  "wins", wins.ToString(),
+                  "losses", losses.ToString());
+    }
+
+    static string UptimeLine(string tmpl) {
       if (!TwitchEvents.ApiReady) return "Can't check that right now.";
       int http;
       string body = TwitchEvents.Helix(
@@ -291,10 +350,11 @@ namespace NowPlaying {
       if (!DateTime.TryParse(started, CultureInfo.InvariantCulture,
                              DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out t))
         return "Stream is live.";
-      return "Live for " + Span(DateTime.UtcNow - t) + ".";
+      string span = Span(DateTime.UtcNow - t);
+      return Fill(tmpl, "Live for " + span + ".", "uptime", span);
     }
 
-    static string FollowAgeLine(TwitchChat.IrcEvent ev) {
+    static string FollowAgeLine(TwitchChat.IrcEvent ev, string tmpl) {
       if (!TwitchEvents.ApiReady || ev.UserId.Length == 0) return "Can't check that right now.";
       int http;
       string body = TwitchEvents.Helix(
@@ -307,7 +367,8 @@ namespace NowPlaying {
       if (!DateTime.TryParse(TwitchEvents.SNavPublic(data[0], "followed_at"), CultureInfo.InvariantCulture,
                              DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out t))
         return ev.Nick + " is following.";
-      return ev.Nick + " has been following for " + Span(DateTime.UtcNow - t) + ".";
+      string span = Span(DateTime.UtcNow - t);
+      return Fill(tmpl, ev.Nick + " has been following for " + span + ".", "followage", span);
     }
 
     static string ShoutoutLine(string rest) {

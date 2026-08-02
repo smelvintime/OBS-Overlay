@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>League session</title>
+<style>
+  /* ---------------- Options via URL query params (all optional) ----------------
+     ?accent=9bd4f5                base accent, hex no #
+     ?scale=1.0                    size multiplier 0.6-2
+     ?radius=14                    corner radius px 0-40        (default 14)
+     ?opacity=100                  bar opacity 10-100           (default 100)
+     ?showrank=1                   rank block: queue, tier, LP  (default 1)
+     ?showlp=1                     the LP-won-today pill        (default 1)
+     ?showtoday=1                  today's win-loss tally       (default 1)
+     ?showform=1                   one square per game played   (default 1)
+     ?showname=1                   summoner name under the mark (default 0)
+     ?mranked=1  ?mnormals=1       which modes count toward the tally and the
+     ?maram=1    ?mother=1         form squares; 0 removes that bucket
+                                   (default all on). Rank and LP are queue
+                                   facts from the server and ignore these.
+     ?demo=1                       canned session, no server needed - what the
+                                   customizer previews against
+     ?theme=name                   pin this source to one theme
+
+     The page paints nothing until a fetch has succeeded AND there is something
+     worth putting on stream: a rank to show, a game already played today, or
+     the client live right now. From then on it never blanks itself - the
+     League client closing flips status to no-client mid-stream, and a bar
+     vanishing with it would read as the overlay glitching rather than as
+     information, so the last known session holds until the page reloads.
+     With the feature off server-side there is nothing worth showing, and so
+     nothing is shown.
+  ---------------------------------------------------------------------------- */
+  :root{
+    --accent:#9bd4f5;
+    --overlay-opacity:1;
+    --radius:14px;
+    --card-bg:rgba(18,18,20,.86);
+    --card-border:rgba(255,255,255,.09);
+    --text:#fff;
+    --subtext:rgba(255,255,255,.66);
+    /* Session verdict colours, fixed rather than themed: green-for-up and
+       red-for-down is the one code every viewer already reads without being
+       taught, and a theme recolouring wins would break the only glanceable
+       fact on the bar. The loss red doubles for the form squares. */
+    --up:#63d68f;
+    --down:#f25c5c;
+    /* Three blades, matching alerts.html - see the long note there for the
+       load-bearing geometry. alerts.html is the canonical copy and every
+       duplicate must stay byte-identical to it; this is one of the duplicates. */
+    --shuriken:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cmask id='h'%3E%3Crect width='24' height='24' fill='%23fff'/%3E%3Ccircle cx='12' cy='12' r='2.7' fill='%23000'/%3E%3C/mask%3E%3Cg fill='%23fff' mask='url(%23h)' transform='translate(24 0) scale(-1 1)'%3E%3Ccircle cx='12' cy='12' r='4.3'/%3E%3Cpath d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(120 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3Cpath transform='rotate(240 12 12)' d='M7.72 12.37C4.2 5.0 10.0 0.2 17.65 2.21C14.9 2.3 12.8 4.4 13.47 7.96Z'/%3E%3C/g%3E%3C/svg%3E");
+  }
+  /* Palettes other than this default come from /themes as data - shared.js
+     writes them into a <style> tag. */
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  /* No align knobs on this page: one bar is placed by dragging the OBS source
+     itself. The padding is only clearance, so a source cropped tight to the
+     reported content size does not shave the corner brackets' glow. */
+  #stage{position:fixed;inset:0;display:flex;padding:24px;box-sizing:border-box;
+    justify-content:flex-start;align-items:flex-start}
+
+  /* One horizontal blade bar in the stat boxes' clothes: same dark plate, cut
+     corners and bracket pair on the diagonal. Deliberately NO backdrop blur -
+     this bar's natural home is directly over gameplay, and a blur resamples
+     the frame behind it every frame to buy an effect the near-opaque plate
+     hides anyway. */
+  .card{
+    position:relative;display:flex;align-items:center;gap:14px;
+    padding:12px 18px;
+    border-radius:var(--radius) 3px var(--radius) 3px;
+    background:var(--card-bg);border:1px solid var(--card-border);
+    box-shadow:0 8px 26px rgba(0,0,0,.4);
+    color:var(--text);white-space:nowrap;
+    opacity:0;transform:translateY(8px);
+    transition:opacity .45s ease,transform .45s cubic-bezier(.22,1.28,.35,1);
+  }
+  .card.show{opacity:var(--overlay-opacity);transform:none}
+  /* The accent brackets from the alert card, riding the two sharp corners. */
+  .card::before,.card::after{
+    content:"";position:absolute;width:18px;height:18px;pointer-events:none}
+  .card::before{top:-1px;right:-1px;
+    border-top:2px solid var(--accent);border-right:2px solid var(--accent);
+    border-top-right-radius:3px;filter:drop-shadow(0 0 6px var(--accent))}
+  .card::after{bottom:-1px;left:-1px;
+    border-bottom:2px solid var(--accent);border-left:2px solid var(--accent);
+    border-bottom-left-radius:3px;filter:drop-shadow(0 0 6px var(--accent))}
+
+  /* The mark stands still here. alerts.html nests two spans so the plate's
+     counter-rotation and the slash spin can each own a transform; with
+     neither in play, one masked span is the whole ceremony. */
+  .side{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .shuriken{flex:0 0 auto;width:20px;height:20px;background-color:var(--accent);
+    -webkit-mask:var(--shuriken) center/contain no-repeat;
+            mask:var(--shuriken) center/contain no-repeat}
+  /* Capped: a long name under a 20px mark would make the emblem column the
+     widest thing on the bar. Clipping the tail is the same honest degradation
+     every other page here uses. */
+  .who{max-width:130px;overflow:hidden;text-overflow:ellipsis;
+    font-size:10px;font-weight:600;color:var(--subtext);letter-spacing:.02em}
+
+  /* Label-over-value blocks in the stat boxes' typography, but the label sits
+     in the dim ink rather than the accent: on a bar this dense the accent is
+     rationed to the two things worth a glance - the tier and the mark. */
+  .blk{display:flex;flex-direction:column;gap:2px}
+  .lbl{font-size:10.5px;font-weight:700;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--subtext)}
+  .big{font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
+  .tier{color:var(--accent)}
+  .lp{font-size:13px;font-weight:600;color:rgba(255,255,255,.8);margin-left:7px}
+  /* "no games yet", quiet and small. The line-height pads it to the tally's
+     24px, so the first game of the day changes the words without making the
+     whole bar taller. */
+  .none{font-size:12.5px;font-weight:600;color:var(--subtext);line-height:1.9}
+
+  /* The verdict pill. Sign carries the colour; zero gets the dim treatment
+     because a flat session is information, not an achievement. The tinted
+     backgrounds are the same hues written out at low alpha - deriving them
+     from the vars needs color-mix, which alerts.html already ruled out for
+     dropping whole declarations on Chrome older than 111. */
+  .chip{border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:700;
+    line-height:1}
+  .chip.up{color:var(--up);background:rgba(99,214,143,.12);
+    border:1px solid rgba(99,214,143,.35)}
+  .chip.down{color:var(--down);background:rgba(242,92,92,.12);
+    border:1px solid rgba(242,92,92,.35)}
+  .chip.flat{color:rgba(255,255,255,.6);background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.16)}
+
+  /* Between the identity half and the scoreboard half, and only when both
+     halves are up - a fence with one side is just a stray line. */
+  .vdiv{flex:0 0 1px;width:1px;align-self:stretch;background:rgba(255,255,255,.12)}
+
+  /* One square per game, NEWEST at the left: the question the row answers is
+     "how is it going", and the eye reads from the tally outward. Ten at most -
+     past that the row is a barcode. */
+  .form{display:flex;gap:4px;align-items:center}
+  .mk{width:10px;height:10px;border-radius:2px;background:var(--accent)}
+  .mk.l{background:var(--down);opacity:.85}
+
+  /* LAST on purpose: every block above sets its own display at the same
+     specificity, and this must beat all of them on source order - the same
+     trick alerts.html plays with its staging rule. A block marked .off is
+     gone entirely, so the card's flex gaps collapse with it. */
+  .off{display:none}
+</style>
+<script src="/shared.js"></script>
+<script>
+/* Shared theme, read from the app rather than this browser - see shared.js for
+   why an OBS source cannot use localStorage for this. ?theme= pins one source. */
+if(window.NPO) NPO.themeBoot('source');
+</script>
+</head>
+<body>
+<div id="stage"><div id="wrap">
+  <div class="card" id="card">
+    <div class="side">
+      <span class="shuriken"></span>
+      <div class="who off" id="who"></div>
+    </div>
+    <div class="blk off" id="rankBlk">
+      <div class="lbl" id="queueEl"></div>
+      <div class="big"><span class="tier" id="tierEl"></span><span class="lp" id="lpEl"></span></div>
+    </div>
+    <div class="chip off" id="chipEl"></div>
+    <div class="vdiv off" id="vdivEl"></div>
+    <div class="blk off" id="todayBlk">
+      <div class="lbl">Today</div>
+      <div class="big" id="todayEl"></div>
+    </div>
+    <div class="form off" id="formEl"></div>
+  </div>
+</div></div>
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var root = document.documentElement;
+  var wrap = document.getElementById('wrap'), card = document.getElementById('card');
+  var whoEl    = document.getElementById('who');
+  var rankBlk  = document.getElementById('rankBlk');
+  var queueEl  = document.getElementById('queueEl');
+  var tierEl   = document.getElementById('tierEl');
+  var lpEl     = document.getElementById('lpEl');
+  var chipEl   = document.getElementById('chipEl');
+  var vdivEl   = document.getElementById('vdivEl');
+  var todayBlk = document.getElementById('todayBlk');
+  var todayEl  = document.getElementById('todayEl');
+  var formEl   = document.getElementById('formEl');
+
+  function hex(name, cssVar){
+    var v = (qs.get(name) || '').replace('#','');
+    if(/^[0-9a-fA-F]{3,8}$/.test(v)) root.style.setProperty(cssVar, '#'+v);
+  }
+  hex('accent','--accent');
+
+  var r = parseInt(qs.get('radius'),10);
+  if(isFinite(r) && r >= 0 && r <= 40) root.style.setProperty('--radius', r+'px');
+
+  // zoom rather than transform, the trick alerts.html uses: zoom reflows, so
+  // the footprint the size reporter measures below is the scaled one for free.
+  var sc = parseFloat(qs.get('scale'));
+  if(isFinite(sc) && sc >= 0.6 && sc <= 2 && sc !== 1) wrap.style.zoom = sc;
+
+  var op = parseFloat(qs.get('opacity'));
+  if(isFinite(op)){
+    if(op > 0 && op <= 1) op *= 100;
+    op = Math.max(10, Math.min(100, op));
+    root.style.setProperty('--overlay-opacity', (op/100).toFixed(3));
+  }
+
+  var showRank  = qs.get('showrank')  !== '0';
+  var showLp    = qs.get('showlp')    !== '0';
+  var showToday = qs.get('showtoday') !== '0';
+  var showForm  = qs.get('showform')  !== '0';
+  var showName  = qs.get('showname') === '1';   // opt-in: most bars are anonymous
+
+  // Which buckets count toward the tally and the form squares. Filtered in one
+  // place so the two can never disagree about what today looked like.
+  var modes = {
+    ranked:  qs.get('mranked')  !== '0',
+    normals: qs.get('mnormals') !== '0',
+    aram:    qs.get('maram')    !== '0',
+    other:   qs.get('mother')   !== '0'
+  };
+
+  function filteredToday(list){
+    var out = [], i, g, m;
+    for(i = 0; list && i < list.length; i++){
+      g = list[i]; m = g && g.m;
+      // A mode name this page has never heard of lands in "other" rather than
+      // being dropped: the server adding a bucket must not silently shrink
+      // the day's tally out from under a running overlay.
+      if(!modes.hasOwnProperty(m)) m = 'other';
+      if(modes[m]) out.push(!!g.win);
+    }
+    return out;
+  }
+
+  // Everything render() paints, reduced to plain data first. The poll fires
+  // every five seconds and most of the time nothing has moved; comparing this
+  // snapshot lets render() skip the DOM entirely then, so OBS is not handed a
+  // repaint for a bar that looks exactly the same.
+  function viewModel(d){
+    var rank = d.rank || {};
+    var games = filteredToday(d.today);
+    var wins = 0, i;
+    for(i = 0; i < games.length; i++) if(games[i]) wins++;
+    var lp = (typeof d.lpToday === 'number' && isFinite(d.lpToday)) ? d.lpToday : null;
+    return {
+      name: (showName && d.summoner) ? String(d.summoner) : '',
+      rank: (showRank && rank.tier) ? {
+        queue: String(rank.queue || 'Solo/Duo'),
+        tier:  rank.tier + (rank.div ? ' ' + rank.div : ''),
+        lp:    (typeof rank.lp === 'number' && isFinite(rank.lp) ? rank.lp : 0) + ' LP'
+      } : null,
+      chip:  (showLp && lp !== null) ? lp : null,
+      today: showToday ? { w: wins, l: games.length - wins, n: games.length } : null,
+      form:  (showForm && games.length) ? games.slice(0, 10) : null
+    };
+  }
+
+  // ---- rendering ----------------------------------------------------------
+  var lastSnap = '';
+  function render(d){
+    var vm = viewModel(d);
+    var snap = JSON.stringify(vm);
+    if(snap === lastSnap) return;
+    lastSnap = snap;
+
+    // textContent always - the summoner name is the one string here a person
+    // chose, and it must never be interpreted as markup.
+    whoEl.textContent = vm.name;
+    whoEl.className = vm.name ? 'who' : 'who off';
+
+    if(vm.rank){
+      queueEl.textContent = vm.rank.queue;   // .lbl uppercases it in CSS
+      tierEl.textContent  = vm.rank.tier;
+      lpEl.textContent    = vm.rank.lp;
+    }
+    rankBlk.className = vm.rank ? 'blk' : 'blk off';
+
+    if(vm.chip !== null){
+      chipEl.textContent = (vm.chip > 0 ? '+' + vm.chip
+                          : vm.chip < 0 ? String(vm.chip) : '±0') + ' LP today';
+      chipEl.className = 'chip ' + (vm.chip > 0 ? 'up' : vm.chip < 0 ? 'down' : 'flat');
+    } else {
+      chipEl.className = 'chip off';
+    }
+
+    if(vm.today){
+      if(vm.today.n > 0){
+        todayEl.className = 'big';
+        todayEl.textContent = vm.today.w + 'W – ' + vm.today.l + 'L';
+      } else {
+        todayEl.className = 'none';
+        todayEl.textContent = 'no games yet';
+      }
+    }
+    todayBlk.className = vm.today ? 'blk' : 'blk off';
+
+    // Rebuilt whole rather than patched: at most ten spans, and only on the
+    // polls where the snapshot above says something actually changed.
+    formEl.textContent = '';
+    if(vm.form){
+      for(var i = 0; i < vm.form.length; i++){
+        var mk = document.createElement('span');
+        mk.className = vm.form[i] ? 'mk' : 'mk l';
+        formEl.appendChild(mk);
+      }
+    }
+    formEl.className = vm.form ? 'form' : 'form off';
+
+    // The emblem column does not count as a side: a divider fencing the mark
+    // off from the only content on the bar would just be a stray line.
+    var left  = vm.rank !== null || vm.chip !== null;
+    var right = vm.today !== null || vm.form !== null;
+    vdivEl.className = (left && right) ? 'vdiv' : 'vdiv off';
+  }
+
+  // ---- reveal -------------------------------------------------------------
+  // Same rAF-plus-timer net as every other page here: an OBS source that is
+  // not compositing never fires rAF, and without the timer this bar would
+  // stage its entrance forever. shown also gates the size reporter below.
+  var shown = false;
+  function reveal(){
+    if(shown) return;
+    shown = true;
+    function on(){ card.classList.add('show'); }
+    requestAnimationFrame(on);
+    setTimeout(on, 60);
+  }
+
+  // The visibility contract in one place. Worth showing = a rank to speak of,
+  // a game already played today, or the client live right now. A state that
+  // fails the test changes nothing: before the first reveal that means
+  // staying invisible (feature off, nothing to say), after it that means
+  // holding the last known session - the client closing mid-stream must not
+  // blank the bar, because a box vanishing reads as a glitch, not as news.
+  function worth(d){
+    if(!d) return false;
+    if(d.rank && d.rank.tier) return true;
+    if(d.today && d.today.length > 0) return true;
+    return d.status === 'live';
+  }
+  function apply(d){
+    if(!worth(d)) return;
+    render(d);
+    reveal();
+  }
+
+  // ---- source -------------------------------------------------------------
+  if(qs.get('demo') === '1'){
+    // What the customizer dresses against. No polling: canned data never
+    // changes, and a preview should not depend on the League client existing.
+    apply({
+      running: true, status: 'live', detail: '', summoner: 'SummonerName',
+      rank: { tier: 'Emerald', div: 'II', lp: 45, queue: 'Solo/Duo',
+              wins: 210, losses: 198,
+              line: 'Emerald II - 45 LP (Solo/Duo), 210W 198L this season' },
+      lpToday: 18,
+      today: [
+        { m: 'ranked',  win: true  },
+        { m: 'ranked',  win: true  },
+        { m: 'aram',    win: false },
+        { m: 'ranked',  win: true  },
+        { m: 'normals', win: false },
+        { m: 'ranked',  win: true  }
+      ],
+      last: 'Victory (12/3/8)', record: 'W W L W L'
+    });
+  } else {
+    // Failures are silent and the retry is forever: on stream a broken poll
+    // has to look like nothing at all, never like an error.
+    (function poll(){
+      fetch('/league-state', {cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(apply)
+        .catch(function(){})
+        .finally(function(){ setTimeout(poll, 5000); });
+    })();
+  }
+
+  // The recommended OBS source size is a guess; the bar's true footprint moves
+  // with the tier name, the game count and ?scale=. Reporting the measured
+  // wrapper lets the customizer show a real number instead - same mechanism as
+  // stats.html, and the wrapper is the zoom target, so the number is painted
+  // pixels with the scale already in it.
+  if(window.top !== window.self && window.ResizeObserver){
+    var lastReport = '';
+    function reportSize(){
+      // Before the first reveal the card is an invisible empty plate;
+      // measuring it would hand the customizer the size of nothing.
+      if(!shown) return;
+      var r = wrap.getBoundingClientRect();
+      if(r.width <= 0 || r.height <= 0) return;
+      var w = Math.round(r.width), h = Math.round(r.height);
+      var key = w + 'x' + h;
+      if(key === lastReport) return;
+      lastReport = key;
+      try {
+        window.parent.postMessage({type:'nowplaying:content-size', w:w, h:h}, location.origin);
+      } catch(e){}
+    }
+    new ResizeObserver(reportSize).observe(wrap);
+    window.addEventListener('load', reportSize);
+  }
+})();
+</script>
+</body>
+</html>

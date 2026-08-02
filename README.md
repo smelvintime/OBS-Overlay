@@ -19,9 +19,15 @@ the music side at all.
   build your own in a visual editor, and trade them as small files
 - 🎛️ **A customizer** with live preview for every option, plus **saved looks**
   so a finished design is never lost in an OBS URL field again
-- 💬 **A `!song` chat bot** that answers viewers with the current track —
-  set up with one click, same as the alerts
-- 📦 **One ~400 KB exe.** Local only (`127.0.0.1`), nothing sent anywhere.
+- ⚔️ **A League session tracker** — today's record, form marks and the live
+  rank/LP as an OBS source, read straight from the League client on this PC
+  (no Riot key), with switches for which game modes count
+- 🎥 **A webcam frame** — a themed border that sits over the camera so the
+  whole scene speaks one language
+- 💬 **A chat bot** — `!song` for the current track, `!record` and `!rank`
+  answered live from the League client, follow thank-yous, your own text
+  commands, and every live reply re-wordable in your own voice
+- 📦 **One ~500 KB exe.** Local only (`127.0.0.1`), nothing sent anywhere.
 
 ## Get it
 

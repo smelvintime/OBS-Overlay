@@ -1513,6 +1513,13 @@ namespace NowPlaying {
           } else if (route == "/league") {
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(LeagueStats.StatusJson()));
+          } else if (route == "/league-state") {
+            // The session tracker's feed. Each request marks the tracker as
+            // wanted, which is what keeps the League poll loop alive - no
+            // open tracker source, no polling, per the features-page promise.
+            LeagueStats.NoteOverlayInterest();
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(LeagueStats.OverlayJson()));
           } else if (route == "/league/test") {
             // Pure: a canned match history through the real parser, touching
             // no state - so the formatting is provable with no League installed.

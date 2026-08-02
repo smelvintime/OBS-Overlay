@@ -39,6 +39,11 @@ namespace NowPlaying {
     static long _newestGameId;
     static string _newestAt = "";
 
+    // Current rank, read from the client rather than typed into a dashboard -
+    // a hand-maintained rank is wrong within an hour of playing ranked.
+    static string _rankLine = "";                  // "Emerald II - 45 LP (Solo/Duo), 210W 198L this season"
+    static DateTime _rankFetchedUtc = DateTime.MinValue;
+
     public static string Status { get { return _status; } }
 
     // A monotonically-increasing marker for "a new game landed", so the chat
@@ -236,6 +241,252 @@ namespace NowPlaying {
       } catch { return false; }
     }
 
+    // Pure like ParseHistory: the ranked-stats payload in, the pieces out.
+    // The endpoint reports every queue; solo queue is what "!rank" means to a
+    // viewer, with flex as the fallback for a flex-only player. Returns true
+    // when the payload parsed, even if it held no ranked entry - "unranked"
+    // is an answer, not a failure. Master and above carry division "NA",
+    // which is the endpoint's way of saying there isn't one.
+    internal static bool ParseRankedStats(string json, out string tier, out string div,
+                                          out int lp, out int wins, out int losses,
+                                          out string queue) {
+      tier = ""; div = ""; lp = 0; wins = 0; losses = 0; queue = "";
+      try {
+        object root = TwitchEvents.NavPublic(json);
+        foreach (var q in new[] { "RANKED_SOLO_5x5", "RANKED_FLEX_SR" }) {
+          object entry = Nav(root, "queueMap", q);
+          if (entry == null) continue;
+          string t = TwitchEvents.SNavPublic(entry, "tier").Trim();
+          if (t.Length == 0 || t == "NONE" || t == "UNRANKED") continue;
+          tier = t.Substring(0, 1) + t.Substring(1).ToLowerInvariant();   // EMERALD -> Emerald
+          string d = TwitchEvents.SNavPublic(entry, "division").Trim();
+          div = (d.Length > 0 && d != "NA") ? d : "";
+          int.TryParse(TwitchEvents.SNavPublic(entry, "leaguePoints"), out lp);
+          int.TryParse(TwitchEvents.SNavPublic(entry, "wins"), out wins);
+          int.TryParse(TwitchEvents.SNavPublic(entry, "losses"), out losses);
+          queue = q == "RANKED_SOLO_5x5" ? "Solo/Duo" : "Flex";
+          return true;
+        }
+        return true;   // parsed fine, no ranked entry: tier stays ""
+      } catch { return false; }
+    }
+
+    static string ComposeRankLine(string tier, string div, int lp, int wins, int losses, string queue) {
+      if (tier.Length == 0) return "Unranked this season.";
+      string line = tier + (div.Length > 0 ? " " + div : "") + " - " + lp + " LP (" + queue + ")";
+      if (wins + losses > 0) line += ", " + wins + "W " + losses + "L this season";
+      return line;
+    }
+
+    // The ladder flattened to one number, so a day's LP movement can be
+    // reported across a promotion or demotion without lying at the border.
+    // Divisions are 100 LP, tiers are 400; Master and up have no divisions
+    // and continue from Diamond's ceiling.
+    internal static int AbsoluteLp(string tier, string div, int lp) {
+      string t = tier.ToUpperInvariant();
+      var tiers = new[] { "IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND" };
+      int ti = Array.IndexOf(tiers, t);
+      if (ti >= 0) {
+        int di = div == "I" ? 3 : div == "II" ? 2 : div == "III" ? 1 : 0;
+        return ti * 400 + di * 100 + lp;
+      }
+      if (t == "MASTER" || t == "GRANDMASTER" || t == "CHALLENGER") return 7 * 400 + lp;
+      return -1;
+    }
+
+    // One bounded fetch, shared by the poll loop and an on-demand !rank. The
+    // on-demand path exists because the rank command must work even with the
+    // Game stats announcer switched off - it costs one local call when a
+    // viewer asks, which is the resource model the features page promises.
+    static void FetchRank() {
+      int port; string pw;
+      if (!FindLockfile(out port, out pw)) return;
+      string body = LcuGet(port, pw, "/lol-ranked/v1/current-ranked-stats");
+      if (body == null) return;
+      string tier, div, queue; int lp, wins, losses;
+      if (!ParseRankedStats(body, out tier, out div, out lp, out wins, out losses, out queue)) return;
+      int abs = AbsoluteLp(tier, div, lp);
+      lock (_resultLock) {
+        _rankTier = tier; _rankDiv = div; _rankLp = lp;
+        _rankWins = wins; _rankLosses = losses; _rankQueue = queue;
+        _rankLine = ComposeRankLine(tier, div, lp, wins, losses, queue);
+      }
+      _rankFetchedUtc = DateTime.UtcNow;
+      RollDaySnapshot(abs);
+    }
+
+    // What !rank says. Answers from a recent read where possible; otherwise
+    // asks the client directly, right now, so the reply is never a stale rank
+    // - the entire reason this replaced a hand-typed text command.
+    public static string RankCommandLine() {
+      if ((DateTime.UtcNow - _rankFetchedUtc).TotalSeconds > 120) FetchRank();
+      string line;
+      lock (_resultLock) { line = _rankLine; }
+      if (line.Length > 0) return line.StartsWith("Unranked") ? line : "Rank: " + line;
+      return "Can't check the rank right now - the League client isn't running on this PC.";
+    }
+
+    // {rank}/{tier}/{lp}... tokens for a custom !rank template.
+    public static void RankParts(out string line, out string tier, out string div,
+                                 out int lp, out int wins, out int losses) {
+      lock (_resultLock) {
+        line = _rankLine; tier = _rankTier; div = _rankDiv;
+        lp = _rankLp; wins = _rankWins; losses = _rankLosses;
+      }
+    }
+
+    // {record}/{last} tokens for a custom !record template.
+    public static void RecordParts(out string record, out string last) {
+      lock (_resultLock) { record = _record; last = _lastLine; }
+    }
+
+    // ------------------------------------------------------- day LP snapshot
+    // "How much LP today" needs to remember where the day started, and that
+    // memory has to survive an app restart mid-session - so it lives in a
+    // file, keyed by local date and summoner. A new day or a different
+    // account starts a fresh baseline.
+    static string _dayKey = "";      // "2026-08-02|SummonerName"
+    static int _dayAbs = -1;
+    static bool _dayLoaded;
+
+    static string DayPath() {
+      string dir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NowPlayingOverlay");
+      Directory.CreateDirectory(dir);
+      return Path.Combine(dir, "league-day.json");
+    }
+
+    static void RollDaySnapshot(int absNow) {
+      if (absNow < 0) return;                       // unranked: nothing to measure
+      string key = DateTime.Today.ToString("yyyy-MM-dd") + "|" + _summoner;
+      lock (_resultLock) {
+        if (!_dayLoaded) {
+          _dayLoaded = true;
+          try {
+            string p = DayPath();
+            if (File.Exists(p)) {
+              var d = new System.Web.Script.Serialization.JavaScriptSerializer()
+                        .DeserializeObject(File.ReadAllText(p)) as Dictionary<string, object>;
+              if (d != null) {
+                object k, a;
+                if (d.TryGetValue("key", out k) && k != null) _dayKey = Convert.ToString(k);
+                if (d.TryGetValue("abs", out a) && a != null) _dayAbs = Convert.ToInt32(a);
+              }
+            }
+          } catch { }
+        }
+        if (_dayKey != key || _dayAbs < 0) {
+          _dayKey = key; _dayAbs = absNow;
+          try {
+            Files.WriteAtomic(DayPath(), "{\"key\":" + TwitchChat.Qs(key) + ",\"abs\":" + absNow + "}");
+          } catch { }
+        }
+        _lpToday = absNow - _dayAbs;
+        _hasLpToday = true;
+      }
+    }
+
+    static int _lpToday;
+    static bool _hasLpToday;
+    static string _rankTier = "", _rankDiv = "", _rankQueue = "";
+    static int _rankLp, _rankWins, _rankLosses;
+    static string _todayJson = "[]";
+
+    // ------------------------------------------------------- overlay support
+    // The session tracker polls /league-state every few seconds while it is
+    // visible in OBS; each poll stamps this. The loop stays alive for 30s
+    // past the last poll, so closing the source really does stop the work.
+    static long _wantedUntilTicks;
+
+    public static void NoteOverlayInterest() {
+      Interlocked.Exchange(ref _wantedUntilTicks, DateTime.UtcNow.AddSeconds(30).Ticks);
+    }
+
+    public static string OverlayJson() {
+      string tier, div, queue, line, today, last, record; int lp, w, l, lpT; bool hasLp;
+      lock (_resultLock) {
+        tier = _rankTier; div = _rankDiv; queue = _rankQueue; line = _rankLine;
+        lp = _rankLp; w = _rankWins; l = _rankLosses;
+        lpT = _lpToday; hasLp = _hasLpToday;
+        today = _todayJson; last = _lastLine; record = _record;
+      }
+      var sb = new StringBuilder();
+      sb.Append('{');
+      sb.Append("\"running\":").Append(_status == "live" ? "true" : "false").Append(',');
+      sb.Append("\"status\":").Append(TwitchChat.Qs(_status)).Append(',');
+      sb.Append("\"detail\":").Append(TwitchChat.Qs(_detail)).Append(',');
+      sb.Append("\"summoner\":").Append(TwitchChat.Qs(_summoner)).Append(',');
+      sb.Append("\"rank\":{\"tier\":").Append(TwitchChat.Qs(tier))
+        .Append(",\"div\":").Append(TwitchChat.Qs(div))
+        .Append(",\"lp\":").Append(lp)
+        .Append(",\"queue\":").Append(TwitchChat.Qs(queue))
+        .Append(",\"wins\":").Append(w)
+        .Append(",\"losses\":").Append(l)
+        .Append(",\"line\":").Append(TwitchChat.Qs(line)).Append("},");
+      sb.Append("\"lpToday\":").Append(hasLp ? _lpTodayStr(lpT) : "null").Append(',');
+      sb.Append("\"today\":").Append(today).Append(',');
+      sb.Append("\"last\":").Append(TwitchChat.Qs(last)).Append(',');
+      sb.Append("\"record\":").Append(TwitchChat.Qs(record));
+      sb.Append('}');
+      return sb.ToString();
+    }
+
+    static string _lpTodayStr(int v) { return v.ToString(System.Globalization.CultureInfo.InvariantCulture); }
+
+    // Today's games from the same history payload, one entry per game with
+    // its mode bucket, so the overlay can filter what counts without another
+    // trip here. Pure, like the others. "Today" is the local calendar day,
+    // and it survives an app restart because it is re-derived from history
+    // every time rather than counted as the games happen. Practice tool and
+    // tutorials are dropped entirely - a practice-tool "win" is not a game,
+    // whatever the history endpoint thinks.
+    internal static bool ParseToday(string json, long sinceMs, out string gamesJson) {
+      gamesJson = "[]";
+      try {
+        var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
+        if (games == null) return false;
+        var list = new List<object>(games);
+        list.Sort(delegate(object a, object b) {
+          return LNav(b, "gameCreation").CompareTo(LNav(a, "gameCreation"));
+        });
+        var sb = new StringBuilder("[");
+        int kept = 0;
+        for (int i = 0; i < list.Count && kept < 20; i++) {
+          if (LNav(list[i], "gameCreation") < sinceMs) break;   // newest-first: done
+          string bucket = ModeBucket(list[i]);
+          if (bucket.Length == 0) continue;
+          object stats = FirstParticipantStats(list[i]);
+          if (stats == null) continue;
+          bool win = TwitchEvents.SNavPublic(stats, "win").Equals("True", StringComparison.OrdinalIgnoreCase);
+          if (kept > 0) sb.Append(',');
+          sb.Append("{\"m\":\"").Append(bucket).Append("\",\"win\":").Append(win ? "true" : "false").Append('}');
+          kept++;
+        }
+        gamesJson = sb.Append(']').ToString();
+        return true;
+      } catch { return false; }
+    }
+
+    // Queue IDs are the precise signal (game modes lie: ARAM and URF both
+    // say their own thing, customs say CLASSIC). Buckets rather than raw IDs
+    // because "count normals or don't" is the decision a streamer actually
+    // makes; nobody wants to maintain a queue-ID list in an OBS URL.
+    static string ModeBucket(object game) {
+      string mode = TwitchEvents.SNavPublic(game, "gameMode").Trim().ToUpperInvariant();
+      string type = TwitchEvents.SNavPublic(game, "gameType").Trim().ToUpperInvariant();
+      if (mode == "PRACTICETOOL" || mode == "TUTORIAL" || type == "TUTORIAL_GAME") return "";
+      long q = LNav(game, "queueId");
+      if (q == 420 || q == 440) return "ranked";
+      if (q == 400 || q == 430 || q == 490) return "normals";
+      if (q == 450) return "aram";
+      return "other";                               // arena, URF, customs, events
+    }
+
+    static long LocalMidnightEpochMs() {
+      return (long)(DateTime.Today.ToUniversalTime() - new DateTime(1970, 1, 1)).TotalMilliseconds;
+    }
+
     // This endpoint's participants[] holds only the current player, so the
     // first entry's stats block is the streamer's own numbers.
     static object FirstParticipantStats(object game) {
@@ -273,7 +524,13 @@ namespace NowPlaying {
 
       while (true) {
         try {
-          if (!_enabled) {
+          // Two consumers can want this loop: the bot's Game stats switch,
+          // and a session-tracker overlay that has polled /league-state in
+          // the last half minute. Either keeps it alive; with neither, the
+          // League client is left entirely alone - the features-page promise.
+          bool active = _enabled
+                     || DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks);
+          if (!active) {
             // Re-asserted every pass, not just in SetEnabled: a poll that was
             // mid-flight when the switch flipped can land afterwards and
             // stamp "live" over the off state - this wins the race by being
@@ -326,18 +583,23 @@ namespace NowPlaying {
                           || _newestGameId == 0;
           if (wantHistory) {
             if (freshPolls > 0) freshPolls--;
+            // 20 games, not 6: the session tracker counts a full day's worth,
+            // and a ranked grinder clears 6 well before dinner.
             string hist = LcuGet(port, pw,
-              "/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=6");
+              "/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=20");
             if (hist != null) {
               lastHistory = DateTime.UtcNow;
               string record, lastLine, at; long newest;
               if (ParseHistory(hist, out record, out lastLine, out newest, out at)) {
                 bool isNew;
+                string todayJson;
+                if (!ParseToday(hist, LocalMidnightEpochMs(), out todayJson)) todayJson = "[]";
                 lock (_resultLock) {
                   isNew = _newestGameId != 0 && newest != 0 && newest != _newestGameId;
                   _record = record; _lastLine = lastLine;
                   if (newest != 0) _newestGameId = newest;
                   _newestAt = at;
+                  _todayJson = todayJson;
                 }
                 _status = "live"; _detail = "";
                 if (isNew) {
@@ -351,6 +613,11 @@ namespace NowPlaying {
               }
             }
           }
+          // Rank rides the same pass: refreshed after a game lands (that is
+          // when it moves) and every few minutes otherwise, so !rank and the
+          // tracker answer from a warm cache.
+          if ((DateTime.UtcNow - _rankFetchedUtc).TotalSeconds > 300 || gameJustEnded)
+            FetchRank();
           if (_status == "no-client") { _status = "live"; _detail = ""; }
         } catch (Exception ex) {
           _status = "error"; _detail = ex.Message;
@@ -389,38 +656,60 @@ namespace NowPlaying {
       sb.Append("\"detail\":").Append(TwitchChat.Qs(_detail)).Append(',');
       sb.Append("\"summoner\":").Append(TwitchChat.Qs(_summoner)).Append(',');
       sb.Append("\"record\":").Append(TwitchChat.Qs(record)).Append(',');
-      sb.Append("\"last\":").Append(TwitchChat.Qs(last));
+      sb.Append("\"last\":").Append(TwitchChat.Qs(last)).Append(',');
+      string rankLine;
+      lock (_resultLock) { rankLine = _rankLine; }
+      sb.Append("\"rank\":").Append(TwitchChat.Qs(rankLine));
       sb.Append('}');
       return sb.ToString();
     }
 
     // ------------------------------------------------------------------- test
-    // A canned history in the endpoint's real shape, pushed through the same
-    // ParseHistory the live loop uses. Deliberately out of chronological
-    // order, so a pass also proves the sort. Expected: "W L W L W", last game
-    // Victory (12/3/8) - the newest by gameCreation, not by array position.
+    // Canned payloads in the endpoints' real shapes, pushed through the same
+    // parsers the live loop uses. The history is deliberately out of
+    // chronological order, so a pass also proves the sort; game 103 is the
+    // practice tool, so a pass also proves it never counts toward today.
+    // Expected: record "W W L W L" (the 5-game record still counts every
+    // mode), newest 105, today [ranked W, ranked W, normals W, aram L],
+    // rank "Emerald II - 45 LP (Solo/Duo), 210W 198L this season", abs 2245.
     public static string TestParse() {
       string fixture = "{\"games\":{\"games\":["
-        + FixGame("104", "1700000400000", "true",  "5",  "1", "9")
-        + "," + FixGame("101", "1700000100000", "false", "2", "7", "3")
-        + "," + FixGame("105", "1700000500000", "true",  "12", "3", "8")
-        + "," + FixGame("102", "1700000200000", "true",  "8",  "4", "6")
-        + "," + FixGame("103", "1700000300000", "false", "4",  "6", "2")
+        + FixGame("104", "1700000400000", "true",  "5",  "1", "9", "420", "CLASSIC")
+        + "," + FixGame("101", "1700000100000", "false", "2", "7", "3", "450", "ARAM")
+        + "," + FixGame("105", "1700000500000", "true",  "12", "3", "8", "420", "CLASSIC")
+        + "," + FixGame("102", "1700000200000", "true",  "8",  "4", "6", "430", "CLASSIC")
+        + "," + FixGame("103", "1700000300000", "false", "4",  "6", "2", "0",   "PRACTICETOOL")
         + "]}}";
       string record, lastLine, at; long newest;
       bool ok = ParseHistory(fixture, out record, out lastLine, out newest, out at);
+      string todayJson;
+      bool tok = ParseToday(fixture, 1700000000000, out todayJson);
+
+      string rankFixture = "{\"queueMap\":{\"RANKED_SOLO_5x5\":{\"tier\":\"EMERALD\","
+        + "\"division\":\"II\",\"leaguePoints\":45,\"wins\":210,\"losses\":198}}}";
+      string tier, div, queue; int lp, wins, losses;
+      bool rok = ParseRankedStats(rankFixture, out tier, out div, out lp, out wins, out losses, out queue);
+      string rline = rok ? ComposeRankLine(tier, div, lp, wins, losses, queue) : "";
+
       return "{\"ok\":" + (ok ? "true" : "false")
            + ",\"record\":" + TwitchChat.Qs(record)
            + ",\"last\":" + TwitchChat.Qs(lastLine)
            + ",\"newestGameId\":" + newest
-           + ",\"expected\":\"record W W L W L, newest 105\"}";
+           + ",\"todayOk\":" + (tok ? "true" : "false")
+           + ",\"today\":" + todayJson
+           + ",\"rankOk\":" + (rok ? "true" : "false")
+           + ",\"rankLine\":" + TwitchChat.Qs(rline)
+           + ",\"absLp\":" + AbsoluteLp(tier, div, lp)
+           + ",\"expected\":\"record W W L W L, newest 105, today ranked W/ranked W/normals W/aram L, abs 2245\"}";
     }
 
     const string FixTemplate = "{{\"gameId\":{0},\"gameCreation\":{1},"
+      + "\"queueId\":{6},\"gameMode\":\"{7}\",\"gameType\":\"MATCHED_GAME\","
       + "\"participants\":[{{\"stats\":{{\"win\":{2},\"kills\":{3},\"deaths\":{4},\"assists\":{5}}}}}]}}";
 
-    static string FixGame(string id, string created, string win, string k, string d, string a) {
-      return string.Format(FixTemplate, id, created, win, k, d, a);
+    static string FixGame(string id, string created, string win, string k, string d, string a,
+                          string queueId, string mode) {
+      return string.Format(FixTemplate, id, created, win, k, d, a, queueId, mode);
     }
   }
 }

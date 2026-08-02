@@ -366,6 +366,17 @@
     (window.top || window).location.href = '/oauth/bot/start';
   });
 
+  // Which live commands take a custom line, and the pieces that line can
+  // drop in. Everything else a builtin needs is structural (shoutout,
+  // commands), so those two stay text-free.
+  var TEMPLATE_HINTS = {
+    song:      '{song} {title} {artist} {user}',
+    uptime:    '{uptime} {user}',
+    followage: '{followage} {user}',
+    record:    '{record} {last} {user}',
+    rank:      '{rank} {tier} {lp} {wins} {losses} {user}'
+  };
+
   function renderRows(){
     var out = '';
     (data.commands || []).forEach(function(c){
@@ -373,15 +384,26 @@
       var mod  = c.modOnly ? '<span class="tag mod">mods</span>' : '';
       var alias = c.aliases ? '<div style="color:var(--dim);font-size:11.5px;margin-top:2px">also '
                   + esc(c.aliases.split(',').map(function(a){ return '!' + a.trim(); }).join(' ')) + '</div>' : '';
+      // Builtins with template pieces get the same response box the text
+      // commands have: empty means the standard reply, anything typed is the
+      // streamer's own words with the live data dropped in at the tokens.
+      var hint = c.builtin && TEMPLATE_HINTS[c.builtin];
+      var respCell;
+      if(c.builtin && !hint){
+        respCell = '<span style="color:var(--dim)">answers with live data</span>';
+      } else if(hint){
+        respCell = '<input type="text" class="resp" value="' + esc(c.response) + '" spellcheck="false"'
+          + ' placeholder="standard live reply — write your own line to dress it up" />'
+          + '<div style="color:var(--dim);font-size:11px;margin-top:3px">pieces: ' + esc(hint) + '</div>';
+      } else {
+        respCell = '<input type="text" class="resp" value="' + esc(c.response) + '" spellcheck="false" />';
+      }
       out += '<tr class="' + (c.enabled ? '' : 'off') + '" data-n="' + esc(c.name) + '"'
         + (c.builtin ? ' data-b="1"' : '') + '>'
         + '<td><label class="toggle"><input type="checkbox" class="en"' + (c.enabled ? ' checked' : '')
           + ' /><span class="track"></span></label></td>'
         + '<td><span class="cmd">!' + esc(c.name) + '</span>' + live + mod + alias + '</td>'
-        + '<td>' + (c.builtin
-            ? '<span style="color:var(--dim)">answers with live data</span>'
-            : '<input type="text" class="resp" value="' + esc(c.response) + '" spellcheck="false" />')
-          + '</td>'
+        + '<td>' + respCell + '</td>'
         + '<td><input type="number" class="cd" min="0" max="600" value="' + c.cooldown + '" /></td>'
         + '<td><button type="button" class="danger del">Delete</button></td>'
         + '</tr>';
