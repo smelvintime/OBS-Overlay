@@ -591,7 +591,7 @@
       live:[],
       defaults:{
         accent:'9bd4f5', scale:1, radius:12, opacity:100,
-        names:1, spells:1, skins:1, order:1, extras:1, side:'full'
+        names:1, spells:1, skins:1, facts:1, order:1, extras:1, side:'full'
       },
       size:function(){ return {w:1920, h:1080}; },
       groups:[
@@ -604,6 +604,10 @@
             note:'Riot hides enemy names in some queues; hidden ones simply stay blank.' },
           { key:'spells', label:'', type:'toggle', text:'Summoner spells' },
           { key:'skins', label:'', type:'toggle', text:'Skin names' },
+          { key:'facts', label:'', type:'toggle', text:'Rank and champion mastery',
+            note:'Your own team only, and the one thing champ select itself never '
+               + 'shows you: each teammate&rsquo;s rank and their mastery on the champion '
+               + 'they just took. Ranked hides the enemy side, so theirs stay blank.' },
           { key:'order', label:'', type:'toggle', text:'Pick order strip' },
           { key:'extras', label:'', type:'toggle', text:'Details footer (bench, rerolls, trades)' }
         ]},

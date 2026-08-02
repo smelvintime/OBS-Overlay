@@ -59,7 +59,13 @@ namespace NowPlaying {
     static readonly Color EnemyCol  = Color.FromArgb(242, 92, 92);
     static readonly Color DimCol    = Color.FromArgb(168, 168, 176);
 
-    const int W = 480;
+    // Wider than it looks like it needs to be, and split unevenly: in ranked
+    // your own column carries a name, a role, a rank and a mastery while the
+    // enemy column carries a champion portrait and nothing else, because
+    // that is all Riot broadcasts. Even columns would starve the half with
+    // something to say to flatter the half without.
+    const int W = 580;
+    const int AllyW = 330, FoeW = 198;
 
     DraftWindow() {
       FormBorderStyle = FormBorderStyle.None;
@@ -138,7 +144,7 @@ namespace NowPlaying {
       // The form hugs its rows: ARAM drafts have benches and no bans, customs
       // can seat fewer than ten - a fixed height is always wrong for someone.
       int rows = Math.Max(v.Mine.Count, v.Theirs.Count);
-      int wantH = 102 + rows * 52 + (v.Extras.Length > 0 ? 30 : 10);
+      int wantH = 102 + rows * 62 + (v.Extras.Length > 0 ? 30 : 10);
       if (ClientSize.Height != wantH) ClientSize = new Size(W, wantH);
       if (!Visible) { PlaceDefault(); ShowNoSteal(); }
       Invalidate();
@@ -150,6 +156,11 @@ namespace NowPlaying {
       public bool Self, Locked;
       public string Champ = "", Intent = "", Pos = "", Player = "", Tag = "", Skin = "";
       public string Spell1Name = "", Spell2Name = "";
+      // The pair the client never shows in champ select - the whole reason
+      // this window is worth a glance rather than a duplicate of the client.
+      public string Rank = "", Grade = "";
+      public int MasteryLevel;
+      public long MasteryPoints;
     }
     class DraftView {
       public bool Active, Infinite;
@@ -216,6 +227,13 @@ namespace NowPlaying {
       if (it != null) { r.IntentId = Num(it, "id"); r.Intent = Str(it, "name"); }
       r.Pos = Str(d, "pos"); r.Player = Str(d, "player"); r.Tag = Str(d, "tag");
       r.Skin = Str(d, "skin");
+      r.Rank = Str(d, "rank");
+      var m = Get(d, "mastery") as Dictionary<string, object>;
+      if (m != null) {
+        r.MasteryLevel = (int)Num(m, "level");
+        r.MasteryPoints = Num(m, "points");
+        r.Grade = Str(m, "grade");
+      }
       var sp = Get(d, "spells") as object[];
       if (sp != null && sp.Length > 0) {
         var s1 = sp[0] as Dictionary<string, object>;
@@ -324,9 +342,9 @@ namespace NowPlaying {
 
         // teams
         int top = by + 40;
-        int rowH = 52, colW = (Width - 40) / 2;
-        DrawTeam(g, v.Mine, 16, top, colW, rowH, AccentCol, f10, f10b, f12b);
-        DrawTeam(g, v.Theirs, Width - 16 - colW, top, colW, rowH, EnemyCol, f10, f10b, f12b);
+        int rowH = 62;
+        DrawTeam(g, v.Mine, 16, top, AllyW, rowH, AccentCol, f10, f10b, f12b);
+        DrawTeam(g, v.Theirs, Width - 16 - FoeW, top, FoeW, rowH, EnemyCol, f10, f10b, f12b);
 
         // extras footer
         if (v.Extras.Length > 0) {
@@ -397,10 +415,30 @@ namespace NowPlaying {
         if (r.Skin.Length > 0) sub = (sub.Length > 0 ? sub + "  ·  " : "") + r.Skin;
         if (sub.Length > 0)
           using (var b = new SolidBrush(DimCol)) {
-            g.SetClip(new Rectangle(x + 52, y + 22, w - 96, 18));
-            g.DrawString(sub, f10, b, x + 52, y + 22);
+            g.SetClip(new Rectangle(x + 52, y + 21, w - 96, 16));
+            g.DrawString(sub, f10, b, x + 52, y + 21);
             g.ResetClip();
           }
+
+        // Rank in the accent, mastery beside it in the dim ink: the accent is
+        // rationed on this window to things the client cannot tell you, so it
+        // is the eye's shortcut to what is actually new here.
+        if (r.Rank.Length > 0 || r.MasteryLevel > 0) {
+          g.SetClip(new Rectangle(x + 52, y + 35, w - 84 > 0 ? w - 84 : 10, 16));
+          float fx = x + 52;
+          if (r.Rank.Length > 0) {
+            using (var b = new SolidBrush(AccentCol)) g.DrawString(r.Rank, f10b, b, fx, y + 35);
+            fx += g.MeasureString(r.Rank, f10b).Width + 8;
+          }
+          if (r.MasteryLevel > 0) {
+            string mast = "M" + r.MasteryLevel
+                        + (r.MasteryPoints >= 1000 ? " · " + (r.MasteryPoints / 1000) + "k" : "")
+                        + (r.Grade.Length > 0 ? " · " + r.Grade : "");
+            using (var b = new SolidBrush(Color.FromArgb(130, 130, 138)))
+              g.DrawString(mast, f10, b, fx, y + 35);
+          }
+          g.ResetClip();
+        }
 
         // spells stacked right
         DrawSpell(g, r.Spell1, new Rectangle(x + w - 26, y + 5, 17, 17));

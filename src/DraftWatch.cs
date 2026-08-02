@@ -130,6 +130,10 @@ namespace NowPlaying {
         _skinsMined.Clear();
         _champPng.Clear();
         _spellPng.Clear();
+        // Who you were drafting with belongs to that client run, not the next.
+        _rankLine.Clear();
+        _mastery.Clear();
+        _looked.Clear();
       }
     }
 
@@ -180,6 +184,81 @@ namespace NowPlaying {
       }
       AppLog.Write("draft: assets loaded (" + champs.Count + " champions, "
                  + spells.Count + " spells)");
+    }
+
+    // ------------------------------------------------------- per-player facts
+    // The one part of this board the client does NOT put on screen: who you
+    // are actually playing with. /lol-ranked/v1/ranked-stats/<puuid> is a
+    // real per-player lookup (verified - an unknown puuid comes back NONE
+    // rather than echoing your own), and champion mastery works the same way.
+    //
+    // Allies only, and not by choice: ranked hides the enemy team behind
+    // obfuscated puuids, so there is nothing to look up there. That is Riot's
+    // rule and the right one - this shows you your own team, not a dossier on
+    // theirs.
+    //
+    // Looked up once per player per champ select, off the poll thread, and
+    // dropped when the client goes away. Five allies is ten calls, once.
+    class Mastery { public int Level; public long Points; public string Grade = ""; }
+
+    static readonly Dictionary<string, string> _rankLine = new Dictionary<string, string>();
+    static readonly Dictionary<string, Dictionary<long, Mastery>> _mastery =
+      new Dictionary<string, Dictionary<long, Mastery>>();
+    static readonly HashSet<string> _looked = new HashSet<string>();
+
+    static void LookUpPlayer(string puuid) {
+      if (string.IsNullOrEmpty(puuid)) return;
+      lock (_lock) { if (_looked.Contains(puuid)) return; _looked.Add(puuid); }
+      ThreadPool.QueueUserWorkItem(delegate {
+        try {
+          int port; string pw;
+          if (!LeagueStats.FindLockfile(out port, out pw)) return;
+
+          string rj = LeagueStats.LcuGet(port, pw, "/lol-ranked/v1/ranked-stats/" + puuid);
+          if (rj != null) {
+            string tier, div, queue; int lp, w, l;
+            if (LeagueStats.ParseRankedStats(rj, out tier, out div, out lp, out w, out l, out queue)
+                && tier.Length > 0) {
+              string line = tier + (div.Length > 0 ? " " + div : "") + " · " + lp + " LP";
+              lock (_lock) _rankLine[puuid] = line;
+            } else {
+              lock (_lock) _rankLine[puuid] = "Unranked";
+            }
+          }
+
+          string mj = LeagueStats.LcuGet(port, pw,
+            "/lol-champion-mastery/v1/" + puuid + "/champion-mastery");
+          var arr = mj == null ? null : TwitchEvents.NavPublic(mj) as object[];
+          if (arr != null) {
+            var map = new Dictionary<long, Mastery>();
+            foreach (var o in arr) {
+              long cid = LNum(o, "championId");
+              if (cid <= 0) continue;
+              map[cid] = new Mastery {
+                Level = (int)LNum(o, "championLevel"),
+                Points = LNum(o, "championPoints"),
+                Grade = TwitchEvents.SNavPublic(o, "highestGrade")
+              };
+            }
+            lock (_lock) _mastery[puuid] = map;
+          }
+        } catch { }
+      });
+    }
+
+    static string RankOf(string puuid) {
+      if (string.IsNullOrEmpty(puuid)) return "";
+      lock (_lock) { string s; return _rankLine.TryGetValue(puuid, out s) ? s : ""; }
+    }
+
+    static Mastery MasteryOf(string puuid, long champId) {
+      if (string.IsNullOrEmpty(puuid) || champId <= 0) return null;
+      lock (_lock) {
+        Dictionary<long, Mastery> map;
+        if (!_mastery.TryGetValue(puuid, out map)) return null;
+        Mastery m;
+        return map.TryGetValue(champId, out m) ? m : null;
+      }
     }
 
     // A champion's own data file is small and carries every one of its skin
@@ -368,8 +447,22 @@ namespace NowPlaying {
             .Append(IdName(LNum(p, "spell2Id"), SpellName(LNum(p, "spell2Id"))))
           .Append("],\"player\":").Append(TwitchChat.Qs(TwitchEvents.SNavPublic(p, "gameName")))
           .Append(",\"tag\":").Append(TwitchChat.Qs(TwitchEvents.SNavPublic(p, "tagLine")))
-          .Append(",\"skin\":").Append(TwitchChat.Qs(skin))
-          .Append('}');
+          .Append(",\"skin\":").Append(TwitchChat.Qs(skin));
+
+        // Rank and mastery, the two things the client itself never shows in
+        // champ select. Keyed off the puuid, so the enemy team - obfuscated
+        // in ranked - simply comes back blank rather than needing a rule.
+        string puuid = TwitchEvents.SNavPublic(p, "puuid");
+        if (puuid.Length > 0) LookUpPlayer(puuid);
+        long shown = champ > 0 ? champ : intent;
+        var mast = MasteryOf(puuid, shown);
+        sb.Append(",\"rank\":").Append(TwitchChat.Qs(RankOf(puuid)))
+          .Append(",\"mastery\":");
+        if (mast == null) sb.Append("{\"level\":0,\"points\":0,\"grade\":\"\"}");
+        else sb.Append("{\"level\":").Append(mast.Level)
+               .Append(",\"points\":").Append(mast.Points)
+               .Append(",\"grade\":").Append(TwitchChat.Qs(mast.Grade)).Append('}');
+        sb.Append('}');
       }
       sb.Append(']');
     }
@@ -415,6 +508,14 @@ namespace NowPlaying {
     // looks like, so the two can never rehearse different plays. Icons still
     // come from the live client when it is running; without it the pages
     // draw their empty slots, which is honest.
+    //
+    // Shaped as RANKED SOLO actually behaves, which is stingier than the
+    // schema allows and the only shape worth rehearsing: allies carry names,
+    // roles, spells, hovers, ranks and mastery; the enemy team carries locked
+    // champions and nothing else, because ranked hides their names behind
+    // obfuscated puuids and never broadcasts their hovers, spells or roles.
+    // An earlier demo showed enemies hovering with full detail - it dressed
+    // beautifully and would have been a lie on stream.
     static string _demo;
     static string DemoJson() {
       if (_demo != null) return _demo;
@@ -423,17 +524,17 @@ namespace NowPlaying {
         + "\"bans\":{\"mine\":[{\"id\":86,\"name\":\"Garen\"},{\"id\":11,\"name\":\"Master Yi\"},{\"id\":157,\"name\":\"Yasuo\"}],"
         + "\"theirs\":[{\"id\":238,\"name\":\"Zed\"},{\"id\":55,\"name\":\"Katarina\"},{\"id\":0,\"name\":\"\"}],\"num\":5},"
         + "\"myTeam\":["
-        + "{\"cell\":0,\"self\":false,\"champ\":{\"id\":54,\"name\":\"Malphite\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"top\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":12,\"name\":\"Teleport\"}],\"player\":\"RockSolid\",\"tag\":\"NA1\",\"skin\":\"\"},"
-        + "{\"cell\":1,\"self\":false,\"champ\":{\"id\":64,\"name\":\"Lee Sin\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"jungle\",\"spells\":[{\"id\":11,\"name\":\"Smite\"},{\"id\":4,\"name\":\"Flash\"}],\"player\":\"KickFlip\",\"tag\":\"NA1\",\"skin\":\"God Fist Lee Sin\"},"
-        + "{\"cell\":2,\"self\":true,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":91,\"name\":\"Talon\"},\"locked\":false,\"pos\":\"middle\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":14,\"name\":\"Ignite\"}],\"player\":\"92explorer\",\"tag\":\"posty\",\"skin\":\"\"},"
-        + "{\"cell\":3,\"self\":false,\"champ\":{\"id\":222,\"name\":\"Jinx\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"bottom\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":7,\"name\":\"Heal\"}],\"player\":\"PewPew\",\"tag\":\"NA1\",\"skin\":\"\"},"
-        + "{\"cell\":4,\"self\":false,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":412,\"name\":\"Thresh\"},\"locked\":false,\"pos\":\"utility\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":3,\"name\":\"Exhaust\"}],\"player\":\"HookCity\",\"tag\":\"NA1\",\"skin\":\"\"}"
+        + "{\"cell\":0,\"self\":false,\"champ\":{\"id\":54,\"name\":\"Malphite\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"top\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":12,\"name\":\"Teleport\"}],\"player\":\"RockSolid\",\"tag\":\"NA1\",\"skin\":\"\",\"rank\":\"Gold I · 62 LP\",\"mastery\":{\"level\":7,\"points\":142300,\"grade\":\"S\"}},"
+        + "{\"cell\":1,\"self\":false,\"champ\":{\"id\":64,\"name\":\"Lee Sin\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"jungle\",\"spells\":[{\"id\":11,\"name\":\"Smite\"},{\"id\":4,\"name\":\"Flash\"}],\"player\":\"KickFlip\",\"tag\":\"NA1\",\"skin\":\"God Fist Lee Sin\",\"rank\":\"Platinum IV · 8 LP\",\"mastery\":{\"level\":6,\"points\":48120,\"grade\":\"A+\"}},"
+        + "{\"cell\":2,\"self\":true,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":91,\"name\":\"Talon\"},\"locked\":false,\"pos\":\"middle\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":14,\"name\":\"Ignite\"}],\"player\":\"92explorer\",\"tag\":\"posty\",\"skin\":\"\",\"rank\":\"Gold III · 25 LP\",\"mastery\":{\"level\":5,\"points\":21400,\"grade\":\"A\"}},"
+        + "{\"cell\":3,\"self\":false,\"champ\":{\"id\":222,\"name\":\"Jinx\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"bottom\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":7,\"name\":\"Heal\"}],\"player\":\"PewPew\",\"tag\":\"NA1\",\"skin\":\"\",\"rank\":\"Gold II · 44 LP\",\"mastery\":{\"level\":4,\"points\":9800,\"grade\":\"B+\"}},"
+        + "{\"cell\":4,\"self\":false,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":412,\"name\":\"Thresh\"},\"locked\":false,\"pos\":\"utility\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":3,\"name\":\"Exhaust\"}],\"player\":\"HookCity\",\"tag\":\"NA1\",\"skin\":\"\",\"rank\":\"Unranked\",\"mastery\":{\"level\":3,\"points\":4100,\"grade\":\"B\"}}"
         + "],\"theirTeam\":["
-        + "{\"cell\":5,\"self\":false,\"champ\":{\"id\":266,\"name\":\"Aatrox\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":12,\"name\":\"Teleport\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\"},"
-        + "{\"cell\":6,\"self\":false,\"champ\":{\"id\":120,\"name\":\"Hecarim\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"\",\"spells\":[{\"id\":11,\"name\":\"Smite\"},{\"id\":4,\"name\":\"Flash\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\"},"
-        + "{\"cell\":7,\"self\":false,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":103,\"name\":\"Ahri\"},\"locked\":false,\"pos\":\"\",\"spells\":[{\"id\":4,\"name\":\"Flash\"},{\"id\":14,\"name\":\"Ignite\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\"},"
-        + "{\"cell\":8,\"self\":false,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":false,\"pos\":\"\",\"spells\":[{\"id\":0,\"name\":\"\"},{\"id\":0,\"name\":\"\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\"},"
-        + "{\"cell\":9,\"self\":false,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":false,\"pos\":\"\",\"spells\":[{\"id\":0,\"name\":\"\"},{\"id\":0,\"name\":\"\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\"}"
+        + "{\"cell\":5,\"self\":false,\"champ\":{\"id\":266,\"name\":\"Aatrox\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"\",\"spells\":[{\"id\":0,\"name\":\"\"},{\"id\":0,\"name\":\"\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\",\"rank\":\"\",\"mastery\":{\"level\":0,\"points\":0,\"grade\":\"\"}},"
+        + "{\"cell\":6,\"self\":false,\"champ\":{\"id\":120,\"name\":\"Hecarim\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"\",\"spells\":[{\"id\":0,\"name\":\"\"},{\"id\":0,\"name\":\"\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\",\"rank\":\"\",\"mastery\":{\"level\":0,\"points\":0,\"grade\":\"\"}},"
+        + "{\"cell\":7,\"self\":false,\"champ\":{\"id\":103,\"name\":\"Ahri\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":true,\"pos\":\"\",\"spells\":[{\"id\":0,\"name\":\"\"},{\"id\":0,\"name\":\"\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\",\"rank\":\"\",\"mastery\":{\"level\":0,\"points\":0,\"grade\":\"\"}},"
+        + "{\"cell\":8,\"self\":false,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":false,\"pos\":\"\",\"spells\":[{\"id\":0,\"name\":\"\"},{\"id\":0,\"name\":\"\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\",\"rank\":\"\",\"mastery\":{\"level\":0,\"points\":0,\"grade\":\"\"}},"
+        + "{\"cell\":9,\"self\":false,\"champ\":{\"id\":0,\"name\":\"\"},\"intent\":{\"id\":0,\"name\":\"\"},\"locked\":false,\"pos\":\"\",\"spells\":[{\"id\":0,\"name\":\"\"},{\"id\":0,\"name\":\"\"}],\"player\":\"\",\"tag\":\"\",\"skin\":\"\",\"rank\":\"\",\"mastery\":{\"level\":0,\"points\":0,\"grade\":\"\"}}"
         + "],\"actions\":["
         + "{\"group\":0,\"type\":\"ban\",\"cell\":0,\"ally\":true,\"champ\":{\"id\":86,\"name\":\"Garen\"},\"done\":true,\"active\":false},"
         + "{\"group\":0,\"type\":\"ban\",\"cell\":5,\"ally\":false,\"champ\":{\"id\":238,\"name\":\"Zed\"},\"done\":true,\"active\":false},"
@@ -445,7 +546,7 @@ namespace NowPlaying {
         + "{\"group\":2,\"type\":\"pick\",\"cell\":6,\"ally\":false,\"champ\":{\"id\":120,\"name\":\"Hecarim\"},\"done\":true,\"active\":false},"
         + "{\"group\":2,\"type\":\"pick\",\"cell\":2,\"ally\":true,\"champ\":{\"id\":0,\"name\":\"\"},\"done\":false,\"active\":true},"
         + "{\"group\":2,\"type\":\"pick\",\"cell\":3,\"ally\":true,\"champ\":{\"id\":222,\"name\":\"Jinx\"},\"done\":true,\"active\":false},"
-        + "{\"group\":3,\"type\":\"pick\",\"cell\":7,\"ally\":false,\"champ\":{\"id\":0,\"name\":\"\"},\"done\":false,\"active\":false},"
+        + "{\"group\":3,\"type\":\"pick\",\"cell\":7,\"ally\":false,\"champ\":{\"id\":103,\"name\":\"Ahri\"},\"done\":true,\"active\":false},"
         + "{\"group\":3,\"type\":\"pick\",\"cell\":4,\"ally\":true,\"champ\":{\"id\":0,\"name\":\"\"},\"done\":false,\"active\":false}"
         + "],\"extras\":{\"rerolls\":0,\"benchEnabled\":false,\"bench\":[],\"custom\":false,"
         + "\"spectating\":false,\"trades\":1,\"swaps\":0,\"skinSelection\":true,"

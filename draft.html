@@ -14,6 +14,11 @@
                                    client hides stay hidden     (default 1)
      ?spells=1                     summoner spell icons         (default 1)
      ?skins=1                      chosen skin names            (default 1)
+     ?facts=1                      rank and champion mastery on your own
+                                   team - the one thing the client does not
+                                   show in champ select. Ranked hides the
+                                   enemy side, so theirs stay blank
+                                                                (default 1)
      ?order=1                      the pick/ban timeline strip  (default 1)
      ?extras=1                     the details footer chips     (default 1)
      ?side=full                    full = the whole board (default);
@@ -169,6 +174,13 @@
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .skin{font-size:10px;font-style:italic;color:rgba(255,255,255,.45);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* The one line here the client cannot give you, so it gets the accent and
+     a rule above it - it is a different KIND of fact from the name above. */
+  .facts{display:flex;gap:8px;align-items:center;margin-top:3px;padding-top:3px;
+    border-top:1px solid rgba(255,255,255,.07);font-size:10px;line-height:1.2;
+    white-space:nowrap;overflow:hidden}
+  .facts .rank{color:var(--accent);font-weight:700;letter-spacing:.02em}
+  .facts .mast{color:rgba(255,255,255,.5);font-weight:600}
   .spells{flex:0 0 auto;display:flex;flex-direction:column;gap:4px}
   .simg{display:block;width:20px;height:20px;border-radius:3px}
 
@@ -266,6 +278,7 @@ if(window.NPO) NPO.themeBoot('source');
   var showNames  = qs.get('names')  !== '0';
   var showSpells = qs.get('spells') !== '0';
   var showSkins  = qs.get('skins')  !== '0';
+  var showFacts  = qs.get('facts')  !== '0';   // rank + mastery, allies only
 
   // The side split takes the spec at its word: left is my column plus the
   // bans, right is the enemy column alone. Everything else - header, strip,
@@ -352,7 +365,11 @@ if(window.NPO) NPO.themeBoot('source');
         sp:  sp,
         pl:  showNames ? String(p.player || '') : '',
         tg:  showNames ? String(p.tag    || '') : '',
-        sk:  showSkins ? String(p.skin   || '') : ''
+        sk:  showSkins ? String(p.skin   || '') : '',
+        rk:  showFacts ? String(p.rank || '') : '',
+        ml:  showFacts ? ((p.mastery && p.mastery.level)  || 0) : 0,
+        mp:  showFacts ? ((p.mastery && p.mastery.points) || 0) : 0,
+        mg:  showFacts ? String((p.mastery && p.mastery.grade) || '') : ''
       });
     }
     return out;
@@ -466,6 +483,26 @@ if(window.NPO) NPO.themeBoot('source');
         var who = el('div','pname');
         who.textContent = p.pl + (p.tg ? '#' + p.tg : '');
         info.appendChild(who);
+      }
+      // Rank and mastery: the two things the client does NOT show in champ
+      // select, and therefore the only rows on this board that are worth a
+      // glance rather than a screenshot. Allies only - ranked hides the
+      // enemy team, so theirs arrive blank and draw nothing.
+      if(showFacts && (p.rk || p.ml > 0)){
+        var facts = el('div','facts');
+        if(p.rk){
+          var rk = el('span','rank');
+          rk.textContent = p.rk;
+          facts.appendChild(rk);
+        }
+        if(p.ml > 0){
+          var mk = el('span','mast');
+          mk.textContent = 'M' + p.ml
+            + (p.mp >= 1000 ? ' · ' + Math.round(p.mp / 1000) + 'k' : '')
+            + (p.mg ? ' · ' + p.mg : '');
+          facts.appendChild(mk);
+        }
+        info.appendChild(facts);
       }
       if(p.sk){
         var sk = el('div','skin');
