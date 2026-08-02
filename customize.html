@@ -384,7 +384,8 @@
         style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
         radius:16, opacity:100, hold:6, spins:1.5,
-        sound:'', soundvol:70, media:'', mediah:180, mediax:50, mediay:50, mediadelay:0
+        sound:'', soundvol:70, media:'', mediah:180, mediax:50, mediay:50, mediadelay:0,
+        medialoop:1
       },
       size:function(){ return {w:1920, h:1080}; },
       actions:[
@@ -450,7 +451,11 @@
             zeroText:'With the alert',
             note:'Holds the clip back this long after the alert lands - for a sound that '
                + 'builds before the visual should hit. Keep it shorter than On screen, or '
-               + 'the clip loses its turn entirely.' }
+               + 'the clip loses its turn entirely.' },
+          { key:'medialoop', label:'', type:'toggle', text:'Loop the clip',
+            note:'On repeats the clip for as long as the alert is on screen. Off plays it '
+               + 'through a single time and it fades out on its own - the alert card stays '
+               + 'its full time either way.' }
         ]},
         { title:'Timing', controls:[
           { key:'hold', label:'On screen', type:'range', min:2, max:20, step:1, unit:'s' }

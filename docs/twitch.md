@@ -128,8 +128,13 @@ Details worth knowing:
 - **Clip delay** holds the visual back a beat after the alert lands, for a
   sound that builds up before the drop. Keep it shorter than the on-screen
   time, or the clip never gets its turn.
-- **Videos always play muted and looping** while the alert is on screen; the
-  sound comes from the separate sound setting, so the two can be mixed freely.
+- **Loop it or play it once.** By default the clip repeats for as long as the
+  alert is up. Switch **Loop the clip** off and it plays through a single
+  time, then fades out on its own while the card finishes — even for gifs,
+  whose loop instruction lives inside the file itself (the app edits its
+  in-memory copy so one pass really is one pass).
+- **Videos always play muted**; the sound comes from the separate sound
+  setting, so the two can be mixed freely.
 - **Hearing it in OBS**: browser sources output audio through OBS. If you don't
   hear it, check the source's *Control audio via OBS* setting and the Audio
   Mixer — the browser source has its own fader there.

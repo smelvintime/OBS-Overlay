@@ -41,6 +41,9 @@
      ?mediay=50                    clip centre, % down canvas   (default 50)
      ?mediadelay=0                 seconds between the alert landing and the
                                    clip starting, 0-5           (default 0)
+     ?medialoop=1                  1 repeats the clip for as long as the alert
+                                   is up (default); 0 plays it through once
+                                   and it fades out on its own
      ?demo=1                       cycle fake alerts, no server needed
      ?preview=1                    hold one sample alert on screen permanently;
                                    used by the customizer, never on stream
@@ -445,6 +448,7 @@ if(window.NPO) NPO.themeBoot('source');
   if(!isFinite(mediaY) || mediaY < 0 || mediaY > 100) mediaY = 50;
   var mediaDelay = parseFloat(qs.get('mediadelay'));
   if(!isFinite(mediaDelay) || mediaDelay < 0 || mediaDelay > 5) mediaDelay = 0;
+  var mediaLoop = qs.get('medialoop') !== '0';
 
   var sndEl = null;
   if(soundFile){
@@ -464,10 +468,69 @@ if(window.NPO) NPO.themeBoot('source');
   var mediaLayer = null, mediaEl = null, mediaKind = '';
   var mediaUrl = '', mediaBlob = null, mediaBlobSrc = '';
   var mediaDelayTimer = null, mediaIdleTimer = null;
+  // Play-once support for gifs. Whether a gif loops is a flag baked INSIDE
+  // the file (the NETSCAPE application extension) - an <img> exposes no way
+  // to override it and no event for "one pass finished". So both halves are
+  // solved from the bytes themselves: the extension is spliced out of the
+  // in-memory copy, which makes the browser itself stop on the last frame
+  // after exactly one pass, and the frame delays are summed so a timer knows
+  // roughly when that pass ends and can fade the layer out. The timer only
+  // has to be roughly right: the gif is frozen on its last frame by then, so
+  // overshooting just holds a still image a moment longer.
+  var mediaOnceBlob = null, mediaOnceMs = 0, mediaOnceTimer = null;
   // Bumped on every show and hide. decode() promises and safety-net timers
   // from a superseded alert check it before touching the layer, so a test
   // cutting in mid-fade can't be flashed by its predecessor's stragglers.
   var mediaGen = 0;
+
+  // One walk over the GIF block structure, two results: the total duration
+  // of a single pass, and the same bytes with any loop extension removed.
+  // Returns null for anything that doesn't parse as an animated gif - the
+  // caller then quietly falls back to looping, which always works.
+  function gifOnce(buf){
+    var b = new Uint8Array(buf);
+    if(b.length < 14 || b[0] !== 0x47 || b[1] !== 0x49 || b[2] !== 0x46) return null;
+    var pos = 13 + ((b[10] & 0x80) ? (3 << ((b[10] & 7) + 1)) : 0);  // header + LSD + GCT
+    var ms = 0, frames = 0, cut = [];
+    while(pos < b.length){
+      var block = b[pos];
+      if(block === 0x3B) break;                    // trailer - done
+      if(block === 0x21){                          // extension block
+        var label = b[pos + 1], start = pos;
+        pos += 2;
+        if(label === 0xF9 && pos + 4 < b.length){  // graphic control: the frame delay
+          var d = b[pos + 2] | (b[pos + 3] << 8);  // hundredths of a second
+          ms += (d <= 1 ? 10 : d) * 10;            // browsers clamp near-zero delays to 100ms
+          frames++;
+        }
+        var isApp = (label === 0xFF && b[pos] === 11), app = '';
+        if(isApp) for(var i = 1; i <= 11; i++) app += String.fromCharCode(b[pos + i]);
+        while(pos < b.length && b[pos] !== 0) pos += 1 + b[pos];   // data sub-blocks
+        pos++;                                     // block terminator
+        if(pos > b.length) return null;            // truncated file
+        if(isApp && (app.indexOf('NETSCAPE') === 0 || app.indexOf('ANIMEXTS') === 0))
+          cut.push([start, pos]);                  // the loop instruction - remove it
+      } else if(block === 0x2C){                   // image descriptor
+        pos += 10 + ((b[pos + 9] & 0x80) ? (3 << ((b[pos + 9] & 7) + 1)) : 0);
+        pos++;                                     // LZW minimum code size
+        while(pos < b.length && b[pos] !== 0) pos += 1 + b[pos];   // pixel sub-blocks
+        pos++;
+        if(pos > b.length) return null;
+      } else return null;                          // unknown block - not worth guessing
+    }
+    if(frames < 2) return null;   // a still image has no "once" to play
+    var total = 0, k;
+    for(k = 0; k < cut.length; k++) total += cut[k][1] - cut[k][0];
+    var out = new Uint8Array(b.length - total), o = 0, from = 0;
+    for(k = 0; k < cut.length; k++){
+      out.set(b.subarray(from, cut[k][0]), o);
+      o += cut[k][0] - from;
+      from = cut[k][1];
+    }
+    out.set(b.subarray(from), o);
+    return { ms: ms, blob: new Blob([out], { type: 'image/gif' }) };
+  }
+
   if(mediaFile){
     mediaLayer = document.createElement('div');
     mediaLayer.id = 'medialayer';
@@ -478,15 +541,31 @@ if(window.NPO) NPO.themeBoot('source');
     if(mExt === 'mp4' || mExt === 'webm'){
       mediaKind = 'video';
       mediaEl = document.createElement('video');
-      mediaEl.muted = true; mediaEl.loop = true; mediaEl.playsInline = true;
+      mediaEl.muted = true; mediaEl.loop = mediaLoop; mediaEl.playsInline = true;
       mediaEl.preload = 'auto'; mediaEl.src = mediaUrl;
+      // Play-once: the video stops on its last frame by itself; this just
+      // fades the layer out with it. Checking .ended (not a captured flag)
+      // makes a stale event harmless - if a test cut in and restarted the
+      // clip, the video is playing again and .ended reads false.
+      if(!mediaLoop) mediaEl.addEventListener('ended', function(){
+        if(mediaEl.ended) clipDone();
+      });
     } else if(mExt === 'gif'){
       mediaKind = 'gif';
       mediaEl = document.createElement('img');
       mediaEl.alt = '';
       fetch(mediaUrl)
-        .then(function(r){ return r.ok ? r.blob() : null; })
-        .then(function(b){ mediaBlob = b; })
+        .then(function(r){ return r.ok ? r.arrayBuffer() : null; })
+        .then(function(buf){
+          if(!buf) return;
+          mediaBlob = new Blob([buf], { type: 'image/gif' });
+          if(!mediaLoop){
+            var once = gifOnce(buf);
+            if(once){ mediaOnceBlob = once.blob; mediaOnceMs = once.ms; }
+            // Parse failure leaves both null: play-once quietly degrades to
+            // looping, which is always safe to show.
+          }
+        })
         .catch(function(){});
     } else {
       mediaKind = 'image';
@@ -499,6 +578,27 @@ if(window.NPO) NPO.themeBoot('source');
     document.body.appendChild(mediaLayer);
   }
 
+  // Once the fade is over, drop the gif's src entirely. A gif at opacity 0
+  // still animates and still burns CPU, for the whole stretch of stream
+  // between one alert and the next. (A play-once gif is already frozen by
+  // then; sweeping it anyway keeps the idle state identical either way.)
+  function clipSweep(){
+    clearTimeout(mediaIdleTimer);
+    mediaIdleTimer = setTimeout(function(){
+      mediaEl.removeAttribute('src');
+      if(mediaBlobSrc){ URL.revokeObjectURL(mediaBlobSrc); mediaBlobSrc = ''; }
+    }, 350);
+  }
+
+  // A play-once clip finished its single pass: it bows out on its own while
+  // the card serves out the rest of its hold. Bumping the generation kills
+  // any straggling arm timers, so the fade can't be undone under it.
+  function clipDone(){
+    mediaGen++;
+    mediaLayer.classList.remove('on');
+    if(mediaKind === 'gif') clipSweep();
+  }
+
   function clipStart(){
     var gen = ++mediaGen;
     var arm = function(){
@@ -507,8 +607,12 @@ if(window.NPO) NPO.themeBoot('source');
     };
     if(mediaKind === 'gif'){
       var old = mediaBlobSrc;
-      if(mediaBlob){
-        mediaBlobSrc = URL.createObjectURL(mediaBlob);
+      // Play-once uses the copy with the loop instruction spliced out, so
+      // the browser itself stops after one pass. Until the parse has landed
+      // (or if it failed), the looping copy stands in.
+      var blob = (!mediaLoop && mediaOnceBlob) ? mediaOnceBlob : mediaBlob;
+      if(blob){
+        mediaBlobSrc = URL.createObjectURL(blob);
         mediaEl.src = mediaBlobSrc;
       } else {
         // The first alert can beat the fetch; playing from the server
@@ -522,6 +626,15 @@ if(window.NPO) NPO.themeBoot('source');
       // timer is the net for a decoder that never resolves.
       if(mediaEl.decode) mediaEl.decode().then(arm, arm); else arm();
       setTimeout(arm, 400);
+      // The pass-is-over timer, biased late: by then the gif is frozen on
+      // its last frame, so overshooting only holds a still a moment longer,
+      // while undershooting would clip the tail of the animation.
+      if(!mediaLoop && mediaOnceBlob && mediaOnceMs){
+        mediaOnceTimer = setTimeout(function(){
+          if(gen !== mediaGen) return;
+          clipDone();
+        }, mediaOnceMs + 250);
+      }
     } else if(mediaKind === 'video'){
       // Rewind before play: a video paused partway by the previous hide, or
       // still rolling when a test cuts in, must still start this alert at
@@ -542,6 +655,7 @@ if(window.NPO) NPO.themeBoot('source');
     }
     if(mediaLayer){
       clearTimeout(mediaDelayTimer);
+      clearTimeout(mediaOnceTimer);
       clearTimeout(mediaIdleTimer);   // a show at fade's end must not have its src swept
       if(mediaDelay > 0) mediaDelayTimer = setTimeout(clipStart, mediaDelay * 1000);
       else clipStart();
@@ -551,18 +665,12 @@ if(window.NPO) NPO.themeBoot('source');
     if(mediaLayer){
       mediaGen++;
       clearTimeout(mediaDelayTimer);
+      clearTimeout(mediaOnceTimer);
       mediaLayer.classList.remove('on');
       if(mediaKind === 'video'){
         try { mediaEl.pause(); mediaEl.currentTime = 0; } catch(e){}
       } else if(mediaKind === 'gif'){
-        // Once the fade is over, drop the src entirely. A gif at opacity 0
-        // still animates and still burns CPU, for the whole stretch of stream
-        // between one alert and the next.
-        clearTimeout(mediaIdleTimer);
-        mediaIdleTimer = setTimeout(function(){
-          mediaEl.removeAttribute('src');
-          if(mediaBlobSrc){ URL.revokeObjectURL(mediaBlobSrc); mediaBlobSrc = ''; }
-        }, 350);
+        clipSweep();
       }
     }
     if(sndEl){ try { sndEl.pause(); } catch(e){} }
