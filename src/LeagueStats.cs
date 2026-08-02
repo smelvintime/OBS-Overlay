@@ -110,9 +110,9 @@ namespace NowPlaying {
     // "starting up" and "the handshake failed" need different people to act.
     static volatile string _lastHttpError = "";
 
-    // String for JSON, bytes for images - one transport. DraftWatch shares
-    // these; the LCU rules (per-connection trust, byte-domain de-chunking)
-    // are subtle enough that a second copy would drift.
+    // String for JSON, bytes for anything else - one transport. LobbyRanks
+    // shares these; the LCU rules (per-connection trust, byte-domain
+    // de-chunking) are subtle enough that a second copy would drift.
     internal static string LcuGet(int port, string password, string path) {
       byte[] body = LcuGetRaw(port, password, path);
       return body == null ? null : Encoding.UTF8.GetString(body);

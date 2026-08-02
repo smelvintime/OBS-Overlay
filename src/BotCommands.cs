@@ -341,7 +341,7 @@ namespace NowPlaying {
     // wrapped round "no champ select right now" reads worse than the plain
     // sentence, the same rule the other live commands follow.
     static string RanksLine(string tmpl) {
-      string stock = DraftWatch.RanksLine();
+      string stock = LobbyRanks.RanksLine();
       if (tmpl == null || tmpl.Trim().Length == 0) return stock;
       // {ranks} is the list without whichever label the stock line led with -
       // "My team: " in champ select, "Us: " once the game is running and both

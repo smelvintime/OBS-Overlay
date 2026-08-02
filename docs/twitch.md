@@ -402,24 +402,15 @@ dressed from the **League tracker** tab in the customizer:
 - It costs nothing while unused: the app only polls the League client while
   the tracker source is actually open (or the bot's Game stats switch is on).
 
-On screen — the **draft board** (`/draft`), an OBS Browser Source sized to the
-whole canvas and dressed from the **Draft board** customizer tab: both teams'
-picks as they lock, **hovers before they lock**, bans with strikes, everyone's
-summoner spells, assigned roles, skin names, the pick-order strip with the
-active turn pulsing, and the phase timer counting down in sync with the
-client. It is invisible except during champ select. Names and portraits come
-from the League client itself — nothing is fetched from the internet, and
-enemy names stay blank in queues where Riot hides them, which is Riot's rule
-rather than a bug.
+Everything League here is **strictly read-only, by design.** The client's
+local API can also act — pick, ban, trade. This app never calls any of that.
 
-It is **strictly read-only, by design.** The client's champ-select API can
-also act — pick, ban, trade. This app never calls any of that: it watches.
-
-> There was briefly a desktop companion window here too, in the Blitz style,
-> that popped up over the client during champ select. It was dropped: the
-> client already shows all of it two inches away, so it interrupted without
-> informing anybody. The OBS source stayed, because a viewer cannot see the
-> client at all.
+> There was briefly a champ-select **draft board** too — an OBS source showing
+> picks, hovers and bans, plus a desktop popup over the client. Both were
+> removed. The popup duplicated a window the streamer was already looking at,
+> and the board showed viewers a draft they could already see on the stream.
+> What was worth keeping is the part nobody can see anywhere — the ranks of
+> the other nine players — and that lives in `!ranks`.
 
 The panel on the bot tab shows what it is currently watching and the exact
 line it would say. If it shows "waiting for the League client", start League —

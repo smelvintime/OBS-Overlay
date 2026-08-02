@@ -364,13 +364,6 @@ namespace NowPlaying {
       menu.Items.Add("Preview overlay...", null, (s, e) => OpenUrl("/"));
       menu.Items.Add(new ToolStripSeparator());
 
-      var league = new ToolStripMenuItem("League draft board");
-      league.DropDownItems.Add("Preview the OBS draft source...", null, (s, e) => OpenUrl("/draft?demo=1"));
-      league.DropDownItems.Add("Copy draft source URL", null, (s, e) => {
-        try { Clipboard.SetText("http://127.0.0.1:" + _port + "/draft"); } catch { }
-      });
-      menu.Items.Add(league);
-
       var twitch = new ToolStripMenuItem("Twitch alerts and stats");
       twitch.DropDownItems.Add("Set up Twitch...", null, (s, e) => OpenUrl("/setup"));
       twitch.DropDownItems.Add(new ToolStripSeparator());
@@ -721,7 +714,7 @@ namespace NowPlaying {
       TwitchEvents.Start();    // loads config always (bot shares it); network only if the feature is on
       TwitchChat.Start();      // no-op unless configured AND switched on
       LeagueStats.Start();     // idle unless the bot's Game stats switch is on
-      DraftWatch.Start();      // idle unless a /draft source or !ranks asks for it
+      LobbyRanks.Start();      // idle unless !ranks asks for it
 
       var accept = new Thread(() => {
         while (true) {
@@ -1528,27 +1521,6 @@ namespace NowPlaying {
             LeagueStats.NoteOverlayInterest();
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(LeagueStats.OverlayJson()));
-          } else if (route == "/draft-state") {
-            // The draft board's feed, same demand model. ?demo=1 serves the
-            // canned mid-draft both previews rehearse against.
-            DraftWatch.NoteInterest();
-            bool draftDemo = QueryParam(path, "demo") == "1";
-            SendPrivate(ns, 200, "application/json; charset=utf-8",
-                        Encoding.UTF8.GetBytes(DraftWatch.StateJson(draftDemo)));
-          } else if (route.StartsWith("/draft-champ/", StringComparison.Ordinal)
-                  || route.StartsWith("/draft-spell/", StringComparison.Ordinal)) {
-            // Square portraits and spell icons, proxied from the League
-            // client's own asset service - integers only, so the only thing
-            // this can ever fetch is an icon. An hour of cache because a
-            // patch can redraw them, and the ids repeat across every poll.
-            bool champ = route[7] == 'c';
-            long iconId;
-            long.TryParse(route.Substring("/draft-champ/".Length), out iconId);
-            byte[] png = iconId > 0
-              ? (champ ? DraftWatch.ChampIconPng(iconId) : DraftWatch.SpellIconPng(iconId))
-              : null;
-            if (png != null) SendPrivate(ns, 200, "image/png", png, "max-age=3600");
-            else Send(ns, 404, "text/plain", Encoding.UTF8.GetBytes("no such icon"));
           } else if (route == "/league/test") {
             // Pure: a canned match history through the real parser, touching
             // no state - so the formatting is provable with no League installed.

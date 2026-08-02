@@ -22,9 +22,9 @@ the music side at all.
 - ⚔️ **A League session tracker** — today's record, form marks and the live
   rank/LP as an OBS source, read straight from the League client on this PC
   (no Riot key), with switches for which game modes count
-- 🗡️ **A live draft board** — champ select on stream: picks, hovers, bans,
-  spells, roles and the phase timer, read from the League client on this PC.
-  Read-only, always
+- 🗡️ **Lobby ranks in chat** — `!ranks` posts everyone's rank by lane, both
+  teams once a game starts, read from the League client on this PC. No Riot
+  API key, read-only always
 - 🎥 **A webcam frame** — a themed border that sits over the camera so the
   whole scene speaks one language
 - 💬 **A chat bot** — `!song` for the current track, `!record` and `!rank`
