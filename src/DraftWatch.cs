@@ -437,9 +437,11 @@ namespace NowPlaying {
         if (ib < 0) ib = 99;
         return ia.CompareTo(ib);
       });
+      // Ranks only - the lane is carried by the position in the line, top
+      // through support, and a viewer reading two rows of five learns the
+      // matchup faster without the labels than with them.
       var bits = new List<string>();
-      foreach (var s in seats)
-        bits.Add((s.Role.Length > 0 ? s.Role : "??") + " " + RankTag(s.Rank));
+      foreach (var s in seats) bits.Add(RankTag(s.Rank));
       return string.Join(" ", bits.ToArray());
     }
 

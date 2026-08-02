@@ -357,11 +357,12 @@ In chat:
   the recent **ranked** record: *"Last game: Victory (12/3/8) - past 5 ranked:
   W W L W L"*. ARAMs, normals and the practice tool never muddy it — the
   record is the grind, and only the grind.
-- **`!ranks`** (also `!lobby`, `!team`) answers with everyone's rank, by lane
-  and abbreviated so it reads in one glance:
-  *"Us: TOP E3 JG E4 MID G3 ADC E2 SUP E3 | Them: TOP E4 JG P2 MID E3 ADC P1
-  SUP E1"*. Always in lane order, so you can compare the two halves straight
-  down: your top against theirs, your jungle against theirs.
+- **`!ranks`** (also `!lobby`, `!team`) answers with everyone's rank, stripped
+  to the ranks themselves: *"Us: E3 E4 G3 E2 E3 | Them: E4 P2 E3 P1 E1"*.
+  They are always in lane order — **top, jungle, mid, ADC, support** — so the
+  position in the line is the lane, and the two halves line up for reading
+  down the matchup. No labels: five ranks read faster than five ranks wearing
+  name tags.
   - Tiers are the first letter plus the division — `E3` is Emerald III, `G1`
     Gold I, `P4` Platinum IV, `GM` Grandmaster, `UR` unranked, `?` a rank
     that could not be read.
