@@ -357,12 +357,18 @@ In chat:
   the recent **ranked** record: *"Last game: Victory (12/3/8) - past 5 ranked:
   W W L W L"*. ARAMs, normals and the practice tool never muddy it — the
   record is the grind, and only the grind.
-- **`!ranks`** (also `!lobby`, `!team`) answers with everyone in the current
-  game: *"My team: RockSolid Gold I · KickFlip Platinum IV · 92explorer Gold
-  III …"*. It reads the lobby during champ select and **keeps answering
-  through the game itself**, since that is when chat actually asks. Your own
-  team only — ranked hides the enemy team behind obfuscated ids, so there is
-  nothing to look up there.
+- **`!ranks`** (also `!lobby`, `!team`) answers with everyone's rank, and what
+  it can say depends on where you are:
+  - **In game** (and right through the post-game screen) it names **both
+    teams** by champion: *"Us: Teemo Emerald III · Hecarim Emerald IV · Zed
+    Gold III … | Them: Annie Emerald III · Nocturne Platinum II …"*. Once a
+    match starts the client stops hiding the enemy side, so their ranks
+    become readable — this is the only window where that is true.
+  - **In champ select** it is your own team only, by name: *"My team:
+    RockSolid Gold I · KickFlip Platinum IV …"*. Ranked hides the enemy team
+    during the draft, so there is genuinely nothing to look up yet.
+  - Outside a game it says so plainly rather than answering with a stale
+    lobby.
 - **`!rank`** (also `!elo`, `!lp`) answers with the real, current rank:
   *"Rank: Emerald II - 45 LP (Solo/Duo), 210W 198L this season"*. It reads the
   ladder from the client when asked, so it is never yesterday's rank. (It used

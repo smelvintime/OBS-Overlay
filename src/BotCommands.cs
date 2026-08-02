@@ -343,9 +343,15 @@ namespace NowPlaying {
     static string RanksLine(string tmpl) {
       string stock = DraftWatch.RanksLine();
       if (tmpl == null || tmpl.Trim().Length == 0) return stock;
-      const string prefix = "My team: ";
-      if (!stock.StartsWith(prefix, StringComparison.Ordinal)) return stock;
-      return Fill(tmpl, stock, "ranks", stock.Substring(prefix.Length));
+      // {ranks} is the list without whichever label the stock line led with -
+      // "My team: " in champ select, "Us: " once the game is running and both
+      // sides can be named. Anything else is a not-in-a-game sentence and
+      // goes out as it is.
+      foreach (var prefix in new[] { "My team: ", "Us: " }) {
+        if (stock.StartsWith(prefix, StringComparison.Ordinal))
+          return Fill(tmpl, stock, "ranks", stock.Substring(prefix.Length));
+      }
+      return stock;
     }
 
     static string RankLine(string tmpl) {

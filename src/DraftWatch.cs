@@ -38,6 +38,16 @@ namespace NowPlaying {
     }
     public static void SetWindowWanted(bool on) { _windowWanted = on; }
     public static bool InChampSelect { get { return _phase == "ChampSelect"; } }
+    // "In a game" for !ranks purposes covers the whole tail of the match, not
+    // just the part with a Nexus: chat asks who you played against while the
+    // post-game screen is still up, and the client keeps that lobby's data
+    // right through it. Anything outside this list falls back to whatever was
+    // last cached, then to saying so plainly.
+    static bool InGame() {
+      string p = _phase;
+      return p == "InProgress" || p == "WaitingForStats"
+          || p == "PreEndOfGame" || p == "EndOfGame" || p == "Reconnect";
+    }
 
     public static string StateJson(bool demo) {
       if (demo) return DemoJson();
@@ -73,7 +83,13 @@ namespace NowPlaying {
 
           if (ph != "ChampSelect") {
             SetInactive(ph);
-            Thread.Sleep(2000);
+            // The draft board has nothing to draw once the game starts, but
+            // !ranks has everything to gain: this is the only window where
+            // the enemy team can be named at all.
+            if (InGame()) {
+              try { EnsureAssets(port, pw); EnsureGameRoster(port, pw); } catch { }
+            }
+            Thread.Sleep(3000);
             continue;
           }
 
@@ -136,6 +152,7 @@ namespace NowPlaying {
         _mastery.Clear();
         _looked.Clear();
         _roster = "";
+        _gameRoster = ""; _gameRosterId = 0; _myPuuid = "";
       }
     }
 
@@ -280,6 +297,116 @@ namespace NowPlaying {
     // last one seen is the answer until the next draft replaces it.
     static string _roster = "";
 
+    // Once the game actually starts, the blackout lifts. /lol-gameflow/v1/session
+    // carries teamOne and teamTwo with UNOBFUSCATED puuids for all ten players
+    // - the anonymity that hides the enemy team in champ select does not apply
+    // in game - so from here both sides can be named and ranked. Verified live
+    // in a ranked solo game: five allies and five enemies all resolved.
+    //
+    // Built once per gameId rather than per poll: nobody's rank moves during
+    // the match, and ten lookups is not something to repeat every two seconds.
+    static string _gameRoster = "";
+    static long _gameRosterId;
+    static string _myPuuid = "";
+
+    static void EnsureGameRoster(int port, string pw) {
+      string sj = LeagueStats.LcuGet(port, pw, "/lol-gameflow/v1/session");
+      if (sj == null) return;
+      object root = TwitchEvents.NavPublic(sj);
+      object data = Nav(root, "gameData");
+      long gid = LNum(data, "gameId");
+      if (gid == 0) return;
+      lock (_lock) { if (gid == _gameRosterId && _gameRoster.Length > 0) return; }
+
+      if (_myPuuid.Length == 0) {
+        string me = LeagueStats.LcuGet(port, pw, "/lol-summoner/v1/current-summoner");
+        if (me != null) _myPuuid = TwitchEvents.SNavPublic(TwitchEvents.NavPublic(me), "puuid");
+      }
+
+      var one = Nav(data, "teamOne") as object[];
+      var two = Nav(data, "teamTwo") as object[];
+      if (one == null || two == null) return;
+      // Whichever side holds my puuid is "us"; without a puuid to match,
+      // teamOne is the safer guess than claiming a side wrongly.
+      bool mineIsOne = _myPuuid.Length == 0 || !HasPuuid(two, _myPuuid);
+      object[] mine = mineIsOne ? one : two;
+      object[] theirs = mineIsOne ? two : one;
+
+      // teamOne/teamTwo are not always complete - observed live with a real
+      // ranked game where teamOne listed four of five while
+      // playerChampionSelections listed all five. So the ally side is the
+      // UNION of the two, keyed by puuid, with anyone already on the enemy
+      // side excluded. A team that quietly reports four players is worse
+      // than one that takes a moment longer to assemble.
+      var enemyIds = new HashSet<string>();
+      foreach (var p in theirs) {
+        string id = TwitchEvents.SNavPublic(p, "puuid");
+        if (id.Length > 0) enemyIds.Add(id);
+      }
+      var allies = new List<object>();
+      var seen = new HashSet<string>();
+      foreach (var p in mine) {
+        string id = TwitchEvents.SNavPublic(p, "puuid");
+        if (id.Length > 0 && seen.Add(id)) allies.Add(p);
+      }
+      // playerChampionSelections lists ALL TEN players, so "not an enemy"
+      // only means "an ally" when the enemy list is known to be complete.
+      // If theirs is short too, the leftovers cannot be placed - and filing
+      // an enemy under Us would be a confidently wrong answer, which is
+      // worse than the short one. Five is the side size in every mode that
+      // matters here; anything else keeps the team array as given.
+      var picks = Nav(data, "playerChampionSelections") as object[];
+      if (picks != null && enemyIds.Count >= 5) {
+        foreach (var p in picks) {
+          if (allies.Count >= 5) break;
+          string id = TwitchEvents.SNavPublic(p, "puuid");
+          if (id.Length > 0 && !enemyIds.Contains(id) && seen.Add(id)) allies.Add(p);
+        }
+      }
+
+      string us = SideLine(port, pw, allies.ToArray());
+      string them = SideLine(port, pw, theirs);
+      if (us.Length == 0 && them.Length == 0) return;
+      lock (_lock) {
+        _gameRosterId = gid;
+        _gameRoster = "Us: " + us + "  |  Them: " + them;
+      }
+    }
+
+    static bool HasPuuid(object[] team, string puuid) {
+      foreach (var p in team)
+        if (TwitchEvents.SNavPublic(p, "puuid") == puuid) return true;
+      return false;
+    }
+
+    // Champion rather than summoner name on purpose: in game the champion is
+    // what a viewer is looking at, it is shorter, and it keeps ten people's
+    // account names out of chat for a question that was about ranks.
+    static string SideLine(int port, string pw, object[] team) {
+      var bits = new List<string>();
+      foreach (var p in team) {
+        string puuid = TwitchEvents.SNavPublic(p, "puuid");
+        if (puuid.Length == 0) continue;
+        string rank = RankShortOf(puuid);
+        if (rank.Length == 0) {
+          string rj = LeagueStats.LcuGet(port, pw, "/lol-ranked/v1/ranked-stats/" + puuid);
+          string tier, div, queue; int lp, w, l;
+          if (rj != null
+              && LeagueStats.ParseRankedStats(rj, out tier, out div, out lp, out w, out l, out queue)) {
+            rank = tier.Length > 0 ? tier + (div.Length > 0 ? " " + div : "") : "Unranked";
+            lock (_lock) { _rankShort[puuid] = rank; _rankLine[puuid] = rank + " · " + lp + " LP"; }
+          }
+        }
+        // A failed lookup must not delete the player: a five-man team that
+        // silently prints as four is a wrong answer, where an unknown rank
+        // is merely an incomplete one.
+        if (rank.Length == 0) rank = "?";
+        string champ = ChampName(LNum(p, "championId"));
+        bits.Add((champ.Length > 0 ? champ + " " : "") + rank);
+      }
+      return string.Join(" · ", bits.ToArray());
+    }
+
     static void SnapshotRoster(object[] team) {
       if (team == null || team.Length == 0) return;
       var bits = new List<string>();
@@ -300,9 +427,13 @@ namespace NowPlaying {
     // obfuscated puuids, so there is genuinely nothing to look up there, and
     // saying "my team" is more honest than implying the list is everyone.
     public static string RanksLine() {
-      string snap;
-      lock (_lock) snap = _roster;
+      string game, snap;
+      lock (_lock) { game = _gameRoster; snap = _roster; }
+      // In game beats the draft: it is both newer and the only version that
+      // can name the enemy team.
+      if (game.Length > 0 && InGame()) return game;
       if (snap.Length > 0) return "My team: " + snap;
+      if (game.Length > 0) return game;
 
       // Nothing cached: either the draft watcher was never asked to run (no
       // overlay open, window switched off) or the client just started. One
@@ -315,8 +446,17 @@ namespace NowPlaying {
           return "The League client isn't running on the stream PC.";
         string ph = LeagueStats.LcuGet(port, pw, "/lol-gameflow/v1/gameflow-phase");
         if (ph == null) return "Can't reach the League client right now.";
-        if (ph.Trim().Trim('"') != "ChampSelect")
-          return "No champ select right now - ranks show up once a draft starts.";
+        ph = ph.Trim().Trim('"');
+        _phase = ph;
+        if (InGame()) {
+          EnsureAssets(port, pw);
+          EnsureGameRoster(port, pw);
+          string built;
+          lock (_lock) built = _gameRoster;
+          return built.Length > 0 ? built : "Reading the lobby - ask again in a moment.";
+        }
+        if (ph != "ChampSelect")
+          return "Not in a game right now - ranks show up in champ select.";
         EnsureAssets(port, pw);
         string session = LeagueStats.LcuGet(port, pw, "/lol-champ-select/v1/session");
         var team = session == null ? null : Nav(TwitchEvents.NavPublic(session), "myTeam") as object[];
