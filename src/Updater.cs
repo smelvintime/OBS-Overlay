@@ -76,7 +76,14 @@ namespace NowPlaying {
 
       bool avail = false; string when = "", note = "", err = "";
       try {
-        string body = HttpGetString("https://api.github.com/repos/" + Repo + "/commits/" + Branch);
+        // A forced check exists for the minutes right after a push, which is
+        // exactly when GitHub's edge is still serving its ~60s-cached copy of
+        // the old head over a kept-alive connection. The header asks caches
+        // to revalidate; the throwaway parameter makes the URL one no cache
+        // has ever seen, for any cache that keys on it and ignores the ask.
+        string url = "https://api.github.com/repos/" + Repo + "/commits/" + Branch
+                   + (force ? "?fresh=" + DateTime.UtcNow.Ticks : "");
+        string body = HttpGetString(url);
         object root = TwitchEvents.NavPublic(body);
         string dateStr = Str(Nav(root, "commit", "committer", "date"));
         note = Str(Nav(root, "commit", "message"));
@@ -275,6 +282,7 @@ namespace NowPlaying {
     static string HttpGetString(string url) {
       var r = Req(url);
       r.Accept = "application/vnd.github+json";
+      r.Headers[HttpRequestHeader.CacheControl] = "no-cache";
       using (var resp = (HttpWebResponse)r.GetResponse())
       using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
         return sr.ReadToEnd();
