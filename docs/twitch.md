@@ -390,7 +390,10 @@ In chat:
 - **Announce when a game ends** posts the record line automatically as a
   **ranked** game finishes (on by default; switch it on the bot tab's Game
   stats panel). A finished ARAM or normal says nothing — the ranked record
-  didn't move.
+  didn't move. The line lands while the post-game screen is still coming up:
+  it is read from the client's own end-of-game data rather than waiting on
+  Riot's match history, which can take a minute to catch up. (If that screen
+  is skipped, it falls back to waiting for history, exactly as before.)
 - **Repeat on a timer** re-posts it every 5/10/15 minutes — but only when a
   new ranked game has finished since it last spoke, so it never spams an
   unchanged record.

@@ -299,6 +299,62 @@ namespace NowPlaying {
       } catch { return false; }
     }
 
+    // The end-of-game screen's own data, which is what makes the announcement
+    // fast. Match history is the authority on the season, but Riot's copy of
+    // it lags the final whistle by up to a minute, and for that whole minute
+    // the client itself has known the result perfectly well - it is drawing
+    // it on the post-game screen. This payload is that screen's source, and
+    // it holds every piece the line needs.
+    //
+    // Shapes differ from the history payload and are not guessed: captured
+    // live from a finished ranked game. WIN is 1/0 here where history uses a
+    // JSON boolean; the KDA keys are CHAMPIONS_KILLED / NUM_DEATHS /
+    // ASSISTS; and there is no queueId at all, only the queue's name.
+    internal static bool ParseEog(string json, out long gameId, out bool ranked,
+                                  out bool win, out string lastLine) {
+      gameId = 0; ranked = false; win = false; lastLine = "";
+      try {
+        object root = TwitchEvents.NavPublic(json);
+        gameId = LNav(root, "gameId");
+        if (gameId == 0) return false;
+        // RANKED_SOLO_5x5 and RANKED_FLEX_SR are queues 420 and 440 - exactly
+        // the two ModeBucket counts as ranked, named instead of numbered.
+        string q = TwitchEvents.SNavPublic(root, "queueType").Trim().ToUpperInvariant();
+        ranked = q.StartsWith("RANKED_SOLO", StringComparison.Ordinal)
+              || q.StartsWith("RANKED_FLEX", StringComparison.Ordinal);
+
+        object stats = Nav(root, "localPlayer", "stats");
+        if (stats == null) return false;
+        if (Nav(stats, "WIN") != null) {
+          win = LNav(stats, "WIN") == 1;
+        } else {
+          // No WIN key: read it off the teams instead. Announcing a defeat as
+          // a victory is the single most embarrassing thing this line can do,
+          // and unlike the record it is never corrected afterwards - history
+          // does not re-announce - so it is worth a second way to know.
+          long mine = LNav(Nav(root, "localPlayer"), "teamId");
+          var teams = Nav(root, "teams") as object[];
+          bool found = false;
+          if (teams != null) {
+            foreach (var t in teams) {
+              if (LNav(t, "teamId") != mine) continue;
+              win = TwitchEvents.SNavPublic(t, "isWinningTeam")
+                      .Equals("True", StringComparison.OrdinalIgnoreCase);
+              found = true;
+              break;
+            }
+          }
+          if (!found) return false;   // neither source knows: say nothing
+        }
+
+        long k = LNav(stats, "CHAMPIONS_KILLED");
+        long d = LNav(stats, "NUM_DEATHS");
+        long a = LNav(stats, "ASSISTS");
+        lastLine = (win ? "Victory" : "Defeat") + " (" + k + "/" + d + "/" + a + ")";
+        return true;
+      } catch { gameId = 0; return false; }
+    }
+
     // Pure like ParseHistory: the ranked-stats payload in, the pieces out.
     // The endpoint reports every queue; solo queue is what "!rank" means to a
     // viewer, with flex as the fallback for a flex-only player. Returns true
@@ -593,6 +649,43 @@ namespace NowPlaying {
       try { return Convert.ToInt64(v); } catch { return 0; }
     }
 
+    // -------------------------------------------------------- the fast lane
+    // Which game the end-of-game screen already announced, so the history
+    // poll can tell "history has caught up" from "history is still behind".
+    static long _eogAnnouncedId;
+
+    static bool TryEogAnnounce(int port, string pw) {
+      string eog = LcuGet(port, pw, "/lol-end-of-game/v1/eog-stats-block");
+      if (eog == null) return false;      // 404 between games: the normal answer
+      long gid; bool ranked, win; string last;
+      if (!ParseEog(eog, out gid, out ranked, out win, out last)) return false;
+      // A non-ranked game is not announced (the line is ranked-only) and must
+      // not touch _newestGameId either: that field tracks the newest RANKED
+      // game, because history never reports any other kind as newest. Aiming
+      // it at an ARAM would make the next history poll see an unfamiliar id
+      // and re-announce the ranked game before it.
+      if (!ranked) return false;
+      lock (_resultLock) {
+        if (gid == _newestGameId) return false;   // already known; never announce twice
+        _newestGameId = gid;
+        _eogAnnouncedId = gid;
+        _lastLine = last;
+        // The record reads newest-first, so this result goes on the front of
+        // whatever the last history read established. History replaces the
+        // whole string within the minute - starting with the same letter
+        // this line just claimed, because both read the same game.
+        var letters = new List<string>();
+        letters.Add(win ? "W" : "L");
+        if (_record.Length > 0) letters.AddRange(_record.Split(' '));
+        while (letters.Count > 5) letters.RemoveAt(letters.Count - 1);
+        _record = string.Join(" ", letters.ToArray());
+      }
+      Interlocked.Increment(ref _resultSeq);
+      AppLog.Write("league: announced from the end-of-game screen (game " + gid + ")");
+      TwitchChat.OnGameEnded(ChatLine());
+      return true;
+    }
+
     // ------------------------------------------------------------------ loop
     public static void Start() {
       var t = new Thread(Loop);
@@ -603,6 +696,7 @@ namespace NowPlaying {
     static void Loop() {
       string phase = "";
       int freshPolls = 0;        // >0 = a game just ended; chase the updated history
+      int eogTries = 0;          // >0 = still hoping the end-of-game screen appears
       DateTime lastHistory = DateTime.MinValue;
 
       while (true) {
@@ -627,7 +721,7 @@ namespace NowPlaying {
           if (!FindLockfile(out port, out pw)) {
             _status = "no-client";
             _detail = "the League client is not running on this PC";
-            phase = ""; freshPolls = 0;
+            phase = ""; freshPolls = 0; eogTries = 0;
             Thread.Sleep(10000);
             continue;
           }
@@ -656,6 +750,21 @@ namespace NowPlaying {
             // lands within a couple of seconds of the result existing
             // instead of within ten.
             freshPolls = 45;
+            // ...but the client knows the result NOW, so try that first. The
+            // block does not appear at the exact instant the phase turns
+            // (it arrives with the post-game screen a moment later), hence a
+            // window of tries rather than one shot: ~30s at the chase
+            // cadence, after which the screen was plainly skipped and
+            // history is the only road left.
+            eogTries = 15;
+          }
+          if (eogTries > 0) {
+            eogTries--;
+            // The chase is deliberately NOT shortened on success. The line is
+            // out, but the day's tallies and the true five-game record still
+            // only exist in history - and "caughtUp" below ends the chase the
+            // moment they land, which is sooner than any timer I could pick.
+            if (TryEogAnnounce(port, pw)) eogTries = 0;
           }
 
           if (_summoner.Length == 0) {
@@ -685,8 +794,15 @@ namespace NowPlaying {
                 if (!ParseToday(hist, LocalMidnightEpochMs(), out todayJson, out tw, out tl)) {
                   todayJson = "[]"; tw = new int[4]; tl = new int[4];
                 }
+                bool caughtUp;
                 lock (_resultLock) {
                   isNew = _newestGameId != 0 && newest != 0 && newest != _newestGameId;
+                  // The game the end-of-game screen already announced has now
+                  // arrived in history: the tallies and the true record are
+                  // in hand, so there is nothing left to chase. (isNew is
+                  // false for it by construction - _newestGameId was set to
+                  // this id at announce time - so it cannot be said twice.)
+                  caughtUp = newest != 0 && newest == _eogAnnouncedId;
                   _record = record; _lastLine = lastLine;
                   if (newest != 0) _newestGameId = newest;
                   _newestAt = at;
@@ -694,6 +810,7 @@ namespace NowPlaying {
                   _todayWinsB = tw; _todayLossesB = tl;
                 }
                 _status = "live"; _detail = "";
+                if (caughtUp) freshPolls = 0;
                 if (isNew) {
                   Interlocked.Increment(ref _resultSeq);
                   freshPolls = 0;              // found the new game; stop chasing
@@ -790,10 +907,31 @@ namespace NowPlaying {
       bool rok = ParseRankedStats(rankFixture, out tier, out div, out lp, out wins, out losses, out queue);
       string rline = rok ? ComposeRankLine(tier, div, lp, wins, losses, queue) : "";
 
+      // The end-of-game block, in the shape captured from a real finished
+      // ranked game. Three cases worth holding still: the ordinary ranked
+      // win, an ARAM (which must report NOT ranked, so the fast lane declines
+      // it and leaves the ranked bookkeeping alone), and a payload with no
+      // WIN stat, which must still get the result right off the teams.
+      long eg1; bool eRanked1, eWin1; string eLast1;
+      bool eok = ParseEog(EogFix("5614070805", "RANKED_SOLO_5x5", "\"WIN\":1,", "11", "1", "5", "100", "100"),
+                          out eg1, out eRanked1, out eWin1, out eLast1);
+      long eg2; bool eRanked2, eWin2; string eLast2;
+      ParseEog(EogFix("5614070806", "ARAM_UNRANKED_5x5", "\"WIN\":0,", "3", "9", "12", "200", "100"),
+               out eg2, out eRanked2, out eWin2, out eLast2);
+      long eg3; bool eRanked3, eWin3; string eLast3;
+      ParseEog(EogFix("5614070807", "RANKED_FLEX_SR", "", "7", "2", "4", "200", "200"),
+               out eg3, out eRanked3, out eWin3, out eLast3);
+
       return "{\"ok\":" + (ok ? "true" : "false")
            + ",\"record\":" + TwitchChat.Qs(record)
            + ",\"last\":" + TwitchChat.Qs(lastLine)
            + ",\"newestGameId\":" + newest
+           + ",\"eogOk\":" + (eok ? "true" : "false")
+           + ",\"eogId\":" + eg1
+           + ",\"eogLast\":" + TwitchChat.Qs(eLast1)
+           + ",\"eogRanked\":" + (eRanked1 ? "true" : "false")
+           + ",\"eogAramIsRanked\":" + (eRanked2 ? "true" : "false")
+           + ",\"eogNoWinKeyWon\":" + (eWin3 ? "true" : "false")
            + ",\"todayOk\":" + (tok ? "true" : "false")
            + ",\"today\":" + todayJson
            + ",\"tallies\":\"ranked " + tw[0] + "W " + tl[0] + "L, normals " + tw[1] + "W " + tl[1]
@@ -801,7 +939,20 @@ namespace NowPlaying {
            + ",\"rankOk\":" + (rok ? "true" : "false")
            + ",\"rankLine\":" + TwitchChat.Qs(rline)
            + ",\"absLp\":" + AbsoluteLp(tier, div, lp)
-           + ",\"expected\":\"record W W (ranked only), newest 105, today ranked W/ranked W/normals W/aram L, abs 2245\"}";
+           + ",\"expected\":\"record W W (ranked only), newest 105, today ranked W/ranked W/normals W/aram L, abs 2245"
+           + "; eog Victory (11/1/5) ranked, aram not ranked, no-WIN-key won\"}";
+    }
+
+    // The end-of-game payload, reduced to the fields ParseEog reads.
+    // winningTeam is given separately from the WIN stat on purpose: that is
+    // what lets a fixture leave WIN out and check the teams fallback.
+    static string EogFix(string id, string queue, string winStat, string k, string d, string a,
+                         string myTeam, string winningTeam) {
+      return "{\"gameId\":" + id + ",\"queueType\":\"" + queue + "\","
+           + "\"localPlayer\":{\"teamId\":" + myTeam + ",\"stats\":{" + winStat
+           + "\"CHAMPIONS_KILLED\":" + k + ",\"NUM_DEATHS\":" + d + ",\"ASSISTS\":" + a + "}},"
+           + "\"teams\":[{\"teamId\":100,\"isWinningTeam\":" + (winningTeam == "100" ? "true" : "false") + "},"
+           + "{\"teamId\":200,\"isWinningTeam\":" + (winningTeam == "200" ? "true" : "false") + "}]}";
     }
 
     const string FixTemplate = "{{\"gameId\":{0},\"gameCreation\":{1},"
