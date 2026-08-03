@@ -25,13 +25,18 @@
   .spacer{flex:1 1 auto}
   .obslink{color:var(--dim);font-size:12.5px;text-decoration:none}
   .obslink:hover{color:var(--fg)}
-  /* The update chip. Invisible when the build is current - an "up to date"
-     badge is furniture nobody dusts - and gold when there is something to
-     install, because gold is this app's colour for "look here". */
+  /* The update corner. At rest it is a quiet "Check for updates" in link
+     clothing - always there, because pushes land faster than the half-hour
+     cache and waiting it out is not a workflow. When something IS found the
+     control turns gold, this app's colour for "look here". */
   .upd{display:flex;align-items:center;font-size:12.5px;color:var(--dim);white-space:nowrap}
-  .upd button{background:var(--trim);border:1px solid var(--trim);color:var(--on-accent);
+  .upd .updgo{background:var(--trim);border:1px solid var(--trim);color:var(--on-accent);
     border-radius:9px;padding:8px 15px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
-  .upd button:disabled{opacity:.6;cursor:default}
+  .upd .updgo:disabled{opacity:.6;cursor:default}
+  .upd .updcheck{background:none;border:0;padding:0;font:inherit;font-size:12.5px;
+    color:var(--dim);cursor:pointer;text-decoration:none}
+  .upd .updcheck:hover:not(:disabled){color:var(--fg)}
+  .upd .updcheck:disabled{cursor:default}
   .themes{display:flex;gap:5px;align-items:center}
   .themes button{width:22px;height:22px;padding:0;border-radius:50%;cursor:pointer;
     border:2px solid transparent}
@@ -294,20 +299,56 @@
       .catch(function(){ updSay('Could not start the update.'); });
   }
 
+  function updShowGo(j){
+    updEl.innerHTML = '';
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'updgo';
+    b.textContent = 'Update available - install';
+    b.title = (j && j.latestNote ? 'Latest change: ' + j.latestNote + '\n' : '')
+            + 'Downloads the newest source and rebuilds it on this PC, then restarts.\n'
+            + 'Takes under a minute; overlays in OBS blink once and come back on their own.';
+    b.addEventListener('click', function(){ b.disabled = true; updRun(); });
+    updEl.appendChild(b);
+  }
+
+  // The resting state: a quiet manual check. The automatic check caches for
+  // half an hour, which is right for every ordinary day and wrong in the ten
+  // minutes after "I just pushed a fix, grab it" - this is the door for that.
+  // Its answers show in place ("Up to date") and melt back to the link, so a
+  // no-news check never leaves anything behind to dismiss.
+  function updShowCheck(){
+    updEl.innerHTML = '';
+    var a = document.createElement('button');
+    a.type = 'button'; a.className = 'updcheck';
+    a.textContent = 'Check for updates';
+    a.title = 'Asks GitHub right now whether anything newer has been published.';
+    a.addEventListener('click', function(){
+      a.disabled = true;
+      a.textContent = 'Checking...';
+      fetch('/update/check?force=1', {cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if(j && j.update){ updShowGo(j); return; }
+          a.textContent = (j && j.ok) ? 'Up to date' : ((j && j.error) || 'Could not check');
+          setTimeout(updShowCheck, 4000);
+        })
+        .catch(function(){
+          a.textContent = 'Could not check';
+          setTimeout(updShowCheck, 4000);
+        });
+    });
+    updEl.appendChild(a);
+  }
+
+  // On open: one cached check (at most one GitHub call per half hour across
+  // dashboard loads), then settle on whichever state is true.
   fetch('/update/check', {cache:'no-store'})
     .then(function(r){ return r.json(); })
     .then(function(j){
-      if(!j || !j.update) return;   // current, or the check failed: stay silent
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = 'Update available - install';
-      b.title = (j.latestNote ? 'Latest change: ' + j.latestNote + '\n' : '')
-              + 'Downloads the newest source and rebuilds it on this PC, then restarts.\n'
-              + 'Takes under a minute; overlays in OBS blink once and come back on their own.';
-      b.addEventListener('click', function(){ b.disabled = true; updRun(); });
-      updEl.appendChild(b);
+      if(j && j.update) updShowGo(j);
+      else updShowCheck();
     })
-    .catch(function(){});   // no answer, no chip - never an error banner for a check
+    .catch(function(){ updShowCheck(); });   // no answer now doesn't mean no door later
 })();
 </script>
 </body>

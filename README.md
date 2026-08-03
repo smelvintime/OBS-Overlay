@@ -47,7 +47,9 @@ the music side at all.
 > the dashboard. One click and the app downloads the new source, rebuilds
 > itself on your PC (source only, same as ever — no exe travels the internet),
 > and restarts. Settings, Twitch connection and OBS sources all carry over;
-> the overlays blink once and come back on their own.
+> the overlays blink once and come back on their own. The same spot holds a
+> quiet **Check for updates** link for when you know a fix landed moments ago —
+> the automatic check only asks GitHub once per half hour.
 >
 > The manual way still works too: download the new source, run `Build.bat`
 > **in the folder the exe already lives in**, and it handles the rest — it
