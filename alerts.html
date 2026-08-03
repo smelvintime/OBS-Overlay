@@ -31,11 +31,19 @@
      ?sound=ding.mp3               plays when an alert lands. Files live in
                                    the media folder: tray icon -> Open media
                                    folder (mp3 / wav / ogg / m4a)
+     ?soundfollow= ?soundsub=      per-event overrides for ?sound=; each one
+     ?soundresub= ?soundgift=      falls back to ?sound= when not given, and
+                                   the word "none" mutes that event alone
      ?soundvol=70                  sound volume 0-100           (default 70)
      ?media=hype.webm              a gif, image or looping video (mp4/webm,
                                    muted) shown while the alert is up; gifs
                                    and videos restart from their first frame
                                    on every alert
+     ?mediafollow= ?mediasub=      same idea for the clip: a gift can land
+     ?mediaresub= ?mediagift=      with its own clip while everything else
+                                   keeps ?media=; "none" = no clip for that
+                                   event. Size, position, delay and loop
+                                   below are shared by all of them
      ?mediah=180                   clip height in px 40-720     (default 180)
      ?mediax=50                    clip centre, % across canvas (default 50)
      ?mediay=50                    clip centre, % down canvas   (default 50)
@@ -436,10 +444,37 @@ if(window.NPO) NPO.themeBoot('source');
   // Both come from /media/<file>, the user's own media folder. The clip stays
   // muted always: its audio would double up with ?sound= and, worse, an
   // unmuted video is exactly what browsers refuse to autoplay.
-  var soundFile = (qs.get('sound') || '').trim();
+  //
+  // ?sound= and ?media= are the house pick, used for every kind of event;
+  // ?soundgift= / ?mediasub= and friends override one kind at a time, so a
+  // gift can land with its own fanfare while everything else keeps the
+  // default. The word "none" switches that kind off outright - distinct from
+  // absent, which means "use the house pick". Size, position, delay and loop
+  // stay shared across all of them: the clips change, the staging doesn't.
+  var KINDS = ['follow', 'sub', 'resub', 'gift'];
+  function perKind(base){
+    var def = (qs.get(base) || '').trim();
+    if(def.toLowerCase() === 'none') def = '';
+    var out = { _def: def };
+    for(var i = 0; i < KINDS.length; i++){
+      var v = (qs.get(base + KINDS[i]) || '').trim();
+      if(!v) v = def;
+      else if(v.toLowerCase() === 'none') v = '';
+      out[KINDS[i]] = v;
+    }
+    return out;
+  }
+  // A kind this page has never heard of (a future event type) plays the
+  // house pick rather than silence - new events degrade to the default,
+  // never to nothing.
+  function fileFor(map, kind){
+    return map.hasOwnProperty(kind) ? map[kind] : map._def;
+  }
+  var soundFor = perKind('sound');
+  var mediaFor = perKind('media');
+
   var soundVol = parseFloat(qs.get('soundvol'));
   if(!isFinite(soundVol) || soundVol < 0 || soundVol > 100) soundVol = 70;
-  var mediaFile = (qs.get('media') || '').trim();
   var mediaH = parseInt(qs.get('mediah'), 10);
   if(!isFinite(mediaH) || mediaH < 40 || mediaH > 720) mediaH = 180;
   var mediaX = parseFloat(qs.get('mediax'));
@@ -450,12 +485,23 @@ if(window.NPO) NPO.themeBoot('source');
   if(!isFinite(mediaDelay) || mediaDelay < 0 || mediaDelay > 5) mediaDelay = 0;
   var mediaLoop = qs.get('medialoop') !== '0';
 
-  var sndEl = null;
-  if(soundFile){
-    sndEl = new Audio('/media/' + encodeURIComponent(soundFile));
-    sndEl.preload = 'auto';
-    sndEl.volume = soundVol / 100;
+  // One Audio per distinct file, shared by every kind that picked it.
+  // Created lazily too (see mediaShow) so the unknown-kind fallback works
+  // even when no listed kind uses the house pick.
+  var sounds = {};
+  function soundEl(file){
+    if(!file) return null;
+    if(!sounds[file]){
+      var a = new Audio('/media/' + encodeURIComponent(file));
+      a.preload = 'auto';
+      a.volume = soundVol / 100;
+      sounds[file] = a;
+    }
+    return sounds[file];
   }
+  (function(){
+    for(var i = 0; i < KINDS.length; i++) soundEl(soundFor[KINDS[i]]);
+  })();
 
   // A gif needs different machinery from everything else. An <img> pointed at
   // a gif starts animating the moment the bytes arrive and loops forever -
@@ -465,9 +511,12 @@ if(window.NPO) NPO.themeBoot('source');
   // is fetched once into memory here, and every alert then mints a fresh
   // object URL over those same bytes, which decodes with no network trip and
   // begins at the first frame.
-  var mediaLayer = null, mediaEl = null, mediaKind = '';
-  var mediaUrl = '', mediaBlob = null, mediaBlobSrc = '';
-  var mediaDelayTimer = null, mediaIdleTimer = null;
+  // Each distinct file becomes one clip object - element, preloaded bytes,
+  // play-once copy - shared by every kind that picked it, all parked inside
+  // one #medialayer with only the current alert's clip visible. The timers
+  // and the generation counter stay global because only one clip is ever on
+  // stage at a time.
+  //
   // Play-once support for gifs. Whether a gif loops is a flag baked INSIDE
   // the file (the NETSCAPE application extension) - an <img> exposes no way
   // to override it and no event for "one pass finished". So both halves are
@@ -477,7 +526,10 @@ if(window.NPO) NPO.themeBoot('source');
   // roughly when that pass ends and can fade the layer out. The timer only
   // has to be roughly right: the gif is frozen on its last frame by then, so
   // overshooting just holds a still image a moment longer.
-  var mediaOnceBlob = null, mediaOnceMs = 0, mediaOnceTimer = null;
+  var mediaLayer = null;
+  var clips = {};        // file -> clip object
+  var curClip = null;    // the clip the alert on screen is using
+  var mediaDelayTimer = null, mediaIdleTimer = null, mediaOnceTimer = null;
   // Bumped on every show and hide. decode() promises and safety-net timers
   // from a superseded alert check it before touching the layer, so a test
   // cutting in mid-fade can't be flashed by its predecessor's stragglers.
@@ -531,62 +583,86 @@ if(window.NPO) NPO.themeBoot('source');
     return { ms: ms, blob: new Blob([out], { type: 'image/gif' }) };
   }
 
-  if(mediaFile){
-    mediaLayer = document.createElement('div');
-    mediaLayer.id = 'medialayer';
-    mediaLayer.style.setProperty('--mx', mediaX + '%');
-    mediaLayer.style.setProperty('--my', mediaY + '%');
-    mediaUrl = '/media/' + encodeURIComponent(mediaFile);
-    var mExt = (mediaFile.split('.').pop() || '').toLowerCase();
-    if(mExt === 'mp4' || mExt === 'webm'){
-      mediaKind = 'video';
-      mediaEl = document.createElement('video');
-      mediaEl.muted = true; mediaEl.loop = mediaLoop; mediaEl.playsInline = true;
-      mediaEl.preload = 'auto'; mediaEl.src = mediaUrl;
+  function makeClip(file){
+    var c = { file: file, url: '/media/' + encodeURIComponent(file),
+              kind: '', el: null, blob: null, blobSrc: '',
+              onceBlob: null, onceMs: 0 };
+    var ext = (file.split('.').pop() || '').toLowerCase();
+    if(ext === 'mp4' || ext === 'webm'){
+      c.kind = 'video';
+      c.el = document.createElement('video');
+      c.el.muted = true; c.el.loop = mediaLoop; c.el.playsInline = true;
+      c.el.preload = 'auto'; c.el.src = c.url;
       // Play-once: the video stops on its last frame by itself; this just
       // fades the layer out with it. Checking .ended (not a captured flag)
       // makes a stale event harmless - if a test cut in and restarted the
-      // clip, the video is playing again and .ended reads false.
-      if(!mediaLoop) mediaEl.addEventListener('ended', function(){
-        if(mediaEl.ended) clipDone();
+      // clip, the video is playing again and .ended reads false. The clip
+      // must still be the one on stage: another kind's video finishing in
+      // the background has no business fading the current alert's clip.
+      if(!mediaLoop) c.el.addEventListener('ended', function(){
+        if(c.el.ended && curClip === c) clipDone();
       });
-    } else if(mExt === 'gif'){
-      mediaKind = 'gif';
-      mediaEl = document.createElement('img');
-      mediaEl.alt = '';
-      fetch(mediaUrl)
+    } else if(ext === 'gif'){
+      c.kind = 'gif';
+      c.el = document.createElement('img');
+      c.el.alt = '';
+      fetch(c.url)
         .then(function(r){ return r.ok ? r.arrayBuffer() : null; })
         .then(function(buf){
           if(!buf) return;
-          mediaBlob = new Blob([buf], { type: 'image/gif' });
+          c.blob = new Blob([buf], { type: 'image/gif' });
           if(!mediaLoop){
             var once = gifOnce(buf);
-            if(once){ mediaOnceBlob = once.blob; mediaOnceMs = once.ms; }
+            if(once){ c.onceBlob = once.blob; c.onceMs = once.ms; }
             // Parse failure leaves both null: play-once quietly degrades to
             // looping, which is always safe to show.
           }
         })
         .catch(function(){});
     } else {
-      mediaKind = 'image';
-      mediaEl = document.createElement('img');
-      mediaEl.alt = '';
-      mediaEl.src = mediaUrl;
+      c.kind = 'image';
+      c.el = document.createElement('img');
+      c.el.alt = '';
+      c.el.src = c.url;
     }
-    mediaEl.style.height = mediaH + 'px';
-    mediaLayer.appendChild(mediaEl);
-    document.body.appendChild(mediaLayer);
+    c.el.style.height = mediaH + 'px';
+    c.el.style.display = 'none';   // only the current alert's clip is on stage
+    mediaLayer.appendChild(c.el);
+    return c;
   }
+
+  function clipFor(file){
+    if(!file || !mediaLayer) return null;
+    if(!clips[file]) clips[file] = makeClip(file);
+    return clips[file];
+  }
+
+  (function(){
+    // The layer exists if ANY pick could ever need it - including the house
+    // pick alone, which future/unknown kinds fall back to.
+    var want = mediaFor._def ? true : false;
+    var i;
+    for(i = 0; i < KINDS.length; i++) if(mediaFor[KINDS[i]]) want = true;
+    if(!want) return;
+    mediaLayer = document.createElement('div');
+    mediaLayer.id = 'medialayer';
+    mediaLayer.style.setProperty('--mx', mediaX + '%');
+    mediaLayer.style.setProperty('--my', mediaY + '%');
+    document.body.appendChild(mediaLayer);
+    // Preload every distinct file now, however many kinds share it - the
+    // first alert of each kind must not pay a network trip.
+    for(i = 0; i < KINDS.length; i++) clipFor(mediaFor[KINDS[i]]);
+  })();
 
   // Once the fade is over, drop the gif's src entirely. A gif at opacity 0
   // still animates and still burns CPU, for the whole stretch of stream
   // between one alert and the next. (A play-once gif is already frozen by
   // then; sweeping it anyway keeps the idle state identical either way.)
-  function clipSweep(){
+  function clipSweep(c){
     clearTimeout(mediaIdleTimer);
     mediaIdleTimer = setTimeout(function(){
-      mediaEl.removeAttribute('src');
-      if(mediaBlobSrc){ URL.revokeObjectURL(mediaBlobSrc); mediaBlobSrc = ''; }
+      c.el.removeAttribute('src');
+      if(c.blobSrc){ URL.revokeObjectURL(c.blobSrc); c.blobSrc = ''; }
     }, 350);
   }
 
@@ -596,70 +672,93 @@ if(window.NPO) NPO.themeBoot('source');
   function clipDone(){
     mediaGen++;
     mediaLayer.classList.remove('on');
-    if(mediaKind === 'gif') clipSweep();
+    if(curClip && curClip.kind === 'gif') clipSweep(curClip);
   }
 
-  function clipStart(){
+  function clipStart(c){
     var gen = ++mediaGen;
     var arm = function(){
       if(gen !== mediaGen) return;   // a newer show or a hide superseded this
       mediaLayer.classList.add('on');
     };
-    if(mediaKind === 'gif'){
-      var old = mediaBlobSrc;
+    if(c.kind === 'gif'){
+      var old = c.blobSrc;
       // Play-once uses the copy with the loop instruction spliced out, so
       // the browser itself stops after one pass. Until the parse has landed
       // (or if it failed), the looping copy stands in.
-      var blob = (!mediaLoop && mediaOnceBlob) ? mediaOnceBlob : mediaBlob;
+      var blob = (!mediaLoop && c.onceBlob) ? c.onceBlob : c.blob;
       if(blob){
-        mediaBlobSrc = URL.createObjectURL(blob);
-        mediaEl.src = mediaBlobSrc;
+        c.blobSrc = URL.createObjectURL(blob);
+        c.el.src = c.blobSrc;
       } else {
         // The first alert can beat the fetch; playing from the server
         // directly - mid-loop, once - beats showing nothing at all.
-        mediaEl.src = mediaUrl;
+        c.el.src = c.url;
       }
       if(old) URL.revokeObjectURL(old);
       // Fade in only once frame 0 is actually decoded, so the gap between
       // the event and the visual is exactly as long as it needs to be and no
       // longer - the alert never fades in over a half-painted image. The
       // timer is the net for a decoder that never resolves.
-      if(mediaEl.decode) mediaEl.decode().then(arm, arm); else arm();
+      if(c.el.decode) c.el.decode().then(arm, arm); else arm();
       setTimeout(arm, 400);
       // The pass-is-over timer, biased late: by then the gif is frozen on
       // its last frame, so overshooting only holds a still a moment longer,
       // while undershooting would clip the tail of the animation.
-      if(!mediaLoop && mediaOnceBlob && mediaOnceMs){
+      if(!mediaLoop && c.onceBlob && c.onceMs){
         mediaOnceTimer = setTimeout(function(){
           if(gen !== mediaGen) return;
           clipDone();
-        }, mediaOnceMs + 250);
+        }, c.onceMs + 250);
       }
-    } else if(mediaKind === 'video'){
+    } else if(c.kind === 'video'){
       // Rewind before play: a video paused partway by the previous hide, or
       // still rolling when a test cuts in, must still start this alert at
       // its first frame.
-      try { mediaEl.currentTime = 0; } catch(e){}
-      try { var q = mediaEl.play(); if(q && q.catch) q.catch(function(){}); } catch(e){}
+      try { c.el.currentTime = 0; } catch(e){}
+      try { var q = c.el.play(); if(q && q.catch) q.catch(function(){}); } catch(e){}
       arm();
     } else {
       arm();
     }
   }
 
-  function mediaShow(){
-    if(sndEl){
+  function mediaShow(kind){
+    var snd = soundEl(fileFor(soundFor, kind));
+    if(snd){
       // Outside OBS, browsers refuse sound before the page has been clicked
       // once; failing silently is right for something meant to be invisible.
-      try { sndEl.currentTime = 0; var p = sndEl.play(); if(p && p.catch) p.catch(function(){}); } catch(e){}
+      try { snd.currentTime = 0; var p = snd.play(); if(p && p.catch) p.catch(function(){}); } catch(e){}
     }
-    if(mediaLayer){
-      clearTimeout(mediaDelayTimer);
-      clearTimeout(mediaOnceTimer);
-      clearTimeout(mediaIdleTimer);   // a show at fade's end must not have its src swept
-      if(mediaDelay > 0) mediaDelayTimer = setTimeout(clipStart, mediaDelay * 1000);
-      else clipStart();
+    if(!mediaLayer) return;
+    var c = clipFor(fileFor(mediaFor, kind));
+    clearTimeout(mediaDelayTimer);
+    clearTimeout(mediaOnceTimer);
+    clearTimeout(mediaIdleTimer);   // a show at fade's end must not have its src swept
+    if(curClip && curClip !== c){
+      // The outgoing kind's clip leaves the stage entirely - stopped, hidden
+      // and stripped of its src - before the incoming one takes it. Straight
+      // away, not on the sweep timer: it is invisible from this line on, so
+      // there is no fade to wait out.
+      if(curClip.kind === 'video'){
+        try { curClip.el.pause(); curClip.el.currentTime = 0; } catch(e){}
+      } else if(curClip.kind === 'gif'){
+        curClip.el.removeAttribute('src');
+        if(curClip.blobSrc){ URL.revokeObjectURL(curClip.blobSrc); curClip.blobSrc = ''; }
+      }
+      curClip.el.style.display = 'none';
     }
+    if(!c){
+      // This kind plays without a clip; whatever the layer held goes dark.
+      mediaGen++;
+      mediaLayer.classList.remove('on');
+      curClip = null;
+      return;
+    }
+    curClip = c;
+    c.el.style.display = '';
+    if(mediaDelay > 0) mediaDelayTimer = setTimeout(function(){ clipStart(c); }, mediaDelay * 1000);
+    else clipStart(c);
   }
   function mediaHide(){
     if(mediaLayer){
@@ -667,13 +766,17 @@ if(window.NPO) NPO.themeBoot('source');
       clearTimeout(mediaDelayTimer);
       clearTimeout(mediaOnceTimer);
       mediaLayer.classList.remove('on');
-      if(mediaKind === 'video'){
-        try { mediaEl.pause(); mediaEl.currentTime = 0; } catch(e){}
-      } else if(mediaKind === 'gif'){
-        clipSweep();
+      if(curClip){
+        if(curClip.kind === 'video'){
+          try { curClip.el.pause(); curClip.el.currentTime = 0; } catch(e){}
+        } else if(curClip.kind === 'gif'){
+          clipSweep(curClip);
+        }
       }
     }
-    if(sndEl){ try { sndEl.pause(); } catch(e){} }
+    // Every preloaded sound, not just this kind's: the next alert may be a
+    // different kind, and its predecessor's tail must not play under it.
+    for(var f in sounds){ try { sounds[f].pause(); } catch(e){} }
   }
 
   // ---- rendering --------------------------------------------------------
@@ -805,7 +908,7 @@ if(window.NPO) NPO.themeBoot('source');
     var mediaStarted = false;
     function enter(){
       card.classList.remove('pre'); card.classList.add('in');
-      if(!mediaStarted){ mediaStarted = true; mediaShow(); }
+      if(!mediaStarted){ mediaStarted = true; mediaShow(a.kind); }
     }
     requestAnimationFrame(enter);
     // An OBS browser source that is not compositing never fires rAF, which

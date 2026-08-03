@@ -130,6 +130,15 @@ Alerts can play a sound and show a gif, image or looping video each time one lan
 
 Details worth knowing:
 
+- **Each kind of event can have its own sound and clip.** The main **Sound**
+  and **Clip** picks play for everything; the **Per-event sound & clip**
+  section below them overrides one event at a time — a gift bomb can land
+  with its own fanfare while follows keep the house pick. Anything left on
+  *Same as…* inherits the main pick, and *Nothing for this one* switches that
+  event off without touching the rest. Size, position, delay and loop are
+  shared by all of them: the clips change, the staging doesn't. The test
+  buttons at the top of the customizer fire each kind through the real
+  pipeline, so you can hear every combination before it ever plays live.
 - **The clip restarts on every alert.** A gif or video begins at its first
   frame the moment the alert lands — the file is held ready in memory, so
   there is no loading pause and it never appears mid-loop.

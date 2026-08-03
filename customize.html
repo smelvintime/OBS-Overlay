@@ -388,7 +388,9 @@
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
         radius:16, opacity:100, hold:6, spins:1.5,
         sound:'', soundvol:70, media:'', mediah:180, mediax:50, mediay:50, mediadelay:0,
-        medialoop:1
+        medialoop:1,
+        soundfollow:'', soundsub:'', soundresub:'', soundgift:'',
+        mediafollow:'', mediasub:'', mediaresub:'', mediagift:''
       },
       size:function(){ return {w:1920, h:1080}; },
       actions:[
@@ -459,6 +461,29 @@
             note:'On repeats the clip for as long as the alert is on screen. Off plays it '
                + 'through a single time and it fades out on its own - the alert card stays '
                + 'its full time either way.' }
+        ]},
+        { title:'Per-event sound & clip', controls:[
+          { key:'soundfollow', label:'Follow sound', type:'media', kind:'audio',
+            emptyText:'Same as Sound above', allowNone:true,
+            note:'Give each kind of event its own sound and clip. Anything left on '
+               + '"Same as..." plays the main pick above; "Nothing for this one" '
+               + 'switches that event off without touching the rest. Size, position, '
+               + 'delay and loop are shared - the clips change, the staging doesn’t.' },
+          { key:'mediafollow', label:'Follow clip', type:'media', kind:'visual',
+            emptyText:'Same as Clip above', allowNone:true },
+          { key:'soundsub', label:'Sub sound', type:'media', kind:'audio',
+            emptyText:'Same as Sound above', allowNone:true },
+          { key:'mediasub', label:'Sub clip', type:'media', kind:'visual',
+            emptyText:'Same as Clip above', allowNone:true },
+          { key:'soundresub', label:'Resub sound', type:'media', kind:'audio',
+            emptyText:'Same as Sound above', allowNone:true },
+          { key:'mediaresub', label:'Resub clip', type:'media', kind:'visual',
+            emptyText:'Same as Clip above', allowNone:true },
+          { key:'soundgift', label:'Gift sound', type:'media', kind:'audio',
+            emptyText:'Same as Sound above', allowNone:true },
+          { key:'mediagift', label:'Gift clip', type:'media', kind:'visual',
+            emptyText:'Same as Clip above', allowNone:true,
+            note:'Use the test buttons at the top to hear and see each one land.' }
         ]},
         { title:'Timing', controls:[
           { key:'hold', label:'On screen', type:'range', min:2, max:20, step:1, unit:'s' }
@@ -1162,8 +1187,20 @@
                 sel.innerHTML = '';
                 var none = document.createElement('option');
                 none.value = '';
-                none.textContent = files.length ? 'None' : 'None - the media folder is empty';
+                // emptyText lets the per-event pickers say what empty MEANS
+                // there ("Same as the main pick") instead of a bare None.
+                none.textContent = files.length ? (C.emptyText || 'None')
+                                                : 'None - the media folder is empty';
                 sel.appendChild(none);
+                // allowNone adds an explicit off-switch, distinct from empty:
+                // for a per-event pick, empty inherits the main file while
+                // "none" says this event gets nothing at all.
+                if(C.allowNone){
+                  var off = document.createElement('option');
+                  off.value = 'none';
+                  off.textContent = 'Nothing for this one';
+                  sel.appendChild(off);
+                }
                 files.forEach(function(f){
                   var o = document.createElement('option');
                   o.value = f.name; o.textContent = f.name;
@@ -1171,7 +1208,8 @@
                 });
                 // A picked file that has since been deleted stays visible and
                 // marked, rather than silently reading back as None.
-                if(state[C.key] && !files.some(function(f){ return f.name === state[C.key]; })){
+                if(state[C.key] && state[C.key] !== 'none'
+                   && !files.some(function(f){ return f.name === state[C.key]; })){
                   var miss = document.createElement('option');
                   miss.value = state[C.key];
                   miss.textContent = state[C.key] + ' (missing from folder)';
