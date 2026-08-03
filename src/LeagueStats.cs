@@ -666,7 +666,12 @@ namespace NowPlaying {
       // and re-announce the ranked game before it.
       if (!ranked) return false;
       lock (_resultLock) {
-        if (gid == _newestGameId) return false;   // already known; never announce twice
+        // Equal means already announced; smaller means the screen is still
+        // showing the PREVIOUS game because this one's has not replaced it
+        // yet. Both are "say nothing and look again in two seconds", and
+        // both would otherwise put a game chat has already heard about - or
+        // one older than that - back on screen as news.
+        if (gid <= _newestGameId) return false;
         _newestGameId = gid;
         _eogAnnouncedId = gid;
         _lastLine = last;
@@ -794,20 +799,38 @@ namespace NowPlaying {
                 if (!ParseToday(hist, LocalMidnightEpochMs(), out todayJson, out tw, out tl)) {
                   todayJson = "[]"; tw = new int[4]; tl = new int[4];
                 }
-                bool caughtUp;
+                bool caughtUp, behind;
                 lock (_resultLock) {
-                  isNew = _newestGameId != 0 && newest != 0 && newest != _newestGameId;
-                  // The game the end-of-game screen already announced has now
-                  // arrived in history: the tallies and the true record are
-                  // in hand, so there is nothing left to chase. (isNew is
-                  // false for it by construction - _newestGameId was set to
-                  // this id at announce time - so it cannot be said twice.)
+                  // Is this history payload OLDER than what is already known?
+                  // It can be, now that the end-of-game screen gets there
+                  // first: for up to a minute afterwards every history read
+                  // still describes the game before last. Game ids climb, so
+                  // "smaller than what we hold" is exactly "out of date".
+                  //
+                  // This is not hypothetical - it shipped broken for one
+                  // evening. The stale payload was written straight over the
+                  // fresh result AND passed the old "different id" test for
+                  // new-ness, so two seconds after the correct announcement a
+                  // second one went out naming the game before it, and the
+                  // newest-game pointer walked backwards.
+                  behind = newest != 0 && newest < _newestGameId;
+                  // Strictly newer, not merely different: "different" reads a
+                  // backwards step as news.
+                  isNew = !behind && _newestGameId != 0 && newest > _newestGameId;
+                  // The game the end-of-game screen announced has now landed
+                  // in history: the tallies and the true record are in hand,
+                  // so there is nothing left to chase.
                   caughtUp = newest != 0 && newest == _eogAnnouncedId;
-                  _record = record; _lastLine = lastLine;
-                  if (newest != 0) _newestGameId = newest;
-                  _newestAt = at;
-                  _todayJson = todayJson;
-                  _todayWinsB = tw; _todayLossesB = tl;
+                  // Nothing from a stale payload is taken - not the record,
+                  // not the last line, not the tallies. They are one snapshot
+                  // of one moment, and that moment has passed.
+                  if (!behind) {
+                    _record = record; _lastLine = lastLine;
+                    if (newest != 0) _newestGameId = newest;
+                    _newestAt = at;
+                    _todayJson = todayJson;
+                    _todayWinsB = tw; _todayLossesB = tl;
+                  }
                 }
                 _status = "live"; _detail = "";
                 if (caughtUp) freshPolls = 0;
