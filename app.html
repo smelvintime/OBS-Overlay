@@ -261,10 +261,19 @@
   // is current, nothing is drawn at all. When it isn't, one gold button:
   // pressing it makes the app download the latest source, rebuild itself on
   // this PC (the same thing Build.bat does, nothing downloaded but source)
-  // and restart. The page follows /update/status the whole way through, and
-  // the moment the server stops answering IS the restart - so that fetch
-  // failure is shown as progress, not as an error.
+  // and restart. The page follows /update/status the whole way through.
+  //
+  // "It restarted" is detected by OUTCOME, not by catching the server down:
+  // the whole swap takes under two seconds, which can fall entirely between
+  // two once-a-second polls - a page that only reloaded on a failed fetch sat
+  // saying "Updating..." forever at a server that had already finished (that
+  // was a real evening). Every build carries a unique stamp, so the moment
+  // /update/status answers with a different build than the one this page
+  // started from, the update demonstrably happened and the page reloads.
+  // The failed-fetch path stays as the fallback for slower machines, where
+  // the gap IS observable.
   var updEl = document.getElementById('upd');
+  var updBuild = null;   // the build this page was talking to first
 
   function updSay(text){ updEl.textContent = text; }
 
@@ -278,7 +287,13 @@
     fetch('/update/status', {cache:'no-store'})
       .then(function(r){ return r.json(); })
       .then(function(j){
+        if(updBuild && j.build && j.build !== updBuild){ location.reload(); return; }
         if(j.state === 'error'){ updSay(j.detail || 'The update failed - see the log.'); return; }
+        // idle from the same build would mean the run never started, but
+        // updPoll only begins after /update/run said ok - so idle here is the
+        // new process answering before the stamp comparison had a build to
+        // compare (belt for the buckle above).
+        if(j.state === 'idle'){ location.reload(); return; }
         updSay(j.detail || 'Updating...');
         setTimeout(updPoll, 1000);
       })
@@ -328,6 +343,7 @@
       fetch('/update/check?force=1', {cache:'no-store'})
         .then(function(r){ return r.json(); })
         .then(function(j){
+          if(j && j.build) updBuild = j.build;
           if(j && j.update){ updShowGo(j); return; }
           a.textContent = (j && j.ok) ? 'Up to date' : ((j && j.error) || 'Could not check');
           setTimeout(updShowCheck, 4000);
@@ -345,6 +361,7 @@
   fetch('/update/check', {cache:'no-store'})
     .then(function(r){ return r.json(); })
     .then(function(j){
+      if(j && j.build) updBuild = j.build;
       if(j && j.update) updShowGo(j);
       else updShowCheck();
     })
