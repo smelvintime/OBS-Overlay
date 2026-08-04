@@ -116,7 +116,7 @@ $srcStamp = Join-Path ([IO.Path]::GetTempPath()) 'NowPlayingBuildInfo.cs'
 [assembly: System.Reflection.AssemblyDescription("Now-playing music overlay for OBS, with Twitch alerts and goal boxes")]
 [assembly: System.Reflection.AssemblyCompany("smelvintime")]
 [assembly: System.Reflection.AssemblyProduct("NowPlayingOverlay")]
-[assembly: System.Reflection.AssemblyCopyright("MIT licensed - https://github.com/smelvintime/OBS-Overlay")]
+[assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 smelvintime - https://github.com/smelvintime/OBS-Overlay")]
 [assembly: System.Reflection.AssemblyVersion("$ProductVersion.0")]
 [assembly: System.Reflection.AssemblyFileVersion("$ProductVersion.0")]
 

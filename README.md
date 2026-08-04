@@ -117,5 +117,4 @@ icon → **Open dashboard…**):
 
 ## License
 
-[MIT](LICENSE) — free to use, modify and redistribute, including commercially.
-Provided as-is, with no warranty.
+© 2026 smelvintime. All rights reserved. Provided as-is, with no warranty.
