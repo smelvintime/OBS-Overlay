@@ -117,4 +117,5 @@ icon → **Open dashboard…**):
 
 ## License
 
-© 2026 smelvintime. All rights reserved. Provided as-is, with no warranty.
+© 2026 smelvintime. All rights reserved — see [LICENSE](LICENSE). You may
+download the source, build it and run it. Provided as-is, with no warranty.
