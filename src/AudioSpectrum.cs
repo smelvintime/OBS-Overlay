@@ -160,6 +160,8 @@ namespace NowPlaying {
     static volatile bool _running;
     static volatile string _status = "not started";
     static volatile int _silentFor;                    // consecutive silent reads
+    static long _lastAudioTicks;                       // when real samples last arrived
+    static bool _gated;                                // input is below the silence floor
 
     static readonly double[] _smoothed = new double[Bands];
     static double _agc = 0.02;                         // adapts to overall volume
@@ -402,6 +404,10 @@ namespace NowPlaying {
           if (next == 0) {
             if (!perProcess) Thread.Sleep(4);
             else _silentFor++;          // event-driven: no packet means no sound
+            // Nothing has been delivered for a quarter second, so the ring
+            // still holds the last music that played - and Compute() would
+            // go on analysing that same frozen frame forever. See FeedSilence.
+            if (DateTime.UtcNow.Ticks - _lastAudioTicks > 2500000) FeedSilence(0);
             continue;
           }
 
@@ -409,9 +415,16 @@ namespace NowPlaying {
           if (cap.GetBuffer(out data, out frames, out flags, out dp, out qp) != 0) break;
 
           bool silent = (flags & SILENT) != 0 || data == IntPtr.Zero;
-          if (silent) { _silentFor++; }
+          if (silent) {
+            _silentFor++;
+            // Silence is DATA, and it has to be written. Skipping the ring
+            // here left the last audible moment sitting in it, which the
+            // analyser then chewed on indefinitely.
+            FeedSilence((int)frames);
+          }
           else {
             _silentFor = 0;
+            _lastAudioTicks = DateTime.UtcNow.Ticks;
             lock (_lock) {
               for (int i = 0; i < frames; i++) {
                 float v;
@@ -451,13 +464,55 @@ namespace NowPlaying {
       return BitConverter.ToSingle(BitConverter.GetBytes(Marshal.ReadInt32(p, off)), 0);
     }
 
+    /// <summary>
+    /// Push silence through the ring, because silence is a measurement too.
+    /// Windows reports "this buffer is silent" as a FLAG with no samples
+    /// attached, and delivers no packet at all when a source goes quiet
+    /// without pausing - so both cases used to leave the last audible frame
+    /// parked in the ring, where the analyser kept re-reading it. A frozen
+    /// frame normalises to a full-height frozen pattern, which is what a
+    /// stopped-but-not-paused player looked like on stream.
+    /// frames &lt;= 0, or more than the ring holds, means "all of it is stale".
+    /// </summary>
+    static void FeedSilence(int frames) {
+      lock (_lock) {
+        if (frames <= 0 || frames >= FftSize) {
+          Array.Clear(_ring, 0, FftSize);
+          _ringPos = 0;
+          return;
+        }
+        for (int i = 0; i < frames; i++) {
+          _ring[_ringPos] = 0f;
+          _ringPos = (_ringPos + 1) % FftSize;
+        }
+      }
+    }
+
     // ------------------------------------------------------------------- FFT
     static readonly double[] _re = new double[FftSize];
     static readonly double[] _im = new double[FftSize];
 
+    // The one absolute reference in an otherwise entirely relative meter.
+    //
+    // Everything below divides each band by what that band has recently been
+    // doing, which is what lets the bars read correctly whether the system
+    // volume is at 10% or 100% - and is also what makes the maths incapable of
+    // telling music from a noise floor. Divide noise by noise and the answer
+    // is 1.0: a full bar. The treble tilt then decides WHICH bars, because it
+    // multiplies the top band by 3.5x, so a hiss that is flat across the
+    // spectrum comes out loudest at the top and the highs alone light up.
+    //
+    // Hence a floor in real units, taken before any of that: below it there is
+    // nothing worth drawing, whatever the relative maths would like to say.
+    // -70 dBFS is far under any music anyone can hear (a quiet passage sits
+    // nearer -50) and far above a 16-bit dither floor at about -93.
+    const double SilenceRms = 3.0e-4;   // about -70 dBFS
+    const double WakeRms = 6.0e-4;      // about -64 dBFS; gap stops chatter on a fade
+
     static int[] Compute() {
       var outp = new int[Bands];
       uint rate;
+      double rms;
       lock (_lock) {
         rate = _rate;
         int pos = _ringPos;
@@ -470,12 +525,16 @@ namespace NowPlaying {
         double mean = 0;
         for (int i = 0; i < FftSize; i++) mean += _ring[i];
         mean /= FftSize;
+        double sumsq = 0;
         for (int i = 0; i < FftSize; i++) {
           // Hann window keeps neighbouring bands from bleeding into each other
           double w = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (FftSize - 1));
-          _re[i] = (_ring[(pos + i) % FftSize] - mean) * w;
+          double s = _ring[(pos + i) % FftSize] - mean;
+          sumsq += s * s;                 // level, measured before windowing
+          _re[i] = s * w;
           _im[i] = 0;
         }
+        rms = Math.Sqrt(sumsq / FftSize);
       }
 
       Transform(_re, _im);
@@ -515,6 +574,18 @@ namespace NowPlaying {
         peak *= 1.0 + 2.5 * ((double)b / Bands);
         raw[b] = peak;
         if (peak > frameMax) frameMax = peak;
+      }
+
+      // Below the floor: report nothing, and let the release smoothing below
+      // walk the bars down rather than cutting them, so a track ending looks
+      // like a fade instead of a switch being thrown. Zeroing raw (rather than
+      // returning early) keeps the references decaying, so the meter is ready
+      // for the next thing to play instead of holding a stale idea of loud.
+      if (_gated) { if (rms > WakeRms) _gated = false; }
+      else if (rms < SilenceRms) _gated = true;
+      if (_gated) {
+        for (int b = 0; b < Bands; b++) raw[b] = 0;
+        frameMax = 0;
       }
 
       // Automatic gain: track a decaying maximum so the bars look right whether
