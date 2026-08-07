@@ -94,6 +94,100 @@
     return out;
   };
 
+  /* ---- accent corners ------------------------------------------------------
+     The house look is a plate with two corners cut square and bracketed in the
+     accent. Five pages drew that pair, and every one of them hard-wired it to
+     the top-right and bottom-left with a ::before/::after couple - which is a
+     hard ceiling of two, because an element has exactly two pseudo-elements.
+     Choosing corners means real elements, and five pages drawing the same
+     bracket means one copy here rather than five that drift apart.
+
+     The bracketed corners are also the CUT corners: a square bracket sitting
+     on a 14px rounded corner reads as a mistake rather than a style. So this
+     owns the host's border-radius too - picked corners go sharp, the rest keep
+     var(--radius) - which reproduces exactly the shape each page hard-coded,
+     since the old pair was the top-right and bottom-left of
+     "var(--radius) 3px var(--radius) 3px".
+
+     Size, colour, thickness, glow, opacity and offset all come from the host
+     as custom properties, because the five pages genuinely differ: the stat
+     boxes are 15px at .95 opacity on a per-box colour, the webcam frame rides
+     its own border width. The defaults here are the values four of the five
+     used, so most hosts set nothing at all. */
+  NPO.CORNERS = ['tl', 'tr', 'br', 'bl'];   /* CSS border-radius order, and canonical */
+  var CORNER_DEFAULT = ['tr', 'bl'];        /* the diagonal every page drew before */
+
+  /* Which corners a URL asks for. Absent means the house diagonal, so every
+     link written before this existed keeps its look. */
+  NPO.cornerList = function (qs) {
+    var raw = qs.get('corners');
+    if (raw === null) return CORNER_DEFAULT.slice();
+    raw = String(raw).trim().toLowerCase();
+    if (raw === '' || raw === 'none') return [];
+    if (raw === 'all') return NPO.CORNERS.slice();
+    var want = raw.split(','), out = [], i, j;
+    /* Read in canonical order rather than the order they were typed: the
+       corners are a set, and "tr,bl" and "bl,tr" must build the same plate. */
+    for (i = 0; i < NPO.CORNERS.length; i++) {
+      for (j = 0; j < want.length; j++) {
+        if (want[j].trim() === NPO.CORNERS[i]) { out.push(NPO.CORNERS[i]); break; }
+      }
+    }
+    /* A value that resolved to nothing is a typo, not a request for a bare
+       plate - "none" is how that is asked for. Falling back to the house look
+       beats silently stripping the accent off a live overlay. */
+    return out.length ? out : CORNER_DEFAULT.slice();
+  };
+
+  var cornerCssDone = false;
+  function cornerCss() {
+    if (cornerCssDone) return;
+    cornerCssDone = true;
+    var css = '.npo-cnr{position:absolute;pointer-events:none;box-sizing:border-box;'
+            + 'width:var(--cnr-size,18px);height:var(--cnr-size,18px);'
+            + 'border:0 solid var(--cnr-c,var(--accent));'
+            + 'opacity:var(--cnr-op,1);transition:opacity .3s ease;'
+            + 'filter:drop-shadow(0 0 var(--cnr-glow,6px) var(--cnr-c,var(--accent)))}';
+    var sides = { tl: ['top', 'left'], tr: ['top', 'right'],
+                  br: ['bottom', 'right'], bl: ['bottom', 'left'] };
+    for (var k in sides) {
+      if (!Object.prototype.hasOwnProperty.call(sides, k)) continue;
+      var v = sides[k];
+      css += '.npo-cnr.npo-' + k + '{'
+           + v[0] + ':var(--cnr-off,-1px);' + v[1] + ':var(--cnr-off,-1px);'
+           + 'border-' + v[0] + '-width:var(--cnr-w,2px);'
+           + 'border-' + v[1] + '-width:var(--cnr-w,2px);'
+           + 'border-' + v[0] + '-' + v[1] + '-radius:3px}';
+    }
+    var s = document.createElement('style');
+    s.id = 'npo-corners';
+    s.textContent = css;
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  /* Hang the brackets on a host and cut the matching corners. The host must be
+     position:relative (all five already are) and is never emptied by its page,
+     so these survive every re-render. Safe to call again: the previous set is
+     cleared first. */
+  NPO.corners = function (host, list) {
+    if (!host) return;
+    cornerCss();
+    var old = host.querySelectorAll('.npo-cnr'), i;
+    for (i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
+    for (i = 0; i < list.length; i++) {
+      var el = document.createElement('span');
+      el.className = 'npo-cnr npo-' + list[i];
+      host.appendChild(el);
+    }
+    /* Inline, so it beats the page's own blade rule - which is the shape this
+       is replacing, and which stays in the stylesheet as the look this page
+       falls back to if shared.js never loads. */
+    var r = [];
+    for (i = 0; i < NPO.CORNERS.length; i++)
+      r.push(list.indexOf(NPO.CORNERS[i]) >= 0 ? '3px' : 'var(--radius)');
+    host.style.borderRadius = r.join(' ');
+  };
+
   /* ---- live streams (spectrum, twitch events) ------------------------------ */
 
   NPO.stream = function (path, onJson, opts) {

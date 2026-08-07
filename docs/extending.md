@@ -55,6 +55,21 @@ new server code at all**:
 never open your own raw `EventSource`/`WebSocket` in a page, or you lose the
 OBS six-connection protection that took a while to win.
 
+Shared page furniture lives there too, so a new source speaks the house style
+without copying it:
+
+| Helper | Does |
+|---|---|
+| `NPO.socialMark(p)` / `NPO.socialList(qs, prefix)` | the platform logos and the `?handle=` vocabulary |
+| `NPO.cornerList(qs)` | reads `?corners=`, defaulting to the house diagonal |
+| `NPO.corners(host, list)` | hangs the accent brackets on `host` and cuts the matching corners |
+
+`NPO.corners` needs a `position:relative` host that its page never empties,
+and takes its look from custom properties on that host — `--cnr-c`,
+`--cnr-size`, `--cnr-w`, `--cnr-off`, `--cnr-glow`, `--cnr-op`. Leave them
+unset for the standard 18px accent bracket. Keep the page's own
+`border-radius` rule as the shape to fall back to if `shared.js` never loads.
+
 ## Optional integrations — each one edit, each independent
 
 None of these are required, and skipping them breaks nothing:

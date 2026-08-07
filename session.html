@@ -22,6 +22,11 @@
      ?showtoday=1                  today's win-loss tally       (default 1)
      ?showform=1                   one square per game played   (default 1)
      ?showname=1                   summoner name under the mark (default 0)
+     ?corners=tr,bl                which corners carry the accent bracket, from
+                                   tl / tr / br / bl; "all" for four, "none"
+                                   for a plain plate. The bracketed corners are
+                                   the cut ones     (default tr,bl - the house
+                                   diagonal, so old links are unchanged)
      ?mranked=1  ?mnormals=1       which modes count toward the tally and the
      ?maram=1    ?mother=1         form squares; 0 removes that bucket
                                    (default all on). Rank and LP are queue
@@ -87,15 +92,11 @@
     transition:opacity .45s ease,transform .45s cubic-bezier(.22,1.28,.35,1);
   }
   .card.show{opacity:var(--overlay-opacity);transform:none}
-  /* The accent brackets from the alert card, riding the two sharp corners. */
-  .card::before,.card::after{
-    content:"";position:absolute;width:18px;height:18px;pointer-events:none}
-  .card::before{top:-1px;right:-1px;
-    border-top:2px solid var(--accent);border-right:2px solid var(--accent);
-    border-top-right-radius:3px;filter:drop-shadow(0 0 6px var(--accent))}
-  .card::after{bottom:-1px;left:-1px;
-    border-bottom:2px solid var(--accent);border-left:2px solid var(--accent);
-    border-bottom-left-radius:3px;filter:drop-shadow(0 0 6px var(--accent))}
+  /* The accent brackets from the alert card ride the sharp corners, and which
+     corners those are is ?corners=. NPO.corners hangs the brackets and cuts
+     the matching corners; the radius above is the fallback shape if shared.js
+     never loads. Everything the brackets need is at its shared default here
+     (18px, 2px, -1px, a 6px glow on --accent), so nothing is set. */
 
   /* The mark stands still here. alerts.html nests two spans so the plate's
      counter-rotation and the slash spin can each own a transform; with
@@ -200,6 +201,9 @@ if(window.NPO) NPO.themeBoot('source');
 
   var r = parseInt(qs.get('radius'),10);
   if(isFinite(r) && r >= 0 && r <= 40) root.style.setProperty('--radius', r+'px');
+
+  // Which corners carry the bracket - and so which corners are cut square.
+  if(window.NPO) NPO.corners(card, NPO.cornerList(qs));
 
   // zoom rather than transform, the trick alerts.html uses: zoom reflows, so
   // the footprint the size reporter measures below is the scaled one for free.

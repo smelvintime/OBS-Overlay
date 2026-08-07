@@ -32,10 +32,15 @@
      ?radius=12                    corner radius px 0-40        (default 12)
      ?opacity=100                  plate opacity 10-100         (default 100)
      ?frame=blade|soft|none        blade = dark plate with the house cut corners
-                                   and the two accent brackets; soft = plain
+                                   and the accent brackets; soft = plain
                                    rounded dark plate, no brackets; none = no
                                    plate at all, just icon and name over the
                                    scene                        (default blade)
+     ?corners=tr,bl                which corners carry the accent bracket, from
+                                   tl / tr / br / bl; "all" for four, "none"
+                                   for a plain plate. The bracketed corners are
+                                   the cut ones. Blade frame only
+                                                                (default tr,bl)
      ?theme=name                   pin this source to one theme
 
      Two modes because two scenes. rotate is the compact one for gameplay: the
@@ -85,17 +90,12 @@
   .card.col{flex-direction:column;align-items:flex-start;gap:8px}
   .row{display:flex;align-items:center;gap:12px}
 
+  /* The accent brackets from the alert card ride the sharp corners, and which
+     corners those are is ?corners= - NPO.corners hangs them and cuts the
+     matching corners. This radius is the fallback shape if shared.js never
+     loads. Blade only: the plain plate and the bare mode have no brackets to
+     place, which is what makes them those looks. */
   body.frame-blade .card{border-radius:var(--radius) 3px var(--radius) 3px}
-  /* The accent brackets from the alert card, riding the two sharp corners. */
-  body.frame-blade .card::before,
-  body.frame-blade .card::after{
-    content:"";position:absolute;width:18px;height:18px;pointer-events:none}
-  body.frame-blade .card::before{top:-1px;right:-1px;
-    border-top:2px solid var(--accent);border-right:2px solid var(--accent);
-    border-top-right-radius:3px;filter:drop-shadow(0 0 6px var(--accent))}
-  body.frame-blade .card::after{bottom:-1px;left:-1px;
-    border-bottom:2px solid var(--accent);border-left:2px solid var(--accent);
-    border-bottom-left-radius:3px;filter:drop-shadow(0 0 6px var(--accent))}
 
   body.frame-soft .card{border-radius:var(--radius)}
   /* Nothing but the icon and the name. The shadow goes too - a drop shadow
@@ -261,6 +261,10 @@ if(window.NPO) NPO.themeBoot('source');
       }
     }
   }
+
+  // Which corners carry the bracket - and so which corners are cut square.
+  // After the no-handle bail above, so a page that draws nothing hangs nothing.
+  if(window.NPO && frame === 'blade') NPO.corners(card, NPO.cornerList(qs));
 
   // ---- reveal ---------------------------------------------------------------
   // Same rAF-plus-timer net as every other page here: an OBS source that is not

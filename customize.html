@@ -114,6 +114,29 @@
   .val{color:var(--fg);font-size:12.5px;font-variant-numeric:tabular-nums;
     min-width:52px;text-align:right;font-weight:700}
 
+  /* The corner picker: a little plate you click the corners of. Reading it is
+     the whole point - four checkboxes labelled "top left" would make you
+     translate words back into a shape every time. */
+  .cnrpick{position:relative;width:104px;height:62px;flex:0 0 auto;
+    background:var(--input);border:1px solid var(--line);border-radius:8px}
+  .cnrpick button{position:absolute;width:30px;height:26px;padding:0;
+    background:none;border:0;cursor:pointer}
+  .cnrpick button::before{content:"";position:absolute;inset:6px;
+    border:2px solid var(--dim);opacity:.45;transition:opacity .15s ease}
+  .cnrpick button:hover::before{opacity:.8}
+  .cnrpick button[aria-pressed=true]::before{border-color:var(--accent);opacity:1;
+    box-shadow:0 0 7px var(--accent)}
+  /* Each corner shows only its own two edges, so the control draws the same
+     bracket the overlay does. */
+  .cnrpick .c-tl{top:0;left:0}
+  .cnrpick .c-tl::before{border-right:0;border-bottom:0;border-top-left-radius:3px}
+  .cnrpick .c-tr{top:0;right:0}
+  .cnrpick .c-tr::before{border-left:0;border-bottom:0;border-top-right-radius:3px}
+  .cnrpick .c-br{bottom:0;right:0}
+  .cnrpick .c-br::before{border-left:0;border-top:0;border-bottom-right-radius:3px}
+  .cnrpick .c-bl{bottom:0;left:0}
+  .cnrpick .c-bl::before{border-right:0;border-top:0;border-bottom-left-radius:3px}
+
   .swatches{display:flex;gap:6px;flex-wrap:wrap}
   .sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
   .sw[aria-pressed=true]{border-color:var(--fg)}
@@ -378,6 +401,7 @@
 
     alerts: {
       label:'Twitch alerts', path:'/alerts', store:'nowplaying.customize.alerts',
+      onlyKey:'frame',
       blurb:'A follow or subscription alert, as its own OBS <strong>Browser Source</strong> sized to the '
           + 'whole canvas. Nothing is drawn between events, so it can sit over everything else. '
           + 'The test buttons fire a pretend event through the real pipeline, so the preview '
@@ -386,7 +410,7 @@
       defaults:{
         style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
-        radius:16, opacity:100, hold:6, spins:1.5,
+        radius:16, opacity:100, hold:6, spins:1.5, corners:'tr,bl',
         sound:'', soundvol:70, media:'', mediah:180, mediax:50, mediay:50, mediadelay:0,
         medialoop:1,
         soundfollow:'', soundsub:'', soundresub:'', soundgift:'',
@@ -419,6 +443,13 @@
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
+        ]},
+        { title:'Accent corners', only:'blade', controls:[
+          { key:'corners', label:'Corners', type:'corners',
+            note:'Click the corners that carry the lit accent bracket. Those same '
+               + 'corners are the ones cut square &mdash; a bracket only looks right on '
+               + 'a sharp corner &mdash; so the shape follows what you pick. Blade frame '
+               + 'only; the other frames have no corner to bracket.' }
         ]},
         { title:'Position', controls:[
           { key:'align', label:'Side', type:'seg', options:[
@@ -493,7 +524,7 @@
 
     stats: {
       label:'Followers & subs', path:'/stats', store:'nowplaying.customize.stats',
-      sizeToContent:true,
+      sizeToContent:true, onlyKey:'frame',
       // The stack's footprint is intrinsic (fixed box widths), so the canvas can
       // safely grow to whatever the page reports: two boxes side by side or a
       // widened twin blade would otherwise be clipped by the nominal 360x240.
@@ -512,7 +543,7 @@
         opacity:100, cycle:8, mode:'pair', faces:'all', order:'subs', arrange:'stack',
         takeover:0, hold:6,
         transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1,
-        followStep:0, subStep:0
+        followStep:0, subStep:0, corners:'tr,bl'
       },
       size:function(){ return {w:360, h:240}; },
       // Same envelope the alerts page takes, so one button drives whichever of
@@ -540,6 +571,12 @@
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
+        ]},
+        { title:'Accent corners', only:'blade', controls:[
+          { key:'corners', label:'Corners', type:'corners',
+            note:'Click the corners that carry the lit accent bracket &mdash; both boxes '
+               + 'follow the same choice. Those same corners are the ones cut square, '
+               + 'since a bracket only looks right on a sharp corner. Blade frame only.' }
         ]},
         { title:'Position and shape', controls:[
           { key:'align', label:'Side', type:'seg', options:[
@@ -619,7 +656,7 @@
           + 'there is something to show. The preview below runs on sample numbers.',
       live:[],
       defaults:{
-        accent:'9bd4f5', scale:1, radius:14, opacity:100, w:0, h:0,
+        accent:'9bd4f5', scale:1, radius:14, opacity:100, w:0, h:0, corners:'tr,bl',
         showrank:1, showlp:1, showtoday:1, showform:1, showname:0,
         mranked:1, mnormals:1, maram:1, mother:1
       },
@@ -653,13 +690,20 @@
             note:'Extra height is shared above and below &mdash; the line stays centred.' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+        ]},
+        { title:'Accent corners', controls:[
+          { key:'corners', label:'Corners', type:'corners',
+            note:'Click the corners that carry the lit accent bracket. Those same corners '
+               + 'are the ones cut square &mdash; a bracket only looks right on a sharp '
+               + 'corner &mdash; so the plate&rsquo;s shape follows what you pick, and the '
+               + 'Corners slider above rounds whichever are left over.' }
         ]}
       ]
     },
 
     socials: {
       label:'Socials', path:'/socials', store:'nowplaying.customize.socials',
-      sizeToContent:true,
+      sizeToContent:true, onlyKey:'frame',
       // Long handles, Show-them-all mode and 2x scale all outgrow the nominal
       // canvas; without growth the preview clips them - which looks exactly
       // like OBS cropping the source - and the measured size reads as wrong.
@@ -673,7 +717,8 @@
       defaults:{
         handle:'', tiktok:'', youtube:'', instagram:'',
         mode:'rotate', cycle:5, prefix:'@', brand:0,
-        frame:'blade', accent:'9bd4f5', scale:1, radius:12, opacity:100
+        frame:'blade', accent:'9bd4f5', scale:1, radius:12, opacity:100,
+        corners:'tr,bl'
       },
       size:function(){ return {w:420, h:80}; },
       groups:[
@@ -706,12 +751,19 @@
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+        ]},
+        { title:'Accent corners', only:'blade', controls:[
+          { key:'corners', label:'Corners', type:'corners',
+            note:'Click the corners that carry the lit accent bracket. Those same corners '
+               + 'are the ones cut square. Blade frame only &mdash; the plain plate and '
+               + 'the bare mode have no corner to bracket.' }
         ]}
       ]
     },
 
     webcam: {
       label:'Webcam frame', path:'/webcam', store:'nowplaying.customize.webcam',
+      onlyKey:'frame',
       blurb:'A themed frame that sits exactly over the camera: add it as its own OBS '
           + '<strong>Browser Source</strong> in the same position and size as the webcam '
           + 'source, and it draws the border on top. The middle stays fully transparent. '
@@ -721,8 +773,9 @@
       defaults:{
         cam:'169',
         frame:'blade', accent:'9bd4f5', thick:2, cut:22, radius:10, glow:1,
-        opacity:100, label:'', mark:0, slant:1,
-        plate:'name', handle:'', tiktok:'', youtube:'', instagram:'',
+        opacity:100, label:'', mark:0, slant:1, corners:'tr,bl',
+        plate:'name', platepos:'bl', platescale:1,
+        handle:'', tiktok:'', youtube:'', instagram:'',
         prefix:'@', cycle:5, brand:0
       },
       // The camera's shape belongs to this preview alone: the frame page has
@@ -755,6 +808,14 @@
           { key:'glow', label:'', type:'toggle', text:'Glow on the brackets' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
         ]},
+        { title:'Accent corners', only:'blade', controls:[
+          { key:'corners', label:'Corners', type:'corners',
+            note:'Click the corners that carry the lit accent bracket. On a camera this '
+               + 'earns its keep &mdash; brackets belong where the picture is quiet, and '
+               + 'that is not the same two corners on every set. Those same corners are '
+               + 'the ones cut square; the Corners slider above rounds the rest. Blade '
+               + 'frame only.' }
+        ]},
         { title:'Name plate', controls:[
           { key:'plate', label:'Shows', type:'seg', options:[
             ['name','Your text'],['socials','Socials']],
@@ -762,6 +823,15 @@
                + 'mark cycling beside it &mdash; the same rotation the Socials source uses, '
                + 'in the space the frame already has. With no handle filled in it falls '
                + 'back to your text rather than drawing an empty plate.' },
+          { key:'platepos', label:'Corner', type:'seg', options:[
+            ['tl','Top left'],['tr','Top right'],['bl','Bottom left'],['br','Bottom right']],
+            note:'Which corner the plate sits in, whichever it is showing. Worth pairing '
+               + 'with the accent corners above &mdash; a plate and a bracket in the same '
+               + 'corner crowd each other.' },
+          { key:'platescale', label:'Plate size', type:'range', min:0.6, max:2.5, step:0.05,
+            unit:'x',
+            note:'Scales the plate on its own, without touching the frame. The plate keeps '
+               + 'its corner as it grows.' },
           { key:'label', label:'Text', type:'text',
             note:'Shown when the plate is set to Your text. A name, a handle, or empty '
                + 'for no plate at all.' },
@@ -1178,6 +1248,49 @@
             });
             ctl.appendChild(seg);
 
+          } else if(C.type === 'corners'){
+            (function(){
+              // The value is a canonically-ordered list, so the same four
+              // corners always spell the same string - otherwise "bl,tr" and
+              // "tr,bl" would be different from the default and each other,
+              // and both would end up in the URL for no reason.
+              var ORDER = ['tl','tr','br','bl'];
+              var pick = document.createElement('div');
+              pick.className = 'cnrpick';
+              var btns = {};
+
+              function cur(){
+                var v = String(state[C.key] || '');
+                return (v === 'none' || v === '') ? [] : v.split(',');
+              }
+              function sync(){
+                var on = cur();
+                ORDER.forEach(function(k){
+                  btns[k].setAttribute('aria-pressed', String(on.indexOf(k) >= 0));
+                });
+              }
+              ORDER.forEach(function(k){
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'c-' + k;
+                b.title = {tl:'Top left', tr:'Top right',
+                           br:'Bottom right', bl:'Bottom left'}[k];
+                b.addEventListener('click', function(){
+                  var on = cur(), at = on.indexOf(k);
+                  if(at >= 0) on.splice(at, 1); else on.push(k);
+                  var out = ORDER.filter(function(x){ return on.indexOf(x) >= 0; });
+                  // Empty needs a word: a bare "corners=" would read as absent,
+                  // and absent means the house diagonal.
+                  set(C.key, out.length ? out.join(',') : 'none', live);
+                  sync();
+                });
+                btns[k] = b;
+                pick.appendChild(b);
+              });
+              sync();
+              refresh.push(sync);
+              ctl.appendChild(pick);
+            })();
+
           } else if(C.type === 'range'){
             var rng = document.createElement('input');
             rng.type = 'range'; rng.min = C.min; rng.max = C.max; rng.step = C.step;
@@ -1350,7 +1463,12 @@
         if(C.note){
           var n = document.createElement('div');
           n.className = 'note'; n.style.margin = '-4px 0 12px';
-          n.textContent = C.note;
+          // innerHTML, like the group title, the label, the toggle text and
+          // the blurb above: every note in TARGETS is written with entities
+          // (&mdash;, &rsquo;) and as textContent they rendered literally, so
+          // a dozen notes read "cut square &mdash; a bracket". These strings
+          // are constants in this file - nothing a user typed reaches here.
+          n.innerHTML = C.note;
           g.appendChild(n);
         }
       });

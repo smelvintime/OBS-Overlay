@@ -231,11 +231,30 @@ speaks one visual language.
    given, so matching the camera is all there is to it.
 2. Dress it from the **Webcam frame** tab in the customizer: blade or plain
    frame, accent colour, border thickness, bracket size, glow, and an
-   optional name plate in the bottom-left corner — with the shuriken on it
-   if you like, or the shuriken alone as a corner emblem with no text.
+   optional name plate — with the shuriken on it if you like, or the
+   shuriken alone as a corner emblem with no text.
    The **Camera** control at the top reshapes the preview to your camera's
    proportions so you can judge the look before OBS — it never becomes part
    of the copied URL.
+3. **Accent corners** picks which corners carry the lit bracket (see below),
+   and the plate has its own **Corner** and **Plate size** controls — so the
+   handle can sit top-right at half again the size while the brackets light
+   the two corners your face isn't in.
+
+## Which corners light up
+
+Every source that wears the house "blade" look — the webcam frame, the League
+tracker, the socials plate, the alert card and the follower/sub boxes — has an
+**Accent corners** control: a small rectangle you click the corners of. Lit
+corners carry the glowing accent bracket; dark ones don't.
+
+The corners you pick are also the corners that get **cut square**, because a
+square bracket sitting on a rounded corner reads as a mistake rather than a
+style. The **Corners** slider still rounds whichever ones you left off. Pick
+none for a plain plate with no accent at all, or all four to box it in.
+
+The default is the top-right and bottom-left pair the app has always drawn, so
+nothing you already have in OBS changes until you say so.
 
 The name plate can also carry your **socials** instead of fixed text: set
 **Shows** to *Socials* in the customizer, fill in the handle, and the plate

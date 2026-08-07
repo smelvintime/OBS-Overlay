@@ -16,6 +16,13 @@
      ?radius=10                    corner radius px, 0-40       (default 10)
      ?glow=1                       0 removes the accent glows   (default 1)
      ?opacity=100                  frame opacity 10-100         (default 100)
+     ?corners=tr,bl                which corners carry the accent bracket, from
+                                   tl / tr / br / bl; "all" for four, "none"
+                                   for a bare border. The bracketed corners are
+                                   the cut ones. Blade frame only
+                                                                (default tr,bl)
+     ?platepos=bl|br|tl|tr         which corner the plate sits in (default bl)
+     ?platescale=1                 plate size multiplier 0.6-2.5  (default 1)
      ?label=                       name plate text, 40 characters at most,
                                    inside the bottom-left corner
                                                                 (default none)
@@ -70,7 +77,12 @@
   #frame{--c:var(--accent);
     position:fixed;inset:0;box-sizing:border-box;pointer-events:none;
     opacity:var(--frame-opacity);
-    border:var(--thick) solid var(--card-border)}
+    border:var(--thick) solid var(--card-border);
+    /* What the shared bracket builder draws with. This frame is the odd one
+       out of the five: its arms are ?cut= long, ?thick= thick, and they ride
+       OUT by the border width rather than by a flat pixel. */
+    --cnr-c:var(--c);--cnr-size:var(--cut);--cnr-w:var(--bracket);
+    --cnr-off:calc(-1 * var(--thick))}
 
   /* ---- blade frame ---------------------------------------------------------
      Same brackets as the alert card and the stat boxes - the camera sits on
@@ -80,16 +92,11 @@
      the frame rather than a sticker on it. The outward half of each glow
      falls off the source and OBS crops it; the half bleeding over the
      picture is the half that reads anyway. */
+  /* Which corners carry the bracket is ?corners= - NPO.corners hangs them and
+     cuts the matching corners. This radius is the fallback shape if shared.js
+     never loads. On a camera the choice earns its keep: brackets belong where
+     the picture is quiet, and that is not the same two corners on every set. */
   body.frame-blade #frame{border-radius:var(--radius) 3px var(--radius) 3px}
-  body.frame-blade #frame::before,
-  body.frame-blade #frame::after{
-    content:"";position:absolute;width:var(--cut);height:var(--cut);pointer-events:none}
-  body.frame-blade #frame::before{top:calc(-1*var(--thick));right:calc(-1*var(--thick));
-    border-top:var(--bracket) solid var(--c);border-right:var(--bracket) solid var(--c);
-    border-top-right-radius:3px;filter:drop-shadow(0 0 6px var(--c))}
-  body.frame-blade #frame::after{bottom:calc(-1*var(--thick));left:calc(-1*var(--thick));
-    border-bottom:var(--bracket) solid var(--c);border-left:var(--bracket) solid var(--c);
-    border-bottom-left-radius:3px;filter:drop-shadow(0 0 6px var(--c))}
 
   /* ---- soft frame ----------------------------------------------------------
      A plain tinted ring for scenes the brackets would crowd. The tint is a
@@ -109,8 +116,16 @@
      and a dark plate has no inside for the halo to bleed into. The div casts
      the glow, the span carries the clip, and the shadow follows the leaned
      shape from outside it. */
+  /* Bottom-left is the default, so a link written before ?platepos= existed is
+     unchanged. Each other corner swaps one axis and releases the other with
+     auto - written as insets rather than a transform so the plate keeps
+     hugging its corner at any ?platescale=. */
   #label{position:absolute;left:10px;bottom:10px;max-width:calc(100% - 20px);
     filter:drop-shadow(0 0 6px var(--c))}
+  body.plate-tl #label{left:10px;right:auto;top:10px;bottom:auto}
+  body.plate-tr #label{right:10px;left:auto;top:10px;bottom:auto}
+  body.plate-br #label{right:10px;left:auto;bottom:10px;top:auto}
+  body.plate-bl #label{left:10px;right:auto;bottom:10px;top:auto}
   #label .plate{display:flex;align-items:center;gap:8px;padding:5px 12px;
     border-radius:3px;background:var(--card-bg);border-left:3px solid var(--c);
     color:var(--text);font-size:12.5px;font-weight:700;line-height:1.2;
@@ -141,8 +156,7 @@
   body.slant-on.frame-blade #label .plate{padding-right:20px;
     clip-path:polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%)}
 
-  body.glow-off #frame::before,
-  body.glow-off #frame::after,
+  body.glow-off .npo-cnr,
   body.glow-off #label{filter:none}
 </style>
 <script src="/shared.js"></script>
@@ -173,6 +187,17 @@ if(window.NPO) NPO.themeBoot('source');
   // Matches stats.html: one switch for the diagonal.
   document.body.classList.add(qs.get('slant') === '0' ? 'slant-off' : 'slant-on');
   if(qs.get('glow') === '0') document.body.classList.add('glow-off');
+
+  // Which corner the name/socials plate sits in. Set before the plate is
+  // built below, so it is placed once rather than moved after painting.
+  var platePos = (qs.get('platepos')||'bl').toLowerCase();
+  if(['tl','tr','br','bl'].indexOf(platePos) < 0) platePos = 'bl';
+  document.body.classList.add('plate-' + platePos);
+
+  // Which corners carry the bracket - and so which corners are cut. Blade
+  // only: the plain frame is a tinted ring with no corner to bracket.
+  if(window.NPO && frame === 'blade')
+    NPO.corners(frameEl, NPO.cornerList(qs));
 
   // Bad values fall back to the stylesheet defaults rather than letting NaN
   // anywhere near the CSS.
@@ -232,6 +257,12 @@ if(window.NPO) NPO.themeBoot('source');
     holder.id = 'label';
     var plate = document.createElement('span');
     plate.className = 'plate';
+    // zoom on the plate rather than on #label: zoom scales an element's own
+    // offsets too, so zooming the holder would drag the plate away from the
+    // corner it was told to sit in. Zooming the child leaves left/bottom in
+    // real pixels and simply grows the holder around it.
+    var psc = parseFloat(qs.get('platescale'));
+    if(isFinite(psc) && psc >= 0.6 && psc <= 2.5 && psc !== 1) plate.style.zoom = psc;
 
     if(plateMode === 'socials'){
       var stack = document.createElement('span');

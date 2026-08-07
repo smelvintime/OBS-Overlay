@@ -25,6 +25,11 @@
      ?frame=blade|twin|soft        blade = cut corners, brackets and a shuriken
                                    twin  = the pair of leaning blades
                                    soft  = the plain bar        (default blade)
+     ?corners=tr,bl                which corners carry the accent bracket, from
+                                   tl / tr / br / bl; "all" for four, "none"
+                                   for a plain box. The bracketed corners are
+                                   the cut ones. Blade frame only
+                                                                (default tr,bl)
      ?slant=0|1                    lean the blades and their edges, or square
                                    them off for a rectangular scene (default 1)
      ?mark=2                       shuriken size, 1-3 (x9px)      (default 2)
@@ -132,17 +137,13 @@
      Deliberately not clip-path: a real chamfer would drop the border along the
      cut and take the drop shadow with it. Radius keeps border, shadow and the
      backdrop blur all intact, and at this size reads the same. */
-  body.frame-blade .box{border-radius:var(--radius) 3px var(--radius) 3px}
-  body.frame-blade .box::before,
-  body.frame-blade .box::after{
-    content:"";position:absolute;width:15px;height:15px;pointer-events:none;
-    opacity:.95;transition:opacity .3s ease}
-  body.frame-blade .box::before{top:-1px;right:-1px;
-    border-top:2px solid var(--c);border-right:2px solid var(--c);
-    border-top-right-radius:3px;filter:drop-shadow(0 0 5px var(--c))}
-  body.frame-blade .box::after{bottom:-1px;left:-1px;
-    border-bottom:2px solid var(--c);border-left:2px solid var(--c);
-    border-bottom-left-radius:3px;filter:drop-shadow(0 0 5px var(--c))}
+  /* Which corners carry the bracket is ?corners= - NPO.corners hangs them and
+     cuts the matching corners, and this radius is the fallback shape if
+     shared.js never loads. These boxes are the small end of the house look:
+     15px arms and a tighter glow, on the box's OWN colour rather than the
+     accent, so the follower and subscriber boxes stay told apart. */
+  body.frame-blade .box{border-radius:var(--radius) 3px var(--radius) 3px;
+    --cnr-c:var(--c);--cnr-size:15px;--cnr-glow:5px;--cnr-op:.95}
 
   /* The old look, for anyone who wants the plain bar back. */
   body.frame-soft .box::before{content:"";position:absolute;left:0;top:16%;bottom:16%;
@@ -498,6 +499,15 @@ if(window.NPO) NPO.themeBoot('source');
   var frame = (qs.get('frame')||'blade').toLowerCase();
   if(['blade','twin','soft'].indexOf(frame) < 0) frame = 'blade';
   document.body.classList.add('frame-' + frame);
+
+  // Which corners carry the bracket, per box - and so which corners are cut.
+  // Blade only: twin drops the box chrome entirely and plain wears a stripe,
+  // so neither has a corner to bracket.
+  if(window.NPO && frame === 'blade'){
+    var cnrs = NPO.cornerList(qs);
+    NPO.corners(document.getElementById('boxFollow'), cnrs);
+    NPO.corners(document.getElementById('boxSub'), cnrs);
+  }
 
   // Scenes are rectangular. The lean is the house style but it has to be
   // switchable, so every leaning part reads one class rather than each rule

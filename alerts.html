@@ -20,6 +20,11 @@
                                    plate; twin = the name and the event on two
                                    crossed blades, no card behind them;
                                    soft = the plain bar        (default blade)
+     ?corners=tr,bl                which corners carry the accent bracket, from
+                                   tl / tr / br / bl; "all" for four, "none"
+                                   for a plain card. The bracketed corners are
+                                   the cut ones. Blade frame only
+                                                                (default tr,bl)
      ?align=left|center|right      horizontal position          (default center)
      ?valign=top|middle|bottom     vertical position            (default top)
      ?scale=1.0                    size multiplier
@@ -133,18 +138,13 @@
     opacity:0;will-change:transform,opacity;
   }
   /* ---- blade frame ---------------------------------------------------------
-     Same language as the stat boxes: two corners cut back, the accent carried
-     in brackets on the diagonal rather than a stripe down one edge. */
-  body.frame-blade .alert{border-radius:var(--radius) 3px var(--radius) 3px}
-  body.frame-blade .alert::before,
-  body.frame-blade .alert::after{
-    content:"";position:absolute;width:18px;height:18px;pointer-events:none}
-  body.frame-blade .alert::before{top:-1px;right:-1px;
-    border-top:2px solid var(--c);border-right:2px solid var(--c);
-    border-top-right-radius:3px;filter:drop-shadow(0 0 6px var(--c))}
-  body.frame-blade .alert::after{bottom:-1px;left:-1px;
-    border-bottom:2px solid var(--c);border-left:2px solid var(--c);
-    border-bottom-left-radius:3px;filter:drop-shadow(0 0 6px var(--c))}
+     Same language as the stat boxes: corners cut back, the accent carried in
+     brackets rather than a stripe down one edge. Which corners is ?corners= -
+     NPO.corners hangs the brackets and cuts the matching corners, and this
+     radius is the fallback shape if shared.js never loads. The bracket takes
+     the EVENT's colour, not the accent, so a gift reads orange corners. */
+  body.frame-blade .alert{border-radius:var(--radius) 3px var(--radius) 3px;
+    --cnr-c:var(--c)}
 
   body.frame-soft .alert::before{content:"";position:absolute;left:0;top:14%;bottom:14%;
     width:3px;border-radius:3px;background:var(--c);box-shadow:0 0 14px var(--c)}
@@ -402,6 +402,12 @@ if(window.NPO) NPO.themeBoot('source');
   var frame = (qs.get('frame')||'blade').toLowerCase();
   if(['blade','soft','twin'].indexOf(frame) < 0) frame = 'blade';
   document.body.classList.add('frame-' + frame);
+
+  // Which corners carry the bracket - and so which corners are cut. Blade
+  // only: twin drops the card entirely and plain wears a stripe down one
+  // edge, so neither has a corner to bracket.
+  if(window.NPO && frame === 'blade')
+    NPO.corners(document.getElementById('alert'), NPO.cornerList(qs));
 
   // Matches stats.html: one switch for every diagonal on the card.
   document.body.classList.add(qs.get('slant') === '0' ? 'slant-off' : 'slant-on');

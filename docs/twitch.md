@@ -415,6 +415,9 @@ dressed from the **League tracker** tab in the customizer:
   music card's do — Auto hugs the content, and a set size never squeezes
   below what the content needs. The size hint under the preview always shows
   the true painted size to type into OBS.
+- **Accent corners** picks which corners carry the lit bracket — click them
+  on a little rectangle, and the corners you light are the ones cut square.
+  The alert card and the follower/sub boxes have the same control.
 - It costs nothing while unused: the app only polls the League client while
   the tracker source is actually open (or the bot's Game stats switch is on).
 
