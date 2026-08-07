@@ -77,13 +77,18 @@
     function clean(s) {
       s = (s || '').trim();
       while (s.charAt(0) === '@') s = s.slice(1);   /* the prefix redraws it */
-      /* Handles on all three platforms are letters, digits, dots, dashes and
-         underscores - nothing else. Anything past the first character outside
-         that set is a mangled query riding along, not a name: one hand-edited
-         OBS URL that ran two params together painted "@ALEXSZEDS=40" on
-         stream. Cut there rather than display it. */
-      var m = s.match(/^[A-Za-z0-9._-]*/);
-      s = m ? m[0] : '';
+      /* Cut where a mangled query starts. One hand-edited OBS URL that ran two
+         params together painted "@ALEXSZEDS=40" on stream, so everything from
+         the first character that cannot occur in a handle but does occur in a
+         query string is dropped.
+
+         Deliberately a blocklist, not an allowlist: the first cut of this
+         allowed [A-Za-z0-9._-] only, which silently emptied every non-ASCII
+         handle - and a YouTube handle may be Cyrillic, Japanese or emoji, so
+         that turned a legitimate name into no plate at all. Anything that is
+         not URL punctuation or whitespace is somebody's name somewhere. */
+      var cut = s.search(/[\s=&?#/\\<>"'`]/);
+      if (cut >= 0) s = s.slice(0, cut);
       return s.length > 32 ? s.slice(0, 32) : s;
     }
     var shared = clean(qs.get('handle'));
