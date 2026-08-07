@@ -784,6 +784,21 @@ namespace NowPlaying {
       return (long)(DateTime.Today.ToUniversalTime() - new DateTime(1970, 1, 1)).TotalMilliseconds;
     }
 
+    // The local calendar day, the same stamp the LP-day file keys off - so a
+    // game held over from last night is never counted into this morning.
+    static string DayStamp() { return DateTime.Today.ToString("yyyy-MM-dd"); }
+
+    // Put one game on the front of today's list. Newest-first, matching what
+    // ParseToday builds, and string surgery rather than a re-parse because the
+    // list is this file's own output two lines earlier.
+    internal static string SpliceToday(string todayJson, bool win) {
+      string entry = "{\"m\":\"ranked\",\"win\":" + (win ? "true" : "false") + "}";
+      string inner = "";
+      if (todayJson != null && todayJson.Length >= 2)
+        inner = todayJson.Substring(1, todayJson.Length - 2).Trim();
+      return inner.Length == 0 ? "[" + entry + "]" : "[" + entry + "," + inner + "]";
+    }
+
     // This endpoint's participants[] holds only the current player, so the
     // first entry's stats block is the streamer's own numbers.
     static object FirstParticipantStats(object game) {
@@ -812,6 +827,21 @@ namespace NowPlaying {
     // poll can tell "history has caught up" from "history is still behind".
     static long _eogAnnouncedId;
 
+    // The same game, held for today's tally. Riot publishes a finished game to
+    // match history minutes after it ends - twenty-five minutes, on the
+    // evening this was found - and today's games are re-derived from history
+    // every read. LP today is not: it is the live rank minus where the day
+    // started, so it moves the instant the game does. The two then disagree on
+    // screen, and "+30 LP today" beside "no games yet" is simply wrong.
+    //
+    // So the end-of-game screen's game is remembered and spliced into today
+    // until history publishes it. Ids climb, so "history's newest is at least
+    // this" is exactly "it has landed" - at which point this is dropped and
+    // the game is counted once, from history, like every other.
+    static long _pendingTodayId;
+    static bool _pendingTodayWin;
+    static string _pendingTodayDay = "";   // the local day it belongs to
+
     static bool TryEogAnnounce(int port, string pw) {
       string eog = LcuGet(port, pw, "/lol-end-of-game/v1/eog-stats-block");
       if (eog == null) return false;      // 404 between games: the normal answer
@@ -833,6 +863,12 @@ namespace NowPlaying {
         _newestGameId = gid;
         _eogAnnouncedId = gid;
         _lastLine = last;
+        // Today's tally has the same news now, rather than whenever Riot gets
+        // round to publishing it. Ranked only, which is all this path handles
+        // and all that can move LP - the two numbers that were disagreeing.
+        _pendingTodayId = gid;
+        _pendingTodayWin = win;
+        _pendingTodayDay = DayStamp();
         // The record reads newest-first, so this result goes on the front of
         // whatever the last history read established. History replaces the
         // whole string within the minute - starting with the same letter
@@ -988,6 +1024,22 @@ namespace NowPlaying {
                   // not the last line, not the tallies. They are one snapshot
                   // of one moment, and that moment has passed.
                   if (!behind) {
+                    // Today is re-derived from history on every read, so a game
+                    // history has not published yet would vanish from the tally
+                    // it was already counted in. Hold the end-of-game screen's
+                    // game here until history catches up - ids climb, so
+                    // "newest is at least ours" means it has landed and the
+                    // hold can go, leaving it counted exactly once.
+                    if (_pendingTodayId != 0) {
+                      if (newest >= _pendingTodayId) {
+                        _pendingTodayId = 0;
+                      } else if (_pendingTodayDay == DayStamp()) {
+                        todayJson = SpliceToday(todayJson, _pendingTodayWin);
+                        if (_pendingTodayWin) tw[0]++; else tl[0]++;
+                      } else {
+                        _pendingTodayId = 0;    // last night's game, not today's
+                      }
+                    }
                     _record = record; _lastLine = lastLine;
                     if (newest != 0) _newestGameId = newest;
                     _newestAt = at;
@@ -1126,6 +1178,10 @@ namespace NowPlaying {
            + ",\"eogNoWinKeyWon\":" + (eWin3 ? "true" : "false")
            + ",\"todayOk\":" + (tok ? "true" : "false")
            + ",\"today\":" + todayJson
+           // The hold that keeps a just-finished game in today's tally while
+           // Riot takes its time publishing it to match history.
+           + ",\"spliceIntoEmpty\":" + SpliceToday("[]", true)
+           + ",\"spliceIntoList\":" + SpliceToday(todayJson, false)
            + ",\"tallies\":\"ranked " + tw[0] + "W " + tl[0] + "L, normals " + tw[1] + "W " + tl[1]
            + "L, aram " + tw[2] + "W " + tl[2] + "L, other " + tw[3] + "W " + tl[3] + "L\""
            + ",\"rankOk\":" + (rok ? "true" : "false")
