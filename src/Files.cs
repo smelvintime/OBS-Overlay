@@ -46,8 +46,19 @@ namespace NowPlaying {
     // The cost of the GUID above: where a single fixed ".tmp" name left one
     // stale file that the next write simply reused, a unique one leaves a new
     // one behind every time the process dies mid-write - and build.ps1 force-
-    // kills the running overlay on every rebuild. These land in the folder the
-    // tray menu opens, so they get swept.
+    // kills the running overlay on every rebuild.
+    //
+    // Scoped to the one file being written, NOT to the directory. Sweeping
+    // "*.tmp" across a directory would be the thorough version, but the
+    // directory is not always ours: twitch-config.json is looked up from the
+    // exe folder and as much as four levels above it (FindConfig in
+    // TwitchEvents.cs), which can be somebody's Downloads folder or a drive
+    // root. Deleting another program's scratch files is not a tidy-up.
+    //
+    // So the honest description is: each file reclaims its own orphans the
+    // next time it is written. A file that is rarely saved keeps its stale
+    // temp until it next is. They are inert either way - nothing enumerates
+    // by ".tmp", and the themes listing filters on ".json".
     //
     // An hour old, so this can never race a write that is genuinely in flight
     // on another thread. Best-effort throughout: a failure to tidy up must
