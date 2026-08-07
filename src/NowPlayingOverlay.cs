@@ -569,7 +569,14 @@ namespace NowPlaying {
         }
         keepArgs.Add(args[i]);
         if ((a == "port" || a == "p") && i + 1 < args.Length) {
-          int p; if (int.TryParse(args[i + 1], out p)) { _port = p; }
+          // Range-checked, because new TcpListener throws
+          // ArgumentOutOfRangeException - not SocketException - for anything
+          // outside 1-65535, and the bind loop only catches the latter. A typo
+          // like "-port 87877" therefore escaped past the friendly "use a
+          // different port" dialog that exists for exactly this, straight into
+          // the unhandled-exception handler, and the app died at every login
+          // if the value had reached the Run key.
+          int p; if (int.TryParse(args[i + 1], out p) && p > 0 && p <= 65535) { _port = p; }
           keepArgs.Add(args[i + 1]); i++;
         } else if (a == "prefer" && i + 1 < args.Length) {
           i++; _pinApp = args[i]; _mode = "prefer"; keepArgs.Add(args[i]);
@@ -605,7 +612,7 @@ namespace NowPlaying {
           Say("  for settings, or open http://127.0.0.1:8787/control");
           return 0;
         } else {
-          int p; if (int.TryParse(a, out p)) _port = p;
+          int p; if (int.TryParse(a, out p) && p > 0 && p <= 65535) _port = p;
         }
       }
       if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
@@ -725,9 +732,32 @@ namespace NowPlaying {
       Updater.CleanupAfterSwap();   // sweep the previous build's ".old" leftover, if any
 
       var accept = new Thread(() => {
+        // A SocketException out of Accept is not the end of the listener, and
+        // treating it as one was catastrophic: WSAECONNRESET is a documented,
+        // ordinary return when a peer drops between SYN and accept, which is
+        // exactly what OBS does when it refreshes several browser sources at
+        // once. Breaking here left the process alive - tray icon, tooltip,
+        // everything - with every overlay in OBS dead and never coming back,
+        // no line in the log, and the port still bound so relaunching failed
+        // with "another copy is probably already running". Only a shut-down
+        // listener (ObjectDisposedException / InvalidOperationException) ends
+        // the loop now; anything else is one bad connection, not the end.
+        int consecutive = 0;
         while (true) {
           TcpClient client;
-          try { client = listener.AcceptTcpClient(); } catch { break; }
+          try {
+            client = listener.AcceptTcpClient();
+            consecutive = 0;
+          } catch (SocketException ex) {
+            // A pause on a repeating failure, so a listener wedged in some
+            // state that fails instantly cannot spin a core.
+            if (++consecutive <= 3) AppLog.Write("accept failed: " + ex.Message);
+            if (consecutive > 3) Thread.Sleep(100);
+            continue;
+          } catch (Exception ex) {
+            AppLog.Write("accept loop ended: " + ex.Message);
+            break;
+          }
           ThreadPool.QueueUserWorkItem(_ => Handle(client));
         }
       });
@@ -1015,14 +1045,24 @@ namespace NowPlaying {
         if (s == null) return null;
         var p = Await(s.TryGetMediaPropertiesAsync());
         if (p == null || p.Thumbnail == null) return null;
-        var stream = Await(p.Thumbnail.OpenReadAsync());
-        uint size = (uint)stream.Size;
-        if (size == 0) return null;
-        var reader = new DataReader(stream);
-        Await(reader.LoadAsync(size));
-        var bytes = new byte[size];
-        reader.ReadBytes(bytes);
-        return bytes;
+        // Both of these are WinRT objects holding native buffers and an open
+        // handle on the thumbnail, and neither used to be closed. A cover is
+        // read on every track change - roughly 160 of them across an evening
+        // of music, at a few hundred KB each - and nothing here allocates
+        // enough managed memory to provoke the gen-2 collection that would
+        // eventually run their finalizers, so the native working set simply
+        // climbed for the length of the stream.
+        using (var stream = Await(p.Thumbnail.OpenReadAsync())) {
+          if (stream == null) return null;
+          uint size = (uint)stream.Size;
+          if (size == 0) return null;
+          using (var reader = new DataReader(stream)) {
+            Await(reader.LoadAsync(size));
+            var bytes = new byte[size];
+            reader.ReadBytes(bytes);
+            return bytes;
+          }
+        }
       } catch { return null; }
     }
 
@@ -1255,8 +1295,24 @@ namespace NowPlaying {
             // no-store is three fetches per track per page instead of one. On a
             // page with several previews that was most of the traffic, and the
             // first thing to fail when connections were scarce.
-            if (snap.Art != null && snap.Art.Length > 0)
+            //
+            // ...but only if the id really does match, which is the part that
+            // was missing. The parameter was never read, so the handler always
+            // answered with whatever _current happened to hold. The poller
+            // swaps _current once a second, so a track change between the /np
+            // response and the /art request that followed it pinned the NEW
+            // track's bytes under the OLD track's URL - immutably, for 24
+            // hours, in a disk cache shared by every browser source and
+            // surviving an OBS restart. That song then showed the wrong cover
+            // all day and refreshing the source could not clear it.
+            // A caller that names no id still gets whatever is current, so
+            // hand-typing /art in a browser keeps working.
+            string wantId = QueryParam(path, "id");
+            if ((wantId == null || wantId == snap.Id)
+                && snap.Art != null && snap.Art.Length > 0)
               Send(ns, 200, snap.ArtMime, snap.Art, "public, max-age=86400, immutable");
+            // Both misses answer 204, and Send's default no-store means
+            // neither is cached - so a mismatch is "ask again", not "never".
             else Send(ns, 204, "text/plain", new byte[0]);
           } else if (route == "/features/state") {
             SendPrivate(ns, 200, "application/json; charset=utf-8",
@@ -1388,6 +1444,14 @@ namespace NowPlaying {
             Send(ns, 200, "application/json; charset=utf-8",
                  Encoding.UTF8.GetBytes(SpectrumJson()));
           } else if (route == "/setsource") {
+            // This writes _mode and _pinApp AND persists them, so it belongs
+            // with every other state-writing route behind the same guard. It
+            // was the one that got missed: a plain <img src="/setsource?..."> on
+            // any page the user visits needs no preflight and no reply, and
+            // could pin the overlay to a player that does not exist - blanking
+            // the now-playing card mid-stream, and still blank after a restart
+            // because it went to settings.txt.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             string m = NormalizeMode(QueryParam(path, "mode"));
             string app = QueryParam(path, "app") ?? "";
             if (m == "auto") app = "";
@@ -1989,8 +2053,12 @@ namespace NowPlaying {
       new System.Text.RegularExpressions.Regex("^[a-z0-9][a-z0-9-]{0,31}$");
     static readonly System.Text.RegularExpressions.Regex VarNameRe =
       new System.Text.RegularExpressions.Regex("^--[A-Za-z0-9_-]{1,40}$");
+    // 3, 4, 6 and 8 digits, and nothing between them - 5 and 7 are not colours,
+    // and a swatch that is not a colour lands in a page as an unset property
+    // rather than a fallback.
     static readonly System.Text.RegularExpressions.Regex SwatchRe =
-      new System.Text.RegularExpressions.Regex("^#[0-9a-fA-F]{3,8}$");
+      new System.Text.RegularExpressions.Regex(
+        @"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\z");
 
     static Dictionary<string, object> CleanVarMap(object raw) {
       var outMap = new Dictionary<string, object>();
@@ -2196,21 +2264,45 @@ namespace NowPlaying {
     // Starts with a letter or digit (so no dot-names and no ".."), then the
     // characters real downloads actually have. No slashes, no colons -
     // nothing that can leave the media folder.
+    //
+    // Written as a BLOCKLIST of what is dangerous rather than an allowlist of
+    // what is tidy. The old allowlist was [A-Za-z0-9 ._()-], which quietly
+    // refused most of a real sound pack - "Don't Stop Me Now.mp3", "Airhorn!.wav",
+    // "Cafe.mp3", "bruh - sound effect #2.mp3" - and every non-Latin name
+    // outright. Refused with no log line and no entry in /media-list, so the
+    // customizer showed an empty picker beside a message naming the folder the
+    // user was looking at full of files. Traversal never needed a narrow
+    // character set: what it needs is no path separators, no colon (NTFS
+    // alternate data streams), no wildcards, and a first character that cannot
+    // start a relative path. The extension whitelist below is still the real
+    // boundary.
+    //
+    // The comma stays excluded, and that is now load-bearing: alerts.html
+    // splits ?media= and ?sound= on commas to make a group of clips, so a
+    // filename containing one could never be addressed anyway. \z rather than
+    // $ because .NET's $ also matches before a trailing newline.
     static readonly System.Text.RegularExpressions.Regex MediaNameRe =
-      new System.Text.RegularExpressions.Regex(@"^[A-Za-z0-9][A-Za-z0-9 ._()\-]{0,79}$");
+      new System.Text.RegularExpressions.Regex(
+        @"^[^\x00-\x1f./\\:*?""<>|,~][^\x00-\x1f/\\:*?""<>|,]{0,127}\z");
 
     static string MediaMime(string name) {
       switch (Path.GetExtension(name).ToLowerInvariant()) {
         case ".mp3": return "audio/mpeg";
         case ".wav": return "audio/wav";
-        case ".ogg": return "audio/ogg";
-        case ".m4a": return "audio/mp4";
-        case ".mp4": return "video/mp4";
+        case ".ogg": case ".oga": return "audio/ogg";
+        case ".opus": return "audio/ogg";     // Chromium reads Opus in an Ogg shell
+        case ".m4a": case ".aac": return "audio/mp4";
+        case ".flac": return "audio/flac";
+        case ".mp4": case ".m4v": return "video/mp4";
         case ".webm": return "video/webm";
         case ".gif": return "image/gif";
-        case ".png": return "image/png";
+        case ".png": case ".apng": return "image/png";
         case ".jpg": case ".jpeg": return "image/jpeg";
         case ".webp": return "image/webp";
+        case ".avif": return "image/avif";
+        // Deliberately no .svg: an SVG opened directly is a scriptable
+        // document on this app's origin, and every same-origin route here is
+        // unauthenticated by design. An alert clip is not worth that.
         default: return null;      // anything else is not served, full stop
       }
     }

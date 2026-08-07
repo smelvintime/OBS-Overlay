@@ -196,8 +196,23 @@
   // Theme follows the app-wide preference like every other page, via the
   // shared.js boot in <head>.
 
+  // The text can change between calls (the redirect URI arrives with the first
+  // /setup/state answer), so the handler reads it from the button rather than
+  // from a captured argument, and is attached exactly once.
+  //
+  // It used to just addEventListener every time, with a comment claiming a
+  // re-bind was harmless because "latest wins visually". addEventListener
+  // accumulates, it does not replace: applyState runs on a 2.5s poll, so a
+  // setup page left open while the streamer creates their Twitch app - which
+  // is minutes, by design - reached hundreds of handlers, and one click then
+  // fired hundreds of clipboard writes and timers at once. Chrome throttles
+  // that burst, so the copy that mattered could fail outright.
   function copyBtn(btn, text){
+    btn._copyText = text;
+    if(btn._copyBound) return;
+    btn._copyBound = true;
     btn.addEventListener('click', function(){
+      var text = btn._copyText;
       var done = function(){ btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1400); };
       if(navigator.clipboard && navigator.clipboard.writeText)
         navigator.clipboard.writeText(text).then(done, function(){});

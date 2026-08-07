@@ -18,11 +18,28 @@ namespace NowPlaying {
 
     // Same volume by construction (the temp sits beside the target), which is
     // what File.Replace needs to stay atomic.
+    //
+    // The temp name carries a GUID rather than being a flat "<path>.tmp".
+    // Eighteen call sites reach this from HTTP request threads and background
+    // timers, several of them writing the same file, and a shared scratch name
+    // makes two concurrent writers fight over one handle: the first one's
+    // File.Replace needs delete access to a file the second has just opened
+    // with FileMode.Create, so it throws IOException - which every caller
+    // swallows. The write is reported as done and the setting reverts at the
+    // next restart. Distinct temps mean the worst case is a harmless
+    // last-writer-wins instead of a silently lost save.
     internal static void WriteAtomic(string path, string text) {
-      string tmp = path + ".tmp";
-      File.WriteAllText(tmp, text);
-      if (File.Exists(path)) File.Replace(tmp, path, null);
-      else File.Move(tmp, path);
+      string tmp = path + "." + System.Guid.NewGuid().ToString("N") + ".tmp";
+      try {
+        File.WriteAllText(tmp, text);
+        if (File.Exists(path)) File.Replace(tmp, path, null);
+        else File.Move(tmp, path);
+      } catch {
+        // Never leave scratch behind for a write that did not land - the
+        // folder is one the user is told to open from the tray menu.
+        try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+        throw;
+      }
     }
   }
 }

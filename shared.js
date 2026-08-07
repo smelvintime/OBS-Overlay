@@ -308,9 +308,16 @@
      changes. */
   NPO.themeBoot = function (mode) {
     var forced = NPO.qs().get('theme');
-    // theme=glass|solid|minimal are per-source chrome variants handled by the
-    // pages themselves, not palettes; never treat them as a palette pin.
-    if (forced === 'glass' || forced === 'solid' || forced === 'minimal') forced = null;
+    /* theme= is overloaded: the overlay reads it as the chrome behind the
+       content (auto|glass|solid|none, plus the legacy layout alias "minimal"),
+       and this reads it as a palette to pin. Any chrome value that reached the
+       palette side found no theme by that name and painted the EMPTY string
+       over the active theme - then did it again on every 5s poll, so a
+       Shadow-red channel got one stubbornly blue source and no way to fix it.
+       "none" is the one that actually shipped: it is what the customizer's
+       Chrome -> None button emits. */
+    var CHROME = ['glass', 'solid', 'minimal', 'none', 'auto'];
+    if (CHROME.indexOf(forced) >= 0) forced = null;
 
     if (mode === 'dashboard' && !forced) {
       try {
@@ -341,9 +348,24 @@
     }
 
     if (mode === 'source') {
+      /* Chained on completion, not a fixed-rate interval - the pattern every
+         data poll in this app already uses. OBS runs every browser source in
+         one Chromium sharing six connections to this address, so a slow answer
+         (the app rebuilding itself during an in-app update, say) used to have
+         each source stacking a fresh /themes request every 5s onto a queue
+         that could not drain, and two overlapping answers could resolve out of
+         order and paint a stale palette. One request in flight per source. */
       (function poll() {
-        NPO.themes(paint);
-        setTimeout(poll, 5000);
+        var done = false;
+        function next(ms) { if (done) return; done = true; setTimeout(poll, ms); }
+        /* ...with a watchdog, because the other failure mode of chaining is
+           worse than the one it fixes: a fetch that never settles at all would
+           otherwise end theme polling for this source permanently, and a theme
+           switch would never again reach the thing actually on stream. */
+        var guard = setTimeout(function () { next(0); }, 20000);
+        try {
+          NPO.themes(function (j) { clearTimeout(guard); paint(j); next(5000); });
+        } catch (e) { clearTimeout(guard); next(5000); }
       })();
     } else {
       NPO.themes(paint);

@@ -114,6 +114,14 @@
   .val{color:var(--fg);font-size:12.5px;font-variant-numeric:tabular-nums;
     min-width:52px;text-align:right;font-weight:700}
 
+  /* A sound or clip pick is a group now, so the control is a column of picks
+     with a way to add one more. One file means one row and an Add link, which
+     is as close to the single dropdown it replaced as makes no difference. */
+  .medialist{flex:1 1 auto;min-width:0;max-width:280px;
+    display:flex;flex-direction:column;align-items:stretch;gap:6px}
+  .medialist select{flex:0 0 auto;width:100%;max-width:none}
+  .medialist .addmedia{align-self:flex-start;padding:4px 11px;font-size:11.5px}
+
   /* The corner picker: a little plate you click the corners of. Reading it is
      the whole point - four checkboxes labelled "top left" would make you
      translate words back into a shape every time. */
@@ -189,6 +197,7 @@
   /* The list itself lives on the Saved looks tab; only the save flow is here. */
   .saverow{display:none;align-items:center;gap:8px}
   .saverow.on{display:flex}
+  .saveerr{color:var(--bad,#e5383b);font-size:12px}
   .saverow input{background:var(--panel);border:1px solid var(--line);color:var(--fg);
     border-radius:7px;padding:8px 10px;font:inherit;font-size:12.5px;width:180px}
   footer{color:var(--dim);font-size:13px;padding:0 32px 46px;line-height:1.6}
@@ -237,6 +246,8 @@
       <input type="text" id="savename" maxlength="40" placeholder="Name this look">
       <button type="button" class="primary" id="savego">Save</button>
       <button type="button" class="action" id="savecancel">Cancel</button>
+      <!-- A save error belongs beside the box, not inside it. -->
+      <span class="saveerr" id="saveerr"></span>
     </span>
     <button type="button" class="action" id="savelook">Save look</button>
     <button type="button" class="action" id="reset">Reset all</button>
@@ -330,9 +341,15 @@
       defaults:{
         layout:'card', accent:'9bd4f5', theme:'auto', artbg:'auto', align:'left', valign:'bottom',
         scale:1, radius:18, opacity:100, w:0, h:0, transition:'slide', eq:'live', bars:5,
-        speed:60, mqspeed:30, showAlbum:0, showArt:1, hideWhenPaused:0
+        speed:60, mqspeed:30, showAlbum:0, showArt:1, hideWhenPaused:0,
+        spin:0, spinrpm:12, spinvinyl:1, spinpause:1
       },
-      size:function(st){ return SIZES[st.layout]; },
+      // The fallback matters: layout comes back out of localStorage with only
+      // its KEY validated, never its value. One stale or hand-edited entry -
+      // a layout id retired in a later release, say - returned undefined here,
+      // paint() read .w off it, and the whole page died before drawing a
+      // single control: header, empty tabs, blank preview, no error anywhere.
+      size:function(st){ return SIZES[st.layout] || SIZES.card; },
       actions:[['Replay song change', function(win){
         win.postMessage('nowplaying:preview-transition', location.origin); }]],
       groups:[
@@ -388,6 +405,20 @@
           { key:'showAlbum', label:'', type:'toggle', text:'Show the album name' },
           { key:'hideWhenPaused', label:'', type:'toggle', text:'Hide completely while paused' }
         ]},
+        { title:'Spin the cover', controls:[
+          { key:'spin', label:'', type:'toggle', text:'Turn the album art into a record',
+            note:'Makes the cover a circle and rotates it. Off unless you switch it on, and '
+               + 'off it changes nothing at all &mdash; the cover keeps the rounded square '
+               + 'it has always had.' },
+          { key:'spinrpm', label:'Speed', type:'range', min:0, max:100, step:1, unit:' rpm',
+            zeroText:'Hold still',
+            note:'Revolutions per minute &mdash; the number printed on a record. A real LP '
+               + 'turns at 33 and a single at 45, but at those speeds a cover is a smear '
+               + 'rather than a picture, so the default sits well under both. Wind it down '
+               + 'to zero for a circle that doesn’t turn.' },
+          { key:'spinvinyl', label:'', type:'toggle', text:'Grooves, label ring and spindle hole' },
+          { key:'spinpause', label:'', type:'toggle', text:'Stop the record while the music is paused' }
+        ]},
         { title:'Title scroll', only:'!ticker', controls:[
           { key:'mqspeed', label:'Speed', type:'range', min:5, max:200, step:5, unit:' px/s',
             note:'How fast a title that does not fit its box slides back and forth. '
@@ -412,7 +443,7 @@
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
         radius:16, opacity:100, hold:6, spins:1.5, corners:'tr,bl', cthick:2, clen:18,
         sound:'', soundvol:70, media:'', mediah:180, mediax:50, mediay:50, mediadelay:0,
-        medialoop:1,
+        medialoop:1, soundpick:'cycle', mediapick:'cycle',
         soundfollow:'', soundsub:'', soundresub:'', soundgift:'',
         mediafollow:'', mediasub:'', mediaresub:'', mediagift:''
       },
@@ -476,14 +507,26 @@
         { title:'Sound and clip', controls:[
           { key:'sound', label:'Sound', type:'media', kind:'audio',
             note:'Plays each time an alert lands. Drop mp3 / wav / ogg files into the media '
-               + 'folder (tray icon → Open media folder), then pick one here. In a normal '
-               + 'browser tab the preview stays silent until you click the page once - '
-               + 'that is a browser rule; OBS plays it every time.' },
+               + 'folder (tray icon → Open media folder), then pick one here. '
+               + '<strong>Add another</strong> makes it a group: the alert draws one of them '
+               + 'each time instead of always the same file. In a normal browser tab the '
+               + 'preview stays silent until you click the page once - that is a browser '
+               + 'rule; OBS plays it every time.' },
+          { key:'soundpick', label:'Order', type:'seg',
+            options:[['cycle','In turn'],['random','Random']],
+            note:'Only matters once a group has more than one file. <em>In turn</em> walks '
+               + 'the list, so everything gets played and nothing repeats until the list has '
+               + 'been round once. <em>Random</em> picks freely, but never the same one twice '
+               + 'running.' },
           { key:'soundvol', label:'Volume', type:'range', min:0, max:100, step:5, unit:'%' },
           { key:'media', label:'Clip', type:'media', kind:'visual',
             note:'A gif, image or looping video (mp4 / webm, always muted) shown while each '
                + 'alert is up. Gifs and videos restart from their first frame on every '
-               + 'alert; size and place it with the sliders below.' },
+               + 'alert; size and place it with the sliders below. <strong>Add another</strong> '
+               + 'turns it into a group and the alert draws one clip from it each time.' },
+          { key:'mediapick', label:'Order', type:'seg',
+            options:[['cycle','In turn'],['random','Random']],
+            note:'How the next clip comes out of a group, exactly as the sound order above.' },
           { key:'mediah', label:'Clip size', type:'range', min:40, max:720, step:10, unit:'px' },
           { key:'mediax', label:'Across', type:'range', min:0, max:100, step:1, unit:'%' },
           { key:'mediay', label:'Down', type:'range', min:0, max:100, step:1, unit:'%',
@@ -502,10 +545,11 @@
         { title:'Per-event sound & clip', controls:[
           { key:'soundfollow', label:'Follow sound', type:'media', kind:'audio',
             emptyText:'Same as Sound above', allowNone:true,
-            note:'Give each kind of event its own sound and clip. Anything left on '
-               + '"Same as..." plays the main pick above; "Nothing for this one" '
-               + 'switches that event off without touching the rest. Size, position, '
-               + 'delay and loop are shared - the clips change, the staging doesn’t.' },
+            note:'Give each kind of event its own sound and clip &mdash; or its own group of '
+               + 'them. Anything left on "Same as..." plays the main pick above; "Nothing '
+               + 'for this one" switches that event off without touching the rest. Size, '
+               + 'position, delay, loop and the order above are shared - the clips change, '
+               + 'the staging doesn’t.' },
           { key:'mediafollow', label:'Follow clip', type:'media', kind:'visual',
             emptyText:'Same as Clip above', allowNone:true },
           { key:'soundsub', label:'Sub sound', type:'media', kind:'audio',
@@ -520,7 +564,8 @@
             emptyText:'Same as Sound above', allowNone:true },
           { key:'mediagift', label:'Gift clip', type:'media', kind:'visual',
             emptyText:'Same as Clip above', allowNone:true,
-            note:'Use the test buttons at the top to hear and see each one land.' }
+            note:'Use the test buttons at the top to hear and see each one land &mdash; click '
+               + 'the same one a few times to watch a group come round.' }
         ]},
         { title:'Timing', controls:[
           { key:'hold', label:'On screen', type:'range', min:2, max:20, step:1, unit:'s' }
@@ -1204,13 +1249,26 @@
   // One fetch of the user's media folder, shared by every media picker. The
   // answer changes only when someone drops a file in, and switching tabs
   // rebuilds the controls anyway - so refetching per control is pure noise.
-  var _mediaCache;
+  // The cache was only claimed in .then, so every control built before the
+  // first response saw undefined and started its own fetch - ten of them on
+  // the alerts tab, all inside Chrome's six-per-origin budget, racing the
+  // preview iframe that this page then accuses of stalling. Waiters queue on
+  // the one request in flight instead.
+  var _mediaCache, _mediaWaiting = null;
   function mediaList(cb){
     if(_mediaCache !== undefined){ cb(_mediaCache); return; }
+    if(_mediaWaiting){ _mediaWaiting.push(cb); return; }
+    _mediaWaiting = [cb];
+    function settle(j){
+      _mediaCache = j;
+      var waiting = _mediaWaiting;
+      _mediaWaiting = null;
+      waiting.forEach(function(f){ f(j); });
+    }
     fetch('/media-list', {cache:'no-store'})
       .then(function(r){ return r.json(); })
-      .then(function(j){ _mediaCache = j; cb(j); })
-      .catch(function(){ _mediaCache = null; cb(null); });
+      .then(settle)
+      .catch(function(){ settle(null); });
   }
 
   function buildControls(){
@@ -1366,51 +1424,99 @@
 
           } else if(C.type === 'media'){
             (function(){
-              // A dropdown of what is actually in the media folder, so nobody
+              // Dropdowns of what is actually in the media folder, so nobody
               // types filenames. kind:'audio' lists sounds; anything else
               // lists the visual files (gif / video / image).
-              var sel = document.createElement('select');
-              function fill(list){
-                var files = ((list && list.files) || []).filter(function(f){
-                  return C.kind === 'audio' ? f.kind === 'audio' : f.kind !== 'audio';
-                });
-                sel.innerHTML = '';
-                var none = document.createElement('option');
-                none.value = '';
-                // emptyText lets the per-event pickers say what empty MEANS
-                // there ("Same as the main pick") instead of a bare None.
-                none.textContent = files.length ? (C.emptyText || 'None')
-                                                : 'None - the media folder is empty';
-                sel.appendChild(none);
+              //
+              // A pick is a GROUP: one row per file, comma-joined into the one
+              // string that is both the state value and the URL value. That is
+              // why nothing else on this page needed changing - params() sees
+              // the same kind of string it always did, and a look saved before
+              // groups existed holds a bare filename, which is already a
+              // perfectly good list of one.
+              var box = document.createElement('div');
+              box.className = 'medialist';
+              var files = [];            // filled when the folder listing lands
+              var rows = null;           // render model; null = re-read state
+
+              function model(){
+                if(rows) return rows;
+                var v = String(state[C.key] || '');
+                if(!v) rows = [''];
+                else if(v.toLowerCase() === 'none') rows = ['none'];
+                else rows = v.split(',').map(function(s){ return s.trim(); })
+                             .filter(function(s){ return !!s; });
+                if(!rows.length) rows = [''];
+                return rows;
+              }
+              // "none" is exclusive - "nothing for this event, and also these
+              // three files" is not a thing anyone means - and blank rows are
+              // slots that were opened and never filled.
+              function commit(){
+                var v = rows.indexOf('none') >= 0 ? 'none'
+                      : rows.filter(function(s){ return !!s; }).join(',');
+                set(C.key, v, live);
+              }
+              function option(sel, value, text){
+                var o = document.createElement('option');
+                o.value = value; o.textContent = text;
+                sel.appendChild(o);
+              }
+              function rowFor(value, i){
+                var sel = document.createElement('select');
+                // The empty option means two different things depending on
+                // where it sits, and both are honest: on the only row it is
+                // "no pick" (which for a per-event control means "inherit the
+                // main one"), on a later row it is "drop this entry".
+                option(sel, '', rows.length > 1 ? 'Remove this one'
+                      : (files.length ? (C.emptyText || 'None')
+                                      : 'None - the media folder is empty'));
                 // allowNone adds an explicit off-switch, distinct from empty:
                 // for a per-event pick, empty inherits the main file while
                 // "none" says this event gets nothing at all.
-                if(C.allowNone){
-                  var off = document.createElement('option');
-                  off.value = 'none';
-                  off.textContent = 'Nothing for this one';
-                  sel.appendChild(off);
-                }
-                files.forEach(function(f){
-                  var o = document.createElement('option');
-                  o.value = f.name; o.textContent = f.name;
-                  sel.appendChild(o);
-                });
+                if(C.allowNone && rows.length === 1) option(sel, 'none', 'Nothing for this one');
+                files.forEach(function(f){ option(sel, f.name, f.name); });
                 // A picked file that has since been deleted stays visible and
                 // marked, rather than silently reading back as None.
-                if(state[C.key] && state[C.key] !== 'none'
-                   && !files.some(function(f){ return f.name === state[C.key]; })){
-                  var miss = document.createElement('option');
-                  miss.value = state[C.key];
-                  miss.textContent = state[C.key] + ' (missing from folder)';
-                  sel.appendChild(miss);
-                }
-                sel.value = state[C.key] || '';
+                if(value && value !== 'none'
+                   && !files.some(function(f){ return f.name === value; }))
+                  option(sel, value, value + ' (missing from folder)');
+                sel.value = value;
+                sel.addEventListener('change', function(){
+                  if(sel.value === 'none') rows = ['none'];
+                  else if(!sel.value && rows.length > 1) rows.splice(i, 1);
+                  else rows[i] = sel.value;
+                  commit();
+                  build();
+                });
+                return sel;
               }
-              mediaList(fill);
-              sel.addEventListener('change', function(){ set(C.key, sel.value, live); });
-              refresh.push(function(){ sel.value = state[C.key] || ''; });
-              ctl.appendChild(sel);
+              function build(){
+                box.innerHTML = '';
+                model().forEach(function(v, i){ box.appendChild(rowFor(v, i)); });
+                var last = rows[rows.length - 1];
+                // Only offer another slot once the last one is filled, and
+                // never after an explicit "nothing" - a group that opens with
+                // "off" is a contradiction.
+                if(last && last !== 'none' && files.length){
+                  var add = document.createElement('button');
+                  add.type = 'button'; add.className = 'chip addmedia';
+                  add.textContent = '+ Add another';
+                  // Nothing is committed yet: an empty row is a slot, and it
+                  // only reaches the URL once a file is chosen in it.
+                  add.addEventListener('click', function(){ rows.push(''); build(); });
+                  box.appendChild(add);
+                }
+              }
+              mediaList(function(list){
+                files = ((list && list.files) || []).filter(function(f){
+                  return C.kind === 'audio' ? f.kind === 'audio' : f.kind !== 'audio';
+                });
+                build();
+              });
+              build();
+              refresh.push(function(){ rows = null; build(); });
+              ctl.appendChild(box);
             })();
 
           } else if(C.type === 'text'){
@@ -1564,6 +1670,13 @@
 
   // ---- Twitch connection state ----------------------------------------------
   var twitch = null;
+  // The banner is the one place on this page that builds HTML from values the
+  // app fetched rather than from constants in this file: a Twitch channel
+  // name, an event kind, and a detail string that can carry text straight out
+  // of an API error body. Every other innerHTML here is a literal.
+  function esc(s){ return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;'); }
   function showBanner(){
     if(current === 'overlay' || !twitch){ bannerEl.className = 'banner'; return; }
     var s = twitch.status, cls = 'warn', html = '';
@@ -1575,8 +1688,8 @@
                 .replace('channel.subscription.gift','gifts')
                 .replace('channel.subscribe','subs')
                 .replace('channel.follow','follows'); });
-      html = 'Connected to Twitch as <strong>' + (twitch.channel || '?') + '</strong>'
-           + (listening.length ? ', listening for <strong>' + listening.join(', ') + '</strong>.'
+      html = 'Connected to Twitch as <strong>' + esc(twitch.channel || '?') + '</strong>'
+           + (listening.length ? ', listening for <strong>' + esc(listening.join(', ')) + '</strong>.'
                                : ', but not subscribed to any events yet.');
       if(twitch.subs && twitch.subs.total === -2)
         html += ' Subscriptions are unavailable with this token or channel, so that box stays hidden.';
@@ -1596,9 +1709,10 @@
       }
       // The count is the thing to watch when testing with a second account: it
       // separates "Twitch sent nothing" from "the page failed to draw it".
-      html += '<br><strong>' + ev.received + '</strong> event'
+      html += '<br><strong>' + esc(ev.received) + '</strong> event'
            + (ev.received === 1 ? '' : 's') + ' received since start'
-           + (ev.lastAt ? ' &mdash; last was <strong>' + ev.lastKind + '</strong> at ' + ev.lastAt : '')
+           + (ev.lastAt ? ' &mdash; last was <strong>' + esc(ev.lastKind) + '</strong> at '
+                          + esc(ev.lastAt) : '')
            + '.';
       // "Live" only means the subscriptions were accepted once - the socket can
       // still drop silently afterwards and sit reconnecting with nothing to show
@@ -1607,20 +1721,23 @@
       if(sock && !sock.connected){
         cls = 'warn';
         html += '<br>Socket reconnecting'
-             + (sock.reconnects ? ' (' + sock.reconnects + ' so far)' : '') + '&hellip;';
+             + (sock.reconnects ? ' (' + esc(sock.reconnects) + ' so far)' : '') + '&hellip;';
       }
     } else if(s === 'bad-token' || s === 'missing-scope'){
       cls = 'bad';
-      html = '<strong>' + twitch.detail + '</strong> Alerts and counts will not update until this is fixed.';
+      // The || is the other half: a bad-token status with no detail rendered the
+      // literal word "undefined" at the head of the sentence.
+      html = '<strong>' + esc(twitch.detail || 'Twitch rejected the saved credentials.')
+           + '</strong> Alerts and counts will not update until this is fixed.';
     } else if(s === 'off'){
-      html = 'Twitch is not set up yet (' + (twitch.detail || 'no credentials') + '), so these sources '
+      html = 'Twitch is not set up yet (' + esc(twitch.detail || 'no credentials') + '), so these sources '
            + 'have no data. The preview below uses sample numbers. See the README for the '
            + '<code>clientId</code> and <code>apiToken</code> setup.';
     } else if(s === 'connecting'){
       html = 'Connecting to Twitch...';
     } else {
       cls = 'bad';
-      html = twitch.detail || 'Twitch connection problem.';
+      html = esc(twitch.detail || 'Twitch connection problem.');
     }
     bannerEl.className = 'banner on ' + cls;
     bannerEl.innerHTML = html;
@@ -1664,7 +1781,16 @@
   // whatever the preview settled on. It makes the controls themselves shift
   // with the album, which is the clearest way to show what auto is doing.
   setInterval(function(){
-    if(current !== 'overlay' || state.accent !== 'auto') return;
+    // Clearing it again is the other half. This writes an INLINE --accent on
+    // <html>, which outranks the theme's stylesheet rule - exactly the bug
+    // described five hundred lines up - so leaving it behind when auto is
+    // switched off, or when another tab is selected, left the whole dashboard
+    // tinted by the last album that happened to be playing, and a theme
+    // applied afterwards had no visible effect until a hard reload.
+    if(current !== 'overlay' || state.accent !== 'auto'){
+      document.documentElement.style.removeProperty('--accent');
+      return;
+    }
     try {
       var c = getComputedStyle(frame.contentDocument.documentElement)
                 .getPropertyValue('--accent').trim();
@@ -1702,11 +1828,13 @@
   // browser on the machine.
   var saveRow = document.getElementById('saverow');
   var saveName = document.getElementById('savename');
+  var saveErr = document.getElementById('saveerr');
   var saveLookBtn = document.getElementById('savelook');
 
   saveLookBtn.addEventListener('click', function(){
     saveLookBtn.style.display = 'none';
     saveRow.className = 'saverow on';
+    saveErr.textContent = '';
     saveName.value = '';
     saveName.focus();
   });
@@ -1734,7 +1862,11 @@
           saveLookBtn.textContent = 'Saved ✓';
           setTimeout(function(){ saveLookBtn.textContent = 'Save look'; }, 1800);
         }
-        else { saveName.value = (j && j.error) || 'could not save'; saveName.select(); }
+        // Not into saveName: that field's value is what gets submitted, and
+        // its Enter handler resubmits it - so the error text became the name
+        // the look was saved under as soon as a slot freed up.
+        else { saveErr.textContent = (j && j.error) || 'could not save';
+               saveName.select(); }
       })
       .catch(function(){});
   }

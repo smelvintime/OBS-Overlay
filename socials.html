@@ -165,7 +165,7 @@ if(window.NPO) NPO.themeBoot('source');
 
   function hex(name, cssVar){
     var v = (qs.get(name) || '').replace('#','');
-    if(/^[0-9a-fA-F]{3,8}$/.test(v)) root.style.setProperty(cssVar, '#'+v);
+    if(/^(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) root.style.setProperty(cssVar, '#'+v);
   }
   hex('accent','--accent');
 
@@ -202,6 +202,13 @@ if(window.NPO) NPO.themeBoot('source');
   // set and its order) lives in shared.js, because the webcam frame's name
   // plate speaks it too and one copy cannot drift from the other.
   var i;
+  // Guarded like every other source page does it (stats, session and webcam
+  // all check). This one did not, and it is the only page whose entire content
+  // comes from NPO - so a /shared.js that fails to load, which is exactly what
+  // happens to a cached source page while the in-app updater is restarting the
+  // exe, threw a ReferenceError here and left the socials source blank for the
+  // rest of the stream instead of blinking once and coming back.
+  if(!window.NPO || !NPO.socialList) return;
   var list = NPO.socialList(qs, prefix);
   // Nothing resolved: leave the page completely blank. Bailing here means the
   // card is never filled and never gets .show, so it stays at opacity 0 - an
@@ -228,7 +235,6 @@ if(window.NPO) NPO.themeBoot('source');
   }
 
   if(mode === 'rotate'){
-    // The handle is written once, outside the cycle, and never touched again.
     var stack = document.createElement('div');
     stack.className = 'stack';
     var icons = [];
@@ -238,7 +244,14 @@ if(window.NPO) NPO.themeBoot('source');
       icons.push(ic);
     }
     card.appendChild(stack);
-    card.appendChild(nameFor(list[0].h));
+    // The handle rotates WITH the mark. It used to be written once and never
+    // touched again, so a channel whose names genuinely differ per platform
+    // spent two thirds of every cycle showing the YouTube or Instagram logo
+    // beside the TikTok handle - a name that does not exist on the platform
+    // the viewer is being pointed at. The webcam frame's plate, documented as
+    // running "the same rotation", already updated its text; this is that.
+    var nameEl = nameFor(list[0].h);
+    card.appendChild(nameEl);
 
     // One platform is not a rotation. Show it and never start a timer that
     // would wake the page up every few seconds to change nothing.
@@ -252,6 +265,10 @@ if(window.NPO) NPO.themeBoot('source');
         icons[at].setAttribute('class', 'icon p-' + list[at].p);
         at = (at + 1) % icons.length;
         icons[at].setAttribute('class', 'icon p-' + list[at].p + ' on');
+        // Only when it actually changes: with one handle across every platform
+        // - the common case - this would otherwise rewrite the same text every
+        // few seconds forever.
+        if(nameEl.textContent !== list[at].h) nameEl.textContent = list[at].h;
       }, secs * 1000);
     }
   } else {

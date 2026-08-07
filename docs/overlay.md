@@ -88,6 +88,10 @@ further left snaps to **Auto**.
 | `showAlbum` | `0`, `1` | `0` | Show the album name line |
 | `showArt` | `0`, `1` | `1` | Show album art |
 | `hideWhenPaused` | `0`, `1` | `0` | `1` hides it while paused instead of dimming |
+| `spin` | `0`, `1` | `0` | Turn the album cover into a spinning record |
+| `spinrpm` | `0`–`300` | `12` | Record speed in revolutions per minute. `0` is a circle that holds still |
+| `spinvinyl` | `0`, `1` | `1` | Grooves, a label ring and a spindle hole over the cover. `spin=1` only |
+| `spinpause` | `0`, `1` | `1` | Stop the record while the music is paused or stopped. `spin=1` only |
 
 Some combinations worth trying:
 
@@ -99,12 +103,40 @@ Some combinations worth trying:
 - Only visible while actually playing — `?hideWhenPaused=1`
 - Sits back behind gameplay — `?layout=minimal&opacity=65`
 - Colour follows the album art — `?layout=big&accent=auto`
+- The cover as a spinning record — `?layout=big&spin=1`
+- A slow record, no grooves — `?spin=1&spinrpm=6&spinvinyl=0`
 
 > **Long titles:** a title that doesn't fit its box scrolls back and forth
 > automatically (`mqspeed` sets how fast). This only works when the page itself
 > knows the text is clipped — if you **crop or scale down the source in OBS**
 > instead of sizing the Browser Source to match, the page believes everything
 > fits and nothing scrolls. Size the source right and let `scale=` do the shrinking.
+
+### The album cover as a record
+
+`spin=1` makes the cover a circle and turns it, with grooves, a label ring and
+a spindle hole drawn over the art. `spinrpm` sets the speed in the unit a
+turntable is actually labelled in — revolutions per minute. A real LP turns at
+33 and a single at 45, but at those speeds a cover is a smear rather than a
+picture, so the default is **12**: unmistakably spinning, still readable as
+album art. Wind it to `0` for a circle that holds still.
+
+It stops when the music does — paused, or the player closed — and starts again
+with the next track. `spinpause=0` keeps it turning regardless.
+
+A few things worth knowing:
+
+- **It works on every layout.** Card, Big, Minimal and the ticker all have a
+  square cover, which is what makes a circle a circle rather than an ellipse.
+  Big has the most room for it; the ticker's 44px record is a nice detail
+  rather than the point.
+- **The corner radius stops applying to the art.** `radius` still shapes the
+  card itself; the cover is a circle regardless.
+- **It costs one compositing layer** and nothing else — the grooves don't
+  animate (they're concentric, so turning them would look identical) and the
+  rotation stops whenever the overlay isn't showing anything.
+- **Turning it off puts everything back exactly as it was.** `spin` defaults to
+  off, so a URL written before this existed renders identically.
 
 ### Accent from the album art
 

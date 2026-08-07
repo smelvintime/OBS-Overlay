@@ -482,7 +482,7 @@ if(window.NPO) NPO.themeBoot('source');
 
   function hex(name, cssVar){
     var v = (qs.get(name) || '').replace('#','');
-    if(/^[0-9a-fA-F]{3,8}$/.test(v)) root.style.setProperty(cssVar, '#'+v);
+    if(/^(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) root.style.setProperty(cssVar, '#'+v);
   }
   hex('accent','--accent'); hex('followColor','--follow'); hex('subColor','--sub');
 
