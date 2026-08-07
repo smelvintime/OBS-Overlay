@@ -13,6 +13,9 @@
      ?accent=9bd4f5                accent colour, hex no #
      ?thick=2                      border thickness px, 1-8     (default 2)
      ?cut=22                       bracket arm length px, 12-60 (default 22)
+     ?cthick=                      bracket LINE thickness px, 1-6. Left out, it
+                                   follows the border: 2px, stepping to 3px
+                                   once ?thick= reaches 4  (default automatic)
      ?radius=10                    corner radius px, 0-40       (default 10)
      ?glow=1                       0 removes the accent glows   (default 1)
      ?opacity=100                  frame opacity 10-100; at 100 the name
@@ -225,6 +228,11 @@ if(window.NPO) NPO.themeBoot('source');
   // A heavy chrome next to hairline brackets reads as two unrelated frames,
   // so the brackets step up once the border catches them up.
   if(t >= 4) root.style.setProperty('--bracket','3px');
+  // ...but an explicit pick beats that guess, which is why this sits after it.
+  // Absent (or 0) keeps the automatic behaviour above rather than pinning 2px,
+  // so a heavy border still gets its heavier bracket by default.
+  var ct = parseInt(qs.get('cthick'),10);
+  if(isFinite(ct) && ct >= 1 && ct <= 6) root.style.setProperty('--bracket', ct+'px');
 
   var op = parseFloat(qs.get('opacity'));
   if(isFinite(op)){

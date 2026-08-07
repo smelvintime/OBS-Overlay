@@ -690,9 +690,11 @@
             note:'Auto hugs the content, exactly as before. A set width holds the plate at '
                + 'that size whatever the numbers do &mdash; it never squeezes below what the '
                + 'content needs, so too small simply sits at the content&rsquo;s own edge.' },
-          { key:'h', label:'Height', type:'range', min:0, max:240, step:8, unit:'px',
+          { key:'h', label:'Height', type:'range', min:0, max:240, step:2, unit:'px',
             zeroText:'Auto',
-            note:'Extra height is shared above and below &mdash; the line stays centred.' },
+            note:'Extra height is shared above and below &mdash; the line stays centred. '
+               + 'Like the width, it never squeezes below what the content needs, so the '
+               + 'first stretch of the slider all looks the same as Auto.' },
           { key:'radius', label:'Rounding', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%',
             note:'100 means it: the plate is completely solid and nothing shows through. '
@@ -784,7 +786,7 @@
       defaults:{
         cam:'169',
         frame:'blade', accent:'9bd4f5', thick:2, cut:22, radius:10, glow:1,
-        opacity:100, label:'', mark:0, slant:1, corners:'tr,bl',
+        opacity:100, label:'', mark:0, slant:1, corners:'tr,bl', cthick:0,
         plate:'name', platepos:'bl', platescale:1,
         handle:'', tiktok:'', youtube:'', instagram:'',
         prefix:'@', cycle:5, brand:0
@@ -827,7 +829,13 @@
                + 'earns its keep &mdash; brackets belong where the picture is quiet, and '
                + 'that is not the same two corners on every set. Those same corners are '
                + 'the ones cut square; the Rounding slider above rounds the rest. Blade '
-               + 'frame only.' }
+               + 'frame only.' },
+          { key:'cthick', label:'Thickness', type:'range', min:0, max:6, step:1, unit:'px',
+            zeroText:'Auto',
+            note:'How heavy the bracket lines draw. Auto follows the Border slider above '
+               + '&mdash; hairline brackets beside a thick border read as two unrelated '
+               + 'frames &mdash; so set this only when you want to break that pairing. '
+               + 'The Brackets slider above is their length; this is their weight.' }
         ]},
         { title:'Name plate', controls:[
           { key:'plate', label:'Shows', type:'seg', options:[
