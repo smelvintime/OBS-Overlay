@@ -519,10 +519,10 @@ if(window.NPO) NPO.themeBoot('source');
   // into someone's OBS working unchanged.
   //
   // The comma is safe as the separator because a filename can never contain
-  // one: /media/ only answers for names matching
-  // ^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,79}$ (MediaNameRe in NowPlayingOverlay.cs),
-  // and the customizer only ever offers names from that folder. So there is no
-  // real pick this can cut in half.
+  // one: MediaNameRe in NowPlayingOverlay.cs excludes it from both the first
+  // character and the rest, so /media/ will not serve such a name and
+  // /media-list will not offer it. That exclusion is load-bearing for this
+  // split - if it is ever relaxed, this breaks.
   var KINDS = ['follow', 'sub', 'resub', 'gift'];
   var MAX_PICKS = 24;      // a longer list is a mangled URL, not a playlist
 
@@ -738,12 +738,31 @@ if(window.NPO) NPO.themeBoot('source');
     return { ms: ms, blob: new Blob([out], { type: 'image/gif' }) };
   }
 
+  // Is this WebP animated? An animated one is an extended file: "RIFF" and
+  // "WEBP" at 0 and 8, then a VP8X chunk whose first flag byte carries ANIM
+  // at bit 1. A plain lossy or lossless still has VP8 / VP8L there instead
+  // and no flags at all. Anything that does not parse is treated as a still,
+  // which is the safe way round - the worst case is a still image handled as
+  // a still image.
+  function webpAnimated(buf){
+    var b = new Uint8Array(buf);
+    if(b.length < 25) return false;
+    if(b[0] !== 0x52 || b[1] !== 0x49 || b[2] !== 0x46 || b[3] !== 0x46) return false;  // RIFF
+    if(b[8] !== 0x57 || b[9] !== 0x45 || b[10] !== 0x42 || b[11] !== 0x50) return false; // WEBP
+    if(b[12] !== 0x56 || b[13] !== 0x50 || b[14] !== 0x38 || b[15] !== 0x58) return false; // VP8X
+    return (b[20] & 0x02) !== 0;                                             // ANIM
+  }
+
   function makeClip(file){
     var c = { file: file, url: '/media/' + encodeURIComponent(file),
               kind: '', el: null, blob: null, blobSrc: '',
               onceBlob: null, onceMs: 0 };
     var ext = (file.split('.').pop() || '').toLowerCase();
-    if(ext === 'mp4' || ext === 'webm'){
+    // m4v belongs here, not in the still-image branch below. The server maps
+    // it to video/mp4 and /media-list labels it a video, so the customizer
+    // offers it in the clip picker - and anything the picker offers has to
+    // actually play, or picking it shows a broken-image glyph on every alert.
+    if(ext === 'mp4' || ext === 'm4v' || ext === 'webm'){
       c.kind = 'video';
       c.el = document.createElement('video');
       c.el.muted = true; c.el.loop = mediaLoop; c.el.playsInline = true;
@@ -775,6 +794,13 @@ if(window.NPO) NPO.themeBoot('source');
         .then(function(r){ return r.ok ? r.arrayBuffer() : null; })
         .then(function(buf){
           if(!buf) return;
+          // Most WebP in the wild is a still, and a still needs none of this:
+          // holding its bytes resident for the whole stream and minting a
+          // fresh object URL on every alert buys nothing at all. Only keep
+          // the copy if the file is actually animated - with no blob,
+          // clipStart falls back to the plain /media/ URL, which is exactly
+          // what an image wants.
+          if(ext === 'webp' && !webpAnimated(buf)) return;
           c.blob = new Blob([buf], { type: mime });
           if(!mediaLoop){
             var once = gifOnce(buf);
