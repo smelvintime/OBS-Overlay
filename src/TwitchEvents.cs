@@ -1038,12 +1038,18 @@ namespace NowPlaying {
           while (ws.State == WebSocketState.Open) {
             // The read has to time out, otherwise a silently dead socket parks
             // this thread forever and the overlay just quietly stops updating.
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(keepalive * 2 + 5));
+            // Disposed each time round: the constructor that takes a delay
+            // schedules a Timer that stays rooted until it fires, and one is
+            // made per keepalive AND per notification - so a hundred-gift sub
+            // bomb left a hundred live timers sitting in the queue for the
+            // next half minute.
             WebSocketReceiveResult r;
-            try {
-              r = ws.ReceiveAsync(new ArraySegment<byte>(buf), cts.Token).Result;
-            } catch {
-              break;   // timeout or socket fault: fall through to reconnect
+            using (var rcts = new CancellationTokenSource(TimeSpan.FromSeconds(keepalive * 2 + 5))) {
+              try {
+                r = ws.ReceiveAsync(new ArraySegment<byte>(buf), rcts.Token).Result;
+              } catch {
+                break;   // timeout or socket fault: fall through to reconnect
+              }
             }
             if (r.MessageType == WebSocketMessageType.Close) break;
             acc.Append(Encoding.UTF8.GetString(buf, 0, r.Count));
@@ -1456,18 +1462,33 @@ namespace NowPlaying {
         bool ready = false;
         for (int tryNo = 0; !ready; tryNo++) {
           try {
-            if (ResolveBroadcaster()) { PollTotals(); ready = true; }
+            if (ResolveBroadcaster()) ready = true;
             else AppLog.Write("twitch: ResolveBroadcaster failed, status=" + _status
                               + " detail=" + _detail + " - retrying");
           } catch (Exception ex) {
             _status = "error"; _detail = "unexpected failure starting up: " + ex.Message;
             AppLog.Write("twitch: startup exception: " + ex);
           }
-          // Quick at first, for the boot-race case that this mostly is, then
-          // backing off to a minute so a permanently bad token is not a poll
-          // loop against Twitch for the rest of the day.
-          if (!ready) Thread.Sleep(tryNo < 5 ? 5000 : 60000);
+          if (ready) break;
+          // The same bail-out WsLoop already has. bad-token and off are
+          // settled answers - the credentials are wrong, or there are none -
+          // and no amount of asking again changes them, so retrying would
+          // just be an authenticated call to Twitch every minute for the rest
+          // of the day. Fixing them goes through the setup page, which
+          // restarts the app.
+          if (_status == "bad-token" || _status == "off") {
+            AppLog.Write("twitch: " + _status + " - not retrying, fix it in setup");
+            return;
+          }
+          // Quick at first, for the boot race this mostly is, then backing off.
+          Thread.Sleep(tryNo < 5 ? 5000 : 60000);
         }
+        // Outside the readiness loop on purpose. This is the goal-bar numbers,
+        // not the connection: letting it throw in there meant a bad totals
+        // endpoint held the socket thread below from ever starting, so a
+        // failure to fetch a follower count took the alerts down with it.
+        try { PollTotals(); }
+        catch (Exception ex) { AppLog.Write("twitch: first PollTotals failed: " + ex.Message); }
 
         var ws = new Thread(WsLoop);
         ws.IsBackground = true;

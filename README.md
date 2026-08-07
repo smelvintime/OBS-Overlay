@@ -11,10 +11,14 @@ the music side at all.
 ## What's in the box
 
 - 🎵 **Four overlay layouts** — card, big, full-width ticker, minimal — with a
-  **live equaliser** driven by the actual audio of the player being shown
+  **live equaliser** driven by the actual audio of the player being shown, and
+  an option to **spin the album cover like a record**, grooves and all, at
+  whatever speed you like
 - 🔔 **Twitch alerts and goal boxes** — follows, subs, resubs, gifts; goal bars
-  with a most-recent face; set up by a **built-in wizard** with a Connect-with-Twitch
-  button, and the connection **renews itself forever**
+  with a most-recent face; **a sound and a clip on every alert**, or a whole
+  group of them per event that comes round in turn or at random; set up by a
+  **built-in wizard** with a Connect-with-Twitch button, and the connection
+  **renews itself forever**
 - 🎨 **Themes** — recolour the whole app and every OBS source in one click,
   build your own in a visual editor, and trade them as small files
 - 🎛️ **A customizer** with live preview for every option, plus **saved looks**

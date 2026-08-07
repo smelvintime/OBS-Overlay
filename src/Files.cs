@@ -30,6 +30,7 @@ namespace NowPlaying {
     // last-writer-wins instead of a silently lost save.
     internal static void WriteAtomic(string path, string text) {
       string tmp = path + "." + System.Guid.NewGuid().ToString("N") + ".tmp";
+      SweepStale(path);
       try {
         File.WriteAllText(tmp, text);
         if (File.Exists(path)) File.Replace(tmp, path, null);
@@ -40,6 +41,31 @@ namespace NowPlaying {
         try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
         throw;
       }
+    }
+
+    // The cost of the GUID above: where a single fixed ".tmp" name left one
+    // stale file that the next write simply reused, a unique one leaves a new
+    // one behind every time the process dies mid-write - and build.ps1 force-
+    // kills the running overlay on every rebuild. These land in the folder the
+    // tray menu opens, so they get swept.
+    //
+    // An hour old, so this can never race a write that is genuinely in flight
+    // on another thread. Best-effort throughout: a failure to tidy up must
+    // never be the reason a save does not happen.
+    static void SweepStale(string path) {
+      try {
+        string dir = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(dir)) return;
+        var cutoff = System.DateTime.UtcNow.AddHours(-1);
+        foreach (var f in Directory.GetFiles(dir, Path.GetFileName(path) + ".*.tmp")) {
+          // Re-checked in managed code: a Win32 wildcard also matches against
+          // a file's short 8.3 name, so "*.tmp" can return names that do not
+          // actually end in .tmp.
+          if (!string.Equals(Path.GetExtension(f), ".tmp",
+                             System.StringComparison.OrdinalIgnoreCase)) continue;
+          try { if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f); } catch { }
+        }
+      } catch { }
     }
   }
 }

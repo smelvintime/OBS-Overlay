@@ -750,8 +750,14 @@ namespace NowPlaying {
             consecutive = 0;
           } catch (SocketException ex) {
             // A pause on a repeating failure, so a listener wedged in some
-            // state that fails instantly cannot spin a core.
-            if (++consecutive <= 3) AppLog.Write("accept failed: " + ex.Message);
+            // state that fails instantly cannot spin a core - and a line every
+            // hundredth failure after the first few, so a listener that never
+            // recovers still says so. Going quiet forever would leave exactly
+            // the "process alive, overlays dead, nothing in the log" symptom
+            // this is here to end.
+            consecutive++;
+            if (consecutive <= 3 || consecutive % 100 == 0)
+              AppLog.Write("accept failed (" + consecutive + "): " + ex.Message);
             if (consecutive > 3) Thread.Sleep(100);
             continue;
           } catch (Exception ex) {
@@ -1056,11 +1062,20 @@ namespace NowPlaying {
           if (stream == null) return null;
           uint size = (uint)stream.Size;
           if (size == 0) return null;
-          using (var reader = new DataReader(stream)) {
+          var reader = new DataReader(stream);
+          try {
             Await(reader.LoadAsync(size));
             var bytes = new byte[size];
             reader.ReadBytes(bytes);
             return bytes;
+          } finally {
+            // Detach first: a DataReader closes the stream it owns, and the
+            // using above closes it too. One close each is fine; the second
+            // one throwing would be caught below and turn a cover that was
+            // read perfectly well into no cover at all - a worse bug than the
+            // leak this whole block is here to fix.
+            reader.DetachStream();
+            reader.Dispose();
           }
         }
       } catch { return null; }
@@ -1306,11 +1321,17 @@ namespace NowPlaying {
             // surviving an OBS restart. That song then showed the wrong cover
             // all day and refreshing the source could not clear it.
             // A caller that names no id still gets whatever is current, so
-            // hand-typing /art in a browser keeps working.
+            // hand-typing /art in a browser keeps working - but it does NOT
+            // get the long cache, because the argument above only holds for a
+            // URL that names its content. Cached immutably, a bare /art would
+            // pin one cover to that address for a day, which is the very bug
+            // this check exists to close, one URL over.
             string wantId = QueryParam(path, "id");
-            if ((wantId == null || wantId == snap.Id)
-                && snap.Art != null && snap.Art.Length > 0)
+            bool haveArt = snap.Art != null && snap.Art.Length > 0;
+            if (haveArt && wantId == snap.Id)
               Send(ns, 200, snap.ArtMime, snap.Art, "public, max-age=86400, immutable");
+            else if (haveArt && wantId == null)
+              Send(ns, 200, snap.ArtMime, snap.Art);          // no-store by default
             // Both misses answer 204, and Send's default no-store means
             // neither is cached - so a mismatch is "ask again", not "never".
             else Send(ns, 204, "text/plain", new byte[0]);
