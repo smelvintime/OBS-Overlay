@@ -198,8 +198,9 @@
            '</div>';
   }
 
+  // Returns the request so the poll below can wait for it.
   function refresh(){
-    fetch('/sources',{cache:'no-store'})
+    return fetch('/sources',{cache:'no-store'})
       .then(function(r){ return r.json(); })
       .then(function(s){
         state.mode = s.mode || 'auto';
@@ -228,8 +229,14 @@
   if(new URLSearchParams(location.search).get('embed') === '1')
     document.body.classList.add('embed');
 
-  refresh();
-  setInterval(refresh, 2000);
+  // Self-chained, like every other poll in the app. A bare setInterval let a
+  // /sources answer that was already in flight when the user clicked land
+  // afterwards and overwrite what they had just chosen - so "Back to
+  // automatic" visibly un-ticked itself and the note went back to "Locked to
+  // Spotify", while the server had in fact accepted the change.
+  (function loop(){
+    refresh().finally(function(){ setTimeout(loop, 2000); });
+  })();
 })();
 </script>
 </body>

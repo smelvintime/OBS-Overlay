@@ -311,7 +311,7 @@
       html = 'Listening in <strong>#' + esc(data.channel) + '</strong> as <strong>'
            + esc(data.botUser) + '</strong>'
            + (data.scopeUser ? ', token verified' : '') + '.'
-           + (data.reconnects ? ' Reconnected ' + data.reconnects + ' time(s) since start.' : '');
+           + (data.reconnects ? ' Reconnected ' + esc(data.reconnects) + ' time(s) since start.' : '');
     } else if(s === 'disabled' && data.configured){
       cls = 'ok';
       html = 'Ready to go &mdash; the bot will speak as <strong>' + esc(data.botUser)
@@ -415,7 +415,10 @@
           + ' /><span class="track"></span></label></td>'
         + '<td><span class="cmd">!' + esc(c.name) + '</span>' + live + mod + alias + '</td>'
         + '<td>' + respCell + '</td>'
-        + '<td><input type="number" class="cd" min="0" max="600" value="' + c.cooldown + '" /></td>'
+        // esc() like every other interpolation in this function. These two were the
+        // only raw ones left, and this one sits inside an attribute, so a
+        // non-numeric value would break straight out of the quotes.
+        + '<td><input type="number" class="cd" min="0" max="600" value="' + esc(c.cooldown) + '" /></td>'
         + '<td><button type="button" class="danger del">Delete</button></td>'
         + '</tr>';
     });

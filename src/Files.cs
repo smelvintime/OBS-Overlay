@@ -18,11 +18,54 @@ namespace NowPlaying {
 
     // Same volume by construction (the temp sits beside the target), which is
     // what File.Replace needs to stay atomic.
+    //
+    // The temp name carries a GUID rather than being a flat "<path>.tmp".
+    // Eighteen call sites reach this from HTTP request threads and background
+    // timers, several of them writing the same file, and a shared scratch name
+    // makes two concurrent writers fight over one handle: the first one's
+    // File.Replace needs delete access to a file the second has just opened
+    // with FileMode.Create, so it throws IOException - which every caller
+    // swallows. The write is reported as done and the setting reverts at the
+    // next restart. Distinct temps mean the worst case is a harmless
+    // last-writer-wins instead of a silently lost save.
     internal static void WriteAtomic(string path, string text) {
-      string tmp = path + ".tmp";
-      File.WriteAllText(tmp, text);
-      if (File.Exists(path)) File.Replace(tmp, path, null);
-      else File.Move(tmp, path);
+      string tmp = path + "." + System.Guid.NewGuid().ToString("N") + ".tmp";
+      SweepStale(path);
+      try {
+        File.WriteAllText(tmp, text);
+        if (File.Exists(path)) File.Replace(tmp, path, null);
+        else File.Move(tmp, path);
+      } catch {
+        // Never leave scratch behind for a write that did not land - the
+        // folder is one the user is told to open from the tray menu.
+        try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+        throw;
+      }
+    }
+
+    // The cost of the GUID above: where a single fixed ".tmp" name left one
+    // stale file that the next write simply reused, a unique one leaves a new
+    // one behind every time the process dies mid-write - and build.ps1 force-
+    // kills the running overlay on every rebuild. These land in the folder the
+    // tray menu opens, so they get swept.
+    //
+    // An hour old, so this can never race a write that is genuinely in flight
+    // on another thread. Best-effort throughout: a failure to tidy up must
+    // never be the reason a save does not happen.
+    static void SweepStale(string path) {
+      try {
+        string dir = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(dir)) return;
+        var cutoff = System.DateTime.UtcNow.AddHours(-1);
+        foreach (var f in Directory.GetFiles(dir, Path.GetFileName(path) + ".*.tmp")) {
+          // Re-checked in managed code: a Win32 wildcard also matches against
+          // a file's short 8.3 name, so "*.tmp" can return names that do not
+          // actually end in .tmp.
+          if (!string.Equals(Path.GetExtension(f), ".tmp",
+                             System.StringComparison.OrdinalIgnoreCase)) continue;
+          try { if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f); } catch { }
+        }
+      } catch { }
     }
   }
 }

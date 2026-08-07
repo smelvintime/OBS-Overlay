@@ -122,16 +122,19 @@ Two things worth knowing:
 Alerts can play a sound and show a gif, image or looping video each time one lands.
 
 1. **Right-click the tray icon → Open media folder** and drop your files in:
-   `mp3` / `wav` / `ogg` / `m4a` for sounds, `gif` / `png` / `jpg` / `webp` /
-   `mp4` / `webm` for visuals.
+   `mp3` / `wav` / `ogg` / `opus` / `m4a` / `aac` / `flac` for sounds,
+   `gif` / `apng` / `png` / `jpg` / `webp` / `avif` / `mp4` / `m4v` / `webm`
+   for visuals. Spaces, apostrophes and accents in filenames are fine; a comma
+   is the one character to avoid, because that is what separates the files in
+   a group.
 2. In the **Customize** tab, pick the alerts source — the **Sound and clip**
    section lists whatever is in the folder. Pick, set the volume, size and
    place the clip, copy the URL into OBS as usual.
 
 Details worth knowing:
 
-- **Each kind of event can have its own sound and clip.** The main **Sound**
-  and **Clip** picks play for everything; the **Per-event sound & clip**
+- **Each kind of event can have its own sound and clip** — or its own group of
+  them. The main **Sound** and **Clip** picks play for everything; the **Per-event sound & clip**
   section below them overrides one event at a time — a gift bomb can land
   with its own fanfare while follows keep the house pick. Anything left on
   *Same as…* inherits the main pick, and *Nothing for this one* switches that
@@ -139,9 +142,28 @@ Details worth knowing:
   shared by all of them: the clips change, the staging doesn't. The test
   buttons at the top of the customizer fire each kind through the real
   pipeline, so you can hear every combination before it ever plays live.
-- **The clip restarts on every alert.** A gif or video begins at its first
-  frame the moment the alert lands — the file is held ready in memory, so
-  there is no loading pause and it never appears mid-loop.
+- **Any pick can be a group.** Press **Add another** under Sound or Clip (or
+  under any of the per-event picks) and the alert draws one file from the
+  group each time instead of always the same one — three hype gifs for gifts,
+  say, or four different airhorns. **Order** decides how: *In turn* walks the
+  list, so everything gets played and nothing repeats until the list has been
+  round once; *Random* picks freely but never the same one twice running,
+  because three identical clips in a row reads as a stuck alert rather than as
+  chance. With two files in a group the two settings come out the same — there
+  is only one other file to go to. Two kinds that inherit the same main pick
+  share one walk through it, so a follow and the sub right behind it don't both
+  open on the first clip.
+
+  By hand the group is just a comma-separated list, so
+  `?mediagift=boom.gif,hype.webm,confetti.gif&mediapick=random` is the same
+  thing typed straight into the URL. Up to 24 files per group.
+
+- **The clip restarts on every alert.** A gif, animated WebP or video begins at
+  its first frame the moment the alert lands — the file is held ready in
+  memory, so there is no loading pause and it never appears mid-loop. The
+  first file of every group is held ready from the moment the source loads,
+  and the next few follow a second later; past about eight extra files the
+  rest load the first time they actually come up.
 - **Place it anywhere.** The two position sliders pin the clip's centre to any
   point of the canvas — a corner, an edge, over the game. Dead centre is just
   the default, not the rule.

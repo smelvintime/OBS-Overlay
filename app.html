@@ -209,7 +209,7 @@
   // Swatches come from theme data, so only plain colour values get through -
   // anything fancier is somebody's hand-edited file trying to be clever.
   function swatchColor(c){
-    return (typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : null;
+    return (typeof c === 'string' && /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c)) ? c : null;
   }
 
   function buildButtons(){

@@ -315,17 +315,36 @@
 
   /* ---- cards ------------------------------------------------------------------ */
 
+  // Same gate shared.js puts on theme values before they reach a stylesheet,
+  // for the same reason and then some: this page has an Import button, so the
+  // values here can come straight out of a file a stranger sent. Concatenated
+  // raw into a style attribute, one ";" in a colour was enough to append
+  // arbitrary declarations - a --bg of "#000;position:fixed;inset:0;
+  // z-index:9999;background-image:url(https://…)" would cover the dashboard
+  // and fetch a remote URL. A value that does not pass simply falls back to
+  // the default, which is what a bad value should have done anyway.
+  function safeVal(v, fallback){
+    if(typeof v !== 'string') return fallback;
+    v = v.trim();
+    // Same character set shared.js rejects, plus the two that only matter
+    // inside a style attribute: a backslash escape, and url() - real theme
+    // values are rgba(...) so parentheses have to stay legal, and without the
+    // url() rule a --bg alone could still fetch a remote image through the
+    // card rule that reads it.
+    if(!v || v.length > 64 || /[;{}<>\\@]/.test(v) || /url\s*\(/i.test(v)) return fallback;
+    return v;
+  }
   function mockStyle(def){
     var s = def.source || {}, d = def.dashboard || {};
     // Card mocks fall back to the default look var-by-var, exactly like a page would.
-    return '--m-bg:' + (d['--bg'] || '#080B14')
-         + ';--m-panel:' + (d['--panel'] || '#10141F')
-         + ';--m-line:' + (d['--line'] || '#1E2740')
-         + ';--m-accent:' + (s['--accent'] || '#9bd4f5')
-         + ';--m-card:' + (s['--card-bg'] || 'rgba(18,18,20,.82)')
-         + ';--m-border:' + (s['--card-border'] || 'rgba(255,255,255,.08)')
-         + ';--m-text:' + (s['--text'] || '#ffffff')
-         + ';--m-subtext:' + (s['--subtext'] || 'rgba(255,255,255,.62)');
+    return '--m-bg:' + safeVal(d['--bg'], '#080B14')
+         + ';--m-panel:' + safeVal(d['--panel'], '#10141F')
+         + ';--m-line:' + safeVal(d['--line'], '#1E2740')
+         + ';--m-accent:' + safeVal(s['--accent'], '#9bd4f5')
+         + ';--m-card:' + safeVal(s['--card-bg'], 'rgba(18,18,20,.82)')
+         + ';--m-border:' + safeVal(s['--card-border'], 'rgba(255,255,255,.08)')
+         + ';--m-text:' + safeVal(s['--text'], '#ffffff')
+         + ';--m-subtext:' + safeVal(s['--subtext'], 'rgba(255,255,255,.62)');
   }
 
   function el(tag, cls, text){

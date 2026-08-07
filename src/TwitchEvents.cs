@@ -1007,8 +1007,22 @@ namespace NowPlaying {
         ClientWebSocket ws = null;
         try {
           ws = new ClientWebSocket();
-          ws.ConnectAsync(new Uri(url), CancellationToken.None).Wait();
-          url = "wss://eventsub.wss.twitch.tv/ws";   // reconnect_url is single-use
+          // Taken BEFORE the connect, not after. A reconnect_url is single-use
+          // and expires about half a minute after Twitch issues it, so if the
+          // connect to it threw - a two-second network blip is enough - the
+          // reset never ran and every later attempt kept aiming at a URL that
+          // was already dead. The socket then reconnected forever, at five
+          // seconds and then ten and then twenty, to nothing, and alerts never
+          // came back. Meanwhile /twitch went on reporting "live", because the
+          // 60s Helix poll still succeeded (see PollTotals).
+          var target = url;
+          url = "wss://eventsub.wss.twitch.tv/ws";
+          // Twitch answers the upgrade in well under a second; a midpoint that
+          // completes the TCP handshake and then never replies - a captive
+          // portal, a transparent proxy - would otherwise park this thread
+          // forever with no timeout at all.
+          using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+            ws.ConnectAsync(new Uri(target), cts.Token).Wait();
           if (everConnected) {
             _reconnects++;
             AppLog.Write("twitch: socket reconnected (reconnect #" + _reconnects + ")");
@@ -1024,12 +1038,18 @@ namespace NowPlaying {
           while (ws.State == WebSocketState.Open) {
             // The read has to time out, otherwise a silently dead socket parks
             // this thread forever and the overlay just quietly stops updating.
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(keepalive * 2 + 5));
+            // Disposed each time round: the constructor that takes a delay
+            // schedules a Timer that stays rooted until it fires, and one is
+            // made per keepalive AND per notification - so a hundred-gift sub
+            // bomb left a hundred live timers sitting in the queue for the
+            // next half minute.
             WebSocketReceiveResult r;
-            try {
-              r = ws.ReceiveAsync(new ArraySegment<byte>(buf), cts.Token).Result;
-            } catch {
-              break;   // timeout or socket fault: fall through to reconnect
+            using (var rcts = new CancellationTokenSource(TimeSpan.FromSeconds(keepalive * 2 + 5))) {
+              try {
+                r = ws.ReceiveAsync(new ArraySegment<byte>(buf), rcts.Token).Result;
+              } catch {
+                break;   // timeout or socket fault: fall through to reconnect
+              }
             }
             if (r.MessageType == WebSocketMessageType.Close) break;
             acc.Append(Encoding.UTF8.GetString(buf, 0, r.Count));
@@ -1193,14 +1213,15 @@ namespace NowPlaying {
         // gift notification is treated as the single source of truth for gifts.
         if (BNav(ev, "is_gift")) return;
         string tier = SNav(ev, "tier");
-        if (!test) RecordSub(user, tier, at);
+        if (!test) RecordSub(user, tier, at, true);      // a new subscriber
         Push("{\"kind\":\"sub\",\"user\":" + Q(user) + ",\"tier\":" + Q(tier)
            + ",\"months\":1,\"at\":" + Q(at) + tail);
 
       } else if (type == "channel.subscription.message") {
         string tier = SNav(ev, "tier");
         int months = INav(ev, "cumulative_months");
-        if (!test) RecordSub(user, tier, at);
+        // Someone renewing is not a new subscriber - see RecordSub.
+        if (!test) RecordSub(user, tier, at, false);
         Push("{\"kind\":\"resub\",\"user\":" + Q(user) + ",\"tier\":" + Q(tier)
            + ",\"months\":" + months
            + ",\"message\":" + Q(SNav(ev, "message", "text")) + ",\"at\":" + Q(at) + tail);
@@ -1218,9 +1239,15 @@ namespace NowPlaying {
       }
     }
 
-    static void RecordSub(string user, string tier, string at) {
+    // countsAsNew separates the two callers. A first-time subscribe adds one to
+    // the total; a resub is the SAME person paying again, so counting it made
+    // the goal bar climb on every renewal and then jump backwards the moment
+    // the 60-second Helix poll replaced the guess with the real number. Both
+    // callers still want the most-recent-subscriber face updated, which is the
+    // rest of what this does.
+    static void RecordSub(string user, string tier, string at, bool countsAsNew) {
       lock (_stateLock) { _lastSub = user; _lastSubTier = tier; _lastSubAt = at; }
-      if (_subTotal >= 0) _subTotal++;
+      if (countsAsNew && _subTotal >= 0) _subTotal++;
       SaveState();
     }
 
@@ -1421,17 +1448,47 @@ namespace NowPlaying {
         // used to propagate out of this thread unhandled, which kills the
         // entire process, not just the Twitch feature. One odd API response
         // should never be the reason the song overlay needs restarting too.
-        try {
-          if (!ResolveBroadcaster()) {
-            AppLog.Write("twitch: ResolveBroadcaster failed, status=" + _status + " detail=" + _detail);
+        //
+        // Both of them RETRY rather than giving up, and that is the whole
+        // point. A bare return here killed Twitch for the life of the process:
+        // no socket thread was ever started and the 60-second poll below was
+        // never entered. The ordinary way to hit it is mundane - the overlay
+        // autostarts with Windows and asks Twitch who the broadcaster is
+        // before the network is up - and the failure is invisible, because
+        // everything else about the app works. Alerts, follower counts and
+        // goal bars stay dead for the entire stream and only a restart fixes
+        // it. A resolve that fails because the token is genuinely bad simply
+        // keeps failing here, at a minute apart, which costs nothing.
+        bool ready = false;
+        for (int tryNo = 0; !ready; tryNo++) {
+          try {
+            if (ResolveBroadcaster()) ready = true;
+            else AppLog.Write("twitch: ResolveBroadcaster failed, status=" + _status
+                              + " detail=" + _detail + " - retrying");
+          } catch (Exception ex) {
+            _status = "error"; _detail = "unexpected failure starting up: " + ex.Message;
+            AppLog.Write("twitch: startup exception: " + ex);
+          }
+          if (ready) break;
+          // The same bail-out WsLoop already has. bad-token and off are
+          // settled answers - the credentials are wrong, or there are none -
+          // and no amount of asking again changes them, so retrying would
+          // just be an authenticated call to Twitch every minute for the rest
+          // of the day. Fixing them goes through the setup page, which
+          // restarts the app.
+          if (_status == "bad-token" || _status == "off") {
+            AppLog.Write("twitch: " + _status + " - not retrying, fix it in setup");
             return;
           }
-          PollTotals();
-        } catch (Exception ex) {
-          _status = "error"; _detail = "unexpected failure starting up: " + ex.Message;
-          AppLog.Write("twitch: startup exception: " + ex);
-          return;
+          // Quick at first, for the boot race this mostly is, then backing off.
+          Thread.Sleep(tryNo < 5 ? 5000 : 60000);
         }
+        // Outside the readiness loop on purpose. This is the goal-bar numbers,
+        // not the connection: letting it throw in there meant a bad totals
+        // endpoint held the socket thread below from ever starting, so a
+        // failure to fetch a follower count took the alerts down with it.
+        try { PollTotals(); }
+        catch (Exception ex) { AppLog.Write("twitch: first PollTotals failed: " + ex.Message); }
 
         var ws = new Thread(WsLoop);
         ws.IsBackground = true;

@@ -39,20 +39,30 @@
                                    slash arrival lands, 0.5-6   (default 1.5)
      ?sound=ding.mp3               plays when an alert lands. Files live in
                                    the media folder: tray icon -> Open media
-                                   folder (mp3 / wav / ogg / m4a)
+                                   folder (mp3 / wav / ogg / m4a).
+                                   Comma-separate several - "a.mp3,b.mp3" -
+                                   and the alert draws one from the group
      ?soundfollow= ?soundsub=      per-event overrides for ?sound=; each one
      ?soundresub= ?soundgift=      falls back to ?sound= when not given, and
-                                   the word "none" mutes that event alone
+                                   the word "none" mutes that event alone.
+                                   These take groups too
+     ?soundpick=cycle|random       how the next sound comes out of a group:
+                                   in turn, or at random but never the same
+                                   one twice running        (default cycle)
      ?soundvol=70                  sound volume 0-100           (default 70)
      ?media=hype.webm              a gif, image or looping video (mp4/webm,
                                    muted) shown while the alert is up; gifs
                                    and videos restart from their first frame
-                                   on every alert
+                                   on every alert. Comma-separate several -
+                                   "a.gif,b.webm,c.png" - for a group
      ?mediafollow= ?mediasub=      same idea for the clip: a gift can land
-     ?mediaresub= ?mediagift=      with its own clip while everything else
-                                   keeps ?media=; "none" = no clip for that
-                                   event. Size, position, delay and loop
-                                   below are shared by all of them
+     ?mediaresub= ?mediagift=      with its own clip - or its own group -
+                                   while everything else keeps ?media=;
+                                   "none" = no clip for that event. Size,
+                                   position, delay and loop below are shared
+                                   by all of them
+     ?mediapick=cycle|random       how the next clip comes out of a group,
+                                   as ?soundpick=            (default cycle)
      ?mediah=180                   clip height in px 40-720     (default 180)
      ?mediax=50                    clip centre, % across canvas (default 50)
      ?mediay=50                    clip centre, % down canvas   (default 50)
@@ -406,9 +416,16 @@ if(window.NPO) NPO.themeBoot('source');
   var iconEl = document.getElementById('icon'), headEl = document.getElementById('head');
   var subEl = document.getElementById('sub');
 
+  // 3, 4, 6 and 8 digits, and nothing between them. 5 and 7 are not colours,
+  // but a custom property will hold anything - and then every var() that reads
+  // it is invalid at computed-value time, which unsets the declaration rather
+  // than falling back. One character dropped from a hand-edited ?accent= took
+  // the shuriken (a mask painted by background-color), the icon plate, its ring
+  // and the corner brackets off the card completely, leaving a bare box.
   function hex(name, cssVar){
     var v = (qs.get(name) || '').replace('#','');
-    if(/^[0-9a-fA-F]{3,8}$/.test(v)) root.style.setProperty(cssVar, '#'+v);
+    if(/^(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v))
+      root.style.setProperty(cssVar, '#'+v);
   }
   hex('accent','--accent'); hex('followColor','--follow');
   hex('subColor','--sub');  hex('giftColor','--gift');
@@ -416,6 +433,17 @@ if(window.NPO) NPO.themeBoot('source');
   var style = (qs.get('style')||'slide').toLowerCase();
   if(['slide','pop','bar','slash'].indexOf(style) < 0) style = 'slide';
   document.body.className = 'style-' + style;
+
+  // How long to leave the card in .out before stripping the class. It has to
+  // outlast the exit the stylesheet actually declares for THIS look, and slash
+  // is the one that redeclares the whole shorthand: transform .72s plus an
+  // opacity fade that does not even begin for .18s. A flat 300ms - the right
+  // number for the nudge looks - cut it off a third of the way through, and
+  // reverting mid-transition sent the card sliding back toward its resting
+  // mark at ~87% opacity before fading in place. That drift reading as a
+  // second alert starting is the exact thing the slash exit was written to
+  // avoid, so the timing has to follow the CSS rather than assume it.
+  var exitMs = (style === 'slash') ? 760 : 300;
 
   var frame = (qs.get('frame')||'blade').toLowerCase();
   if(['blade','soft','twin'].indexOf(frame) < 0) frame = 'blade';
@@ -483,27 +511,124 @@ if(window.NPO) NPO.themeBoot('source');
   // default. The word "none" switches that kind off outright - distinct from
   // absent, which means "use the house pick". Size, position, delay and loop
   // stay shared across all of them: the clips change, the staging doesn't.
+  //
+  // Every one of those is a GROUP, not a single file: "?mediagift=a.gif,b.webm"
+  // gives gifts two clips to draw from, and ?mediapick= says whether they come
+  // round in turn or at random. A group of one behaves exactly as the lone
+  // filename it used to be - which is what leaves every URL already pasted
+  // into someone's OBS working unchanged.
+  //
+  // The comma is safe as the separator because a filename can never contain
+  // one: /media/ only answers for names matching
+  // ^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,79}$ (MediaNameRe in NowPlayingOverlay.cs),
+  // and the customizer only ever offers names from that folder. So there is no
+  // real pick this can cut in half.
   var KINDS = ['follow', 'sub', 'resub', 'gift'];
-  function perKind(base){
-    var def = (qs.get(base) || '').trim();
-    if(def.toLowerCase() === 'none') def = '';
-    var out = { _def: def };
-    for(var i = 0; i < KINDS.length; i++){
-      var v = (qs.get(base + KINDS[i]) || '').trim();
-      if(!v) v = def;
-      else if(v.toLowerCase() === 'none') v = '';
-      out[KINDS[i]] = v;
+  var MAX_PICKS = 24;      // a longer list is a mangled URL, not a playlist
+
+  function fileList(raw, fallback){
+    raw = String(raw == null ? '' : raw).trim();
+    // Absent means "use the house pick", the word none means "nothing at all
+    // for this one" - the two have always been different and still are.
+    if(!raw) return fallback ? fallback.slice() : [];
+    if(raw.toLowerCase() === 'none') return [];
+    var parts = raw.split(','), out = [], i, p;
+    for(i = 0; i < parts.length && out.length < MAX_PICKS; i++){
+      p = parts[i].trim();
+      // Duplicates are kept on purpose: naming a file twice in a cycle is a
+      // reasonable way to ask for it to come round twice as often.
+      if(p && p.toLowerCase() !== 'none') out.push(p);
     }
+    return out;
+  }
+
+  function perKind(base){
+    var def = fileList(qs.get(base), null), out = { _def: def }, i;
+    for(i = 0; i < KINDS.length; i++)
+      out[KINDS[i]] = fileList(qs.get(base + KINDS[i]), def);
     return out;
   }
   // A kind this page has never heard of (a future event type) plays the
   // house pick rather than silence - new events degrade to the default,
   // never to nothing.
-  function fileFor(map, kind){
+  function listFor(map, kind){
     return map.hasOwnProperty(kind) ? map[kind] : map._def;
   }
   var soundFor = perKind('sound');
   var mediaFor = perKind('media');
+
+  // How the next file comes out of a group. "cycle" walks it in order, so
+  // everything gets its turn and nothing repeats until the list has been round
+  // once. "random" picks freely but never the same one twice running: three
+  // identical clips in a row reads as a stuck alert rather than as chance,
+  // and that is the one outcome pure randomness is most often blamed for.
+  // With a group of one the two are indistinguishable, which is why the
+  // default here cannot change the behaviour of an existing source. With a
+  // group of TWO they are also identical, unavoidably - "never the same twice
+  // running" only has one answer when there is only one other file.
+  var mediaPick = (qs.get('mediapick')||'').toLowerCase() === 'random' ? 'random' : 'cycle';
+  var soundPick = (qs.get('soundpick')||'').toLowerCase() === 'random' ? 'random' : 'cycle';
+
+  // Cursors are keyed by the list itself rather than by the event kind, so two
+  // kinds inheriting the same house group share one walk through it - a follow
+  // and the sub right behind it don't both open on the first clip.
+  var cursors = {};
+  function pickFrom(list, mode){
+    if(!list || !list.length) return '';
+    if(list.length === 1) return list[0];
+    var key = mode + '\n' + list.join('\n');
+    var at = cursors.hasOwnProperty(key) ? cursors[key] : -1, n;
+    if(mode === 'random'){
+      if(at < 0){
+        n = Math.floor(Math.random() * list.length);
+      } else {
+        // Draw uniformly from the OTHER entries and step over the one just
+        // played. Nudging a collision to at+1 instead - the obvious way to
+        // write "not that one again" - is not the same thing at all: with
+        // three files it hands at+1 two thirds of the draws and at+2 the
+        // rest, and with two files it forces strict alternation, which is
+        // exactly the "cycle" this mode exists to not be.
+        n = Math.floor(Math.random() * (list.length - 1));
+        if(n >= at) n++;
+      }
+      if(n >= list.length) n = list.length - 1;   // Math.random() is < 1, but
+    } else {
+      n = (at + 1) % list.length;
+    }
+    cursors[key] = n;
+    return list[n];
+  }
+
+  // Warm the first pick of every group straight away - the first alert of a
+  // kind must not pay a network trip - and the rest of each group a moment
+  // later, so a page configured with a dozen clips doesn't fire a dozen
+  // fetches into the same instant as everything else it does at startup.
+  // make() is idempotent per file, so overlapping groups cost nothing.
+  function warm(map, make){
+    var rest = [], i;
+    function head(list){
+      if(!list.length) return;
+      make(list[0]);
+      // indexOf rather than a seen-map keyed by filename: the lists are two
+      // dozen entries at most, and an object keyed by user-supplied strings
+      // answers truthily for "constructor" and friends.
+      for(var j = 1; j < list.length; j++)
+        if(rest.indexOf(list[j]) < 0) rest.push(list[j]);
+    }
+    head(map._def);
+    for(i = 0; i < KINDS.length; i++) head(map[KINDS[i]]);
+    // Bounded on purpose. Every warmed clip stays resident for the whole
+    // stream - a gif is held as decoded bytes so it can restart at frame 0, a
+    // video as a preload="auto" element - and five groups of the permitted 24
+    // would park a great deal of memory in the OBS Chromium process for files
+    // that may never come up. Past this many, a clip loads on first use; on
+    // loopback that costs a few milliseconds once, and it is right every time
+    // after.
+    if(rest.length > 8) rest.length = 8;
+    if(rest.length) setTimeout(function(){
+      for(var k = 0; k < rest.length; k++) make(rest[k]);
+    }, 1500);
+  }
 
   var soundVol = parseFloat(qs.get('soundvol'));
   if(!isFinite(soundVol) || soundVol < 0 || soundVol > 100) soundVol = 70;
@@ -531,9 +656,7 @@ if(window.NPO) NPO.themeBoot('source');
     }
     return sounds[file];
   }
-  (function(){
-    for(var i = 0; i < KINDS.length; i++) soundEl(soundFor[KINDS[i]]);
-  })();
+  warm(soundFor, soundEl);
 
   // A gif needs different machinery from everything else. An <img> pointed at
   // a gif starts animating the moment the bytes arrive and loops forever -
@@ -634,15 +757,25 @@ if(window.NPO) NPO.themeBoot('source');
       if(!mediaLoop) c.el.addEventListener('ended', function(){
         if(c.el.ended && curClip === c) clipDone();
       });
-    } else if(ext === 'gif'){
+    // kind 'gif' means "an image that has to be restarted from its own bytes",
+    // not strictly the GIF format. Animated WebP has exactly the same problem
+    // and the server already serves and lists it, so it belongs here too: an
+    // <img> pointed at one starts animating on load and loops forever with no
+    // rewind, so an alert landing four minutes in shows it from a random frame.
+    // Only the play-once splice is GIF-specific - gifOnce checks the magic
+    // bytes and returns null for anything else, which degrades that one file
+    // to looping, the same as an unparseable gif.
+    } else if(ext === 'gif' || ext === 'webp' || ext === 'apng'){
       c.kind = 'gif';
+      var mime = ext === 'webp' ? 'image/webp'
+               : ext === 'apng' ? 'image/png' : 'image/gif';
       c.el = document.createElement('img');
       c.el.alt = '';
       fetch(c.url)
         .then(function(r){ return r.ok ? r.arrayBuffer() : null; })
         .then(function(buf){
           if(!buf) return;
-          c.blob = new Blob([buf], { type: 'image/gif' });
+          c.blob = new Blob([buf], { type: mime });
           if(!mediaLoop){
             var once = gifOnce(buf);
             if(once){ c.onceBlob = once.blob; c.onceMs = once.ms; }
@@ -672,18 +805,15 @@ if(window.NPO) NPO.themeBoot('source');
   (function(){
     // The layer exists if ANY pick could ever need it - including the house
     // pick alone, which future/unknown kinds fall back to.
-    var want = mediaFor._def ? true : false;
-    var i;
-    for(i = 0; i < KINDS.length; i++) if(mediaFor[KINDS[i]]) want = true;
+    var want = mediaFor._def.length > 0, i;
+    for(i = 0; i < KINDS.length; i++) if(mediaFor[KINDS[i]].length) want = true;
     if(!want) return;
     mediaLayer = document.createElement('div');
     mediaLayer.id = 'medialayer';
     mediaLayer.style.setProperty('--mx', mediaX + '%');
     mediaLayer.style.setProperty('--my', mediaY + '%');
     document.body.appendChild(mediaLayer);
-    // Preload every distinct file now, however many kinds share it - the
-    // first alert of each kind must not pay a network trip.
-    for(i = 0; i < KINDS.length; i++) clipFor(mediaFor[KINDS[i]]);
+    warm(mediaFor, clipFor);
   })();
 
   // Once the fade is over, drop the gif's src entirely. A gif at opacity 0
@@ -756,14 +886,14 @@ if(window.NPO) NPO.themeBoot('source');
   }
 
   function mediaShow(kind){
-    var snd = soundEl(fileFor(soundFor, kind));
+    var snd = soundEl(pickFrom(listFor(soundFor, kind), soundPick));
     if(snd){
       // Outside OBS, browsers refuse sound before the page has been clicked
       // once; failing silently is right for something meant to be invisible.
       try { snd.currentTime = 0; var p = snd.play(); if(p && p.catch) p.catch(function(){}); } catch(e){}
     }
     if(!mediaLayer) return;
-    var c = clipFor(fileFor(mediaFor, kind));
+    var c = clipFor(pickFrom(listFor(mediaFor, kind), mediaPick));
     clearTimeout(mediaDelayTimer);
     clearTimeout(mediaOnceTimer);
     clearTimeout(mediaIdleTimer);   // a show at fade's end must not have its src swept
@@ -877,6 +1007,12 @@ if(window.NPO) NPO.themeBoot('source');
   // played one at a time with a full hold each and a gap between.
   var queue = [], showing = false;
   var exitTimer = null, offTimer = null, gapTimer = null;
+  // Bumped by every playNext. The arrival is armed twice - a rAF and a 60ms
+  // net - and neither can be cancelled, so a superseded alert's pair used to
+  // fire anyway and start ITS sound and clip under the card that replaced it.
+  // (The server flushes its buffer in one tick, so a real alert and a test
+  // clicked in the same instant genuinely do land in one event-loop turn.)
+  var playGen = 0;
 
   // The customizer needs the card on screen the whole time it is being dressed.
   // Without this the alerts preview is a blank canvas - correct for OBS, where
@@ -891,6 +1027,10 @@ if(window.NPO) NPO.themeBoot('source');
       // Replace whatever is held rather than queueing behind an alert that is
       // never going to leave on its own.
       clearTimeout(exitTimer); clearTimeout(offTimer); clearTimeout(gapTimer);
+      // The held card never reaches its exit, so nothing has stopped the sound
+      // or faded the clip. Without this, dressing an alert by clicking one test
+      // after another stacked every sound on top of the last.
+      mediaHide();
       queue.length = 0;
       queue.push(a);
       showing = false;
@@ -904,12 +1044,18 @@ if(window.NPO) NPO.themeBoot('source');
     // wait, and the second click plainly meant "show me this one instead".
     if(a.test){
       clearTimeout(exitTimer); clearTimeout(offTimer); clearTimeout(gapTimer);
-      queue.length = 0;
+      mediaHide();
+      // Cutting in front of the backlog, not deleting it. This used to empty
+      // the queue outright, so one click of Test follow during a raid silently
+      // threw away up to twenty real follows and subs that Twitch will never
+      // send again. Only previous TESTS are dropped - a stale test is noise,
+      // a stale sub is somebody's money.
+      queue = queue.filter(function(q){ return !q.test; });
+      queue.unshift(a);
       showing = false;
       // Drop the outgoing card immediately rather than letting it retreat:
       // the point is that the new one starts now.
       card.classList.remove('in','out');
-      queue.push(a);
       playNext();
       return;
     }
@@ -923,6 +1069,7 @@ if(window.NPO) NPO.themeBoot('source');
   function playNext(){
     if(!queue.length){ showing = false; return; }
     showing = true;
+    var gen = ++playGen;
     var a = queue.shift();
     if(!render(a)){ playNext(); return; }
 
@@ -939,6 +1086,7 @@ if(window.NPO) NPO.themeBoot('source');
     // twice (rAF plus its safety-net timer) and a restarted sound would stutter.
     var mediaStarted = false;
     function enter(){
+      if(gen !== playGen) return;      // a newer alert took the stage
       card.classList.remove('pre'); card.classList.add('in');
       if(!mediaStarted){ mediaStarted = true; mediaShow(a.kind); }
     }
@@ -958,7 +1106,7 @@ if(window.NPO) NPO.themeBoot('source');
       offTimer = setTimeout(function(){
         card.classList.remove('out');
         gapTimer = setTimeout(playNext, 380);   // breathing room between alerts
-      }, 300);
+      }, exitMs);
     }, holdMs);
   }
 

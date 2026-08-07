@@ -599,6 +599,21 @@ namespace NowPlaying {
       public bool IsMod;
     }
 
+    // Does a command word appear in the HEADER of a server line, rather than
+    // in something a viewer typed?
+    //
+    // An IRC line is ":<prefix> <command> <params...> :<trailing>". Everything
+    // a viewer controls arrives in the trailing parameter, after the first
+    // " :" that follows the prefix; the command word can only be in the part
+    // before it. Searching the whole line for a command word therefore matches
+    // chat messages, which is how "gg 001 wp" came to be read as a login.
+    static bool IsServerLine(string line, string token) {
+      if (line.Length == 0 || line[0] != ':') return false;
+      int trail = line.IndexOf(" :", 1, StringComparison.Ordinal);
+      string head = trail >= 0 ? line.Substring(0, trail) : line;
+      return head.IndexOf(token, StringComparison.Ordinal) >= 0;
+    }
+
     internal static IrcEvent Parse(string line) {
       var e = new IrcEvent();
       if (string.IsNullOrEmpty(line)) return e;
@@ -619,12 +634,26 @@ namespace NowPlaying {
       }
       if (line.StartsWith("RECONNECT")) { e.Type = "RECONNECT"; return e; }
 
-      if (line.IndexOf(" 001 ", StringComparison.Ordinal) >= 0) { e.Type = "WELCOME"; return e; }
+      // Anchored to the server prefix, for the same reason the NOTICE branch
+      // below is. Tags have already been stripped by this point, so an IndexOf
+      // ran against the message BODY: a viewer typing "gg 001 wp" was read as
+      // the login welcome, which reset the connected-at clock, reset the
+      // backoff and the auth-failure count, wrote a false "logged in as" line
+      // to the log, and swallowed the message - so "!song 001" was never
+      // answered.
+      if (IsServerLine(line, " 001 ")) { e.Type = "WELCOME"; return e; }
 
       if (line.IndexOf("NOTICE", StringComparison.Ordinal) >= 0) {
-        if (line.IndexOf("Login authentication failed", StringComparison.OrdinalIgnoreCase) >= 0
-         || line.IndexOf("Improperly formatted auth", StringComparison.OrdinalIgnoreCase) >= 0
-         || line.IndexOf("Invalid NICK", StringComparison.OrdinalIgnoreCase) >= 0) {
+        // Anchored too. Unanchored, any viewer could type "NOTICE invalid nick"
+        // and have it parsed as an authentication failure - which either burns
+        // a refresh-token rotation and forces a full reconnect, or, on the
+        // documented hand-made-token setup, sets bad-token and stops the bot
+        // dead until someone notices and toggles it in the dashboard. One
+        // chat message, bot muted for the rest of the stream.
+        if (line.StartsWith(":tmi.twitch.tv NOTICE ", StringComparison.Ordinal)
+         && (line.IndexOf("Login authentication failed", StringComparison.OrdinalIgnoreCase) >= 0
+          || line.IndexOf("Improperly formatted auth", StringComparison.OrdinalIgnoreCase) >= 0
+          || line.IndexOf("Invalid NICK", StringComparison.OrdinalIgnoreCase) >= 0)) {
           e.Type = "AUTHFAIL";
           int c = line.IndexOf(':', 1);
           e.Text = c >= 0 ? line.Substring(c + 1) : "rejected";

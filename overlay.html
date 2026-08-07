@@ -31,6 +31,15 @@
      ?transition=slide|drop|fade|none  how a new song arrives     (default slide)
      ?showAlbum=0|1                    show album line
      ?showArt=0|1                      show album art             (default 1)
+     ?spin=0|1                         turn the album cover into a record: a
+                                       circle that rotates            (default 0)
+     ?spinrpm=12                       record speed in revolutions per minute,
+                                       0-300; 0 = a circle that holds still
+                                                                  (default 12)
+     ?spinvinyl=0|1                    grooves, a label ring and a spindle hole
+                                       over the cover. ?spin= only  (default 1)
+     ?spinpause=0|1                    stop the record while the music is
+                                       paused. ?spin= only          (default 1)
      ?hideWhenPaused=0|1               hide while paused vs dim
      ?preview=1                        show a sample track when nothing is
                                        playing, so a preview is never a blank
@@ -293,6 +302,69 @@
   /* Anything that should sit over the wash rather than under it. */
   body.artbg .art,body.artbg .meta,body.artbg .badge,
   body.artbg .ticker-view,body.artbg .accent-bar{position:relative;z-index:1}
+
+  /* ---------- album art as a record (?spin=) ----------
+     Off unless asked for, so every URL written before this existed renders
+     exactly as it did. On, the cover becomes a circle and turns.
+
+     Placed after the layout blocks on purpose. "body.spin .art" and
+     "body.layout-big .art" have identical specificity, so source order is the
+     only thing that lets the circle beat each layout's own corner radius -
+     same reason the chrome block above sits where it does. Keep it last.
+
+     The rotation goes on the <img>, never on .art. .art is a .swapper, and a
+     song change writes translateX/translateY onto every swapper; transform is
+     a single property, so a spin declared on the same element would silently
+     drop the swap or be dropped by it, depending on which rule won. Two
+     elements, two transforms, nothing to fight over.
+
+     A square turning inside a circular clip is safe at every angle: the
+     distance from a square's centre to each of its edges is half its side
+     however it is rotated, so the inscribed circle - which is exactly what
+     the clip is - stays covered. No corner ever swings into view. */
+  body.spin .art{border-radius:50%}
+  body.spin .art img,body.spin .art .fallback{
+    animation:npo-spin var(--spin-dur,5s) linear infinite;
+    /* A permanent compositor layer, for the same reason the live equaliser
+       bars take one: a transform animated every frame over a frosted (and
+       possibly art-washed) panel otherwise promotes and demotes the layer
+       continuously, and that churn is what smears the cover's edge. */
+    will-change:transform}
+  @keyframes npo-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  /* ?spinrpm=0 - a circle that holds still. Declared rather than left to a
+     zero-speed animation, because 60/0 is not a duration. */
+  body.spin.spin-still .art img,body.spin.spin-still .art .fallback{animation:none}
+  /* A record stops when the music does. ?spinpause=0 keeps it turning.
+     Two selectors, because "the music stopped" has two shapes: paused, where
+     the card is still on screen dimmed, and nothing-playing-at-all, where the
+     card is hidden and .paused is never applied. Only covering .paused left
+     two compositor layers rotating behind an invisible card for the rest of
+     the stream every time the player was simply closed. */
+  body.spin.spin-pause .wrap.paused .art img,
+  body.spin.spin-pause .wrap.paused .art .fallback,
+  body.spin.spin-pause .wrap:not(.show) .art img,
+  body.spin.spin-pause .wrap:not(.show) .art .fallback{animation-play-state:paused}
+
+  /* The record itself: grooves, the label's edge and a spindle hole, drawn as
+     stacked background layers over the cover. Every layer is concentric, so
+     the disc is unaffected by the rotation and stays out of the animation
+     entirely - one fewer thing being repainted thirty times a second.
+     The one exception is the sheen, which is a fixed highlight across the
+     disc precisely BECAUSE it does not turn: light does not travel with the
+     record, and a glint that rotated with it would read as paint. */
+  .vinyl{display:none}
+  body.spin.spin-vinyl .vinyl{display:block;position:absolute;inset:0;
+    border-radius:50%;pointer-events:none;z-index:2;
+    background:
+      radial-gradient(circle at 50% 50%,
+        #0a0a0c 0 3.4%, rgba(255,255,255,.30) 3.4% 4.3%, rgba(0,0,0,0) 4.3%),
+      radial-gradient(circle at 50% 50%,
+        rgba(0,0,0,.26) 0 29%, rgba(0,0,0,.5) 29% 30.2%, rgba(0,0,0,0) 30.2%),
+      linear-gradient(115deg, rgba(255,255,255,.10) 0 14%,
+        rgba(255,255,255,0) 40%, rgba(255,255,255,0) 62%,
+        rgba(255,255,255,.07) 84%, rgba(255,255,255,0) 100%),
+      repeating-radial-gradient(circle at 50% 50%,
+        rgba(255,255,255,.05) 0 1px, rgba(0,0,0,.13) 1px 2.6px)}
 </style>
 <script src="/shared.js"></script>
 <script>
@@ -308,11 +380,20 @@ if(window.NPO) NPO.themeBoot('source');
       <div class="accent-bar"></div>
       <div class="badge">
         <span class="eq"><span></span><span></span><span></span><span></span><span></span></span>
-        <span>Now Playing</span>
+        <!-- The ticker's own label. It needs an id of its own because the
+             other layouts' label lives in .meta, which the ticker hides - so
+             writing "Paused" into that one left this bar saying NOW PLAYING
+             over a dimmed, frozen equaliser. -->
+        <span id="badge-text">Now Playing</span>
       </div>
       <div class="art swapper" id="artBox">
         <img id="art" alt="" style="display:none" />
         <div class="fallback" id="fallback">&#9835;</div>
+        <!-- The record's grooves and spindle. display:none until ?spin= asks
+             for it, and absolutely positioned when it appears, so a source
+             that never turns this on carries an inert empty div and not one
+             pixel of difference. -->
+        <div class="vinyl"></div>
       </div>
       <div class="meta swapper">
         <div class="eyebrow">
@@ -368,7 +449,13 @@ if(window.NPO) NPO.themeBoot('source');
       if(a.toLowerCase() === 'auto'){
         autoAccent = true;
         refreshAutoAccent();
-      } else if(/^[0-9a-fA-F]{3,8}$/.test(a)){
+      // 3, 4, 6 and 8 digits, and nothing between them. A 5- or 7-digit value
+      // is not a colour, but --accent would happily hold it and then every
+      // var(--accent) in the sheet becomes invalid at computed-value time -
+      // which is not "fall back to the default", it is "unset". The eyebrow
+      // inherits black, the bars and the accent bar disappear entirely. One
+      // mistyped character in an OBS URL used to strip the overlay's colour.
+      } else if(/^(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(a)){
         autoAccent = false;
         root.style.setProperty('--accent','#'+a);
       }
@@ -500,6 +587,26 @@ if(window.NPO) NPO.themeBoot('source');
   var showAlbum = q.get('showAlbum')==='1';
   var showArt = q.get('showArt')!=='0';
 
+  // ---- album art as a record (?spin=) -------------------------------------
+  // Everything here is gated behind ?spin=, which is absent from every URL
+  // written before this existed - so the sub-options can have whatever
+  // defaults suit them without touching a single source already in OBS.
+  var spinArg = (q.get('spin')||'').toLowerCase();
+  if(spinArg === '1' || spinArg === 'on' || spinArg === 'true'){
+    body.classList.add('spin');
+    // Revolutions per minute, because that is the unit a turntable is
+    // actually labelled in. The default is well under the 33 a real LP turns
+    // at: at 33 an album cover is a smear rather than a picture, and the
+    // point of this is that you can still see the art.
+    var rpm = parseFloat(q.get('spinrpm'));
+    if(!isFinite(rpm) || rpm < 0) rpm = 12;
+    if(rpm > 300) rpm = 300;
+    if(rpm > 0) root.style.setProperty('--spin-dur', (60/rpm).toFixed(3)+'s');
+    else body.classList.add('spin-still');
+    if(q.get('spinvinyl') !== '0') body.classList.add('spin-vinyl');
+    if(q.get('spinpause') !== '0') body.classList.add('spin-pause');
+  }
+
   // On stream the overlay must be invisible when nothing is playing. In a
   // preview that same emptiness is indistinguishable from the page being
   // broken - you cannot tell "no music right now" from "this is not working",
@@ -510,7 +617,15 @@ if(window.NPO) NPO.themeBoot('source');
   var SAMPLE = { playing:true, title:'Sample Track', artist:'Artist Name',
                  album:'Sample Album', app:'preview', source:'preview',
                  id:'preview-sample', hasArt:false };
-  var speed = Math.max(10, parseFloat(q.get('speed')||'60'));   // px/sec for ticker
+  // px/sec for the ticker. The NaN guard is not decoration: Math.max(10, NaN)
+  // is NaN, and a NaN offset makes tickerFill's "is there room for another
+  // copy" test false forever, so the bar renders its badge and its cover and
+  // then an empty strip, permanently, with no way back. Every other numeric
+  // option here already guarded; this one did not.
+  var speed = parseFloat(q.get('speed'));
+  if(!isFinite(speed)) speed = 60;
+  if(speed < 10) speed = 10;
+  if(speed > 1000) speed = 1000;
   // Marquee travel speed for the other layouts. The old fixed formula moved a
   // barely-overflowing title so slowly it read as broken - twenty pixels of
   // travel spread over six seconds is standing still on a stream.
@@ -522,7 +637,8 @@ if(window.NPO) NPO.themeBoot('source');
       fb=document.getElementById('fallback'), titleEl=document.getElementById('title'),
       scroller=titleEl.querySelector('.scroller'),
       artistEl=document.getElementById('artist'), albumEl=document.getElementById('album'),
-      eyebrow=document.getElementById('eyebrow-text'), backdrop=document.getElementById('backdrop'),
+      eyebrow=document.getElementById('eyebrow-text'), badgeText=document.getElementById('badge-text'),
+      backdrop=document.getElementById('backdrop'),
       tickerTrack=document.getElementById('tickerTrack'), tickerView=document.getElementById('tickerView');
 
   if(styleScale !== 1) wrap.style.zoom = styleScale;
@@ -558,7 +674,12 @@ if(window.NPO) NPO.themeBoot('source');
     wrap.style.height = fixH + 'px';
     // The art is what reads as "the card got taller", so it grows to fill
     // the new height: square, minus the layout's vertical padding.
-    var artPad = layout === 'card' ? 28 : layout === 'big' ? 48 : 0;
+    // Minimal has no padding of its own - unless it was asked to wear a panel,
+    // which adds 12px top and bottom. Ignoring that made the art taller than
+    // the wrap's content box, and fixed-box's overflow:hidden cropped 24px off
+    // the bottom of the cover (a visibly flat-bottomed circle under ?spin=1).
+    var artPad = layout === 'card' ? 28 : layout === 'big' ? 48
+               : (chrome === 'glass' || chrome === 'solid') ? 24 : 0;
     var artSize = Math.max(24, fixH - artPad);
     // ...but never at the words' expense. With the width fixed too, a tall
     // box would otherwise turn into an art tile with the text crushed
@@ -613,8 +734,19 @@ if(window.NPO) NPO.themeBoot('source');
   // the visible element at the same URL paints it in this frame.
   function setArt(np){
     if(np._art){
-      img.onload = null;
-      img.onerror = function(){ img.style.display='none'; fb.style.display='flex'; };
+      // accent=auto only gets a sample when the preload finished inside its
+      // 600ms window. Past that the cover still arrives - it just arrives
+      // after the colour was already given up on, and nothing looked at it
+      // again, so a large cover or a busy machine meant the accent snapped
+      // back to the stylesheet default and stayed there for the whole track.
+      // Sampling again once the visible element has actually loaded costs one
+      // 32x32 draw and makes a slow cover late rather than lost.
+      img.onload = autoAccent ? function(){ refreshAutoAccent(); } : null;
+      // The wash has to admit the failure too. Left pointing at a URL that
+      // does not resolve, artbg keeps a .75-opacity blurred layer of nothing
+      // over the panel while the placeholder note shows beside it.
+      img.onerror = function(){ img.style.display='none'; fb.style.display='flex';
+                                backdrop.style.backgroundImage=''; };
       img.src = np._art;
       img.style.display='block'; fb.style.display='none';
       backdrop.style.backgroundImage = "url('" + np._art + "')";
@@ -713,7 +845,13 @@ if(window.NPO) NPO.themeBoot('source');
     if(tickerLast && dt < 0.008) return;
     tickerLast = now;
     if(dt > 0.1) dt = 0.1;                 // tab was backgrounded; don't jump
-    if(!tickerStopped) tickerOffset += speed * dt;
+    // An empty belt has travelled nowhere. Without this the offset accrues
+    // for as long as the source sits with nothing playing - six hours before
+    // the first song at 60px/s is 1.3 million px - and the first track then
+    // paints at translateX(-1296000px): a ticker with a cover, a badge and no
+    // words, thrashing forty DOM nodes a frame until it drains back to zero.
+    if(!tickerItems.length) tickerOffset = 0;
+    else if(!tickerStopped) tickerOffset += speed * dt;
     while(tickerItems.length && tickerOffset >= tickerItems[0].w){
       tickerOffset -= tickerItems[0].w;
       tickerTrack.removeChild(tickerItems[0].el);
@@ -787,34 +925,64 @@ if(window.NPO) NPO.themeBoot('source');
   // slides a placeholder on screen while the first cover is still loading.
   function showState(np){
     if(!rendered) return;
+    var label = np.playing ? 'Now Playing' : 'Paused';
+    eyebrow.textContent = label;
+    badgeText.textContent = label;
     if(np.playing){
-      wrap.classList.remove('paused'); eyebrow.textContent='Now Playing';
+      wrap.classList.remove('paused');
       wrap.classList.add('show');
     } else {
-      wrap.classList.add('paused'); eyebrow.textContent='Paused';
+      wrap.classList.add('paused');
       if(hideWhenPaused) wrap.classList.remove('show'); else wrap.classList.add('show');
     }
   }
 
-  var lastNp = null, prepToken = 0;
+  var lastNp = null, prepToken = 0, artOk = false, artTries = 0;
   function apply(np){
     // Stand in for silence only in a preview; on stream an empty response has
     // to keep the overlay empty.
     if(previewMode && (!np || !np.title)) np = SAMPLE;
-    if(!np || !np.title){ wrap.classList.remove('show'); lastId=null; return; }
+    if(!np || !np.title){
+      wrap.classList.remove('show'); lastId=null;
+      // Nothing playing is not "keep scrolling the last song forever". This
+      // used to sit after the return, so the conveyor kept recycling nodes at
+      // 60fps behind a hidden card until the next track - and kept winding the
+      // offset up before the first one.
+      tickerStopped = true;
+      return;
+    }
     lastNp = np;
 
     if(np.id !== lastId){
       lastId = np.id;
+      artOk = false; artTries = 0;
       // Skipping tracks quickly can leave several preloads in flight; only the
       // newest one is allowed to reach the screen.
       var mine = ++prepToken;
       prepare(np, function(){
         if(mine !== prepToken) return;
+        artOk = !!np._art;
         changeSong(np);
         showState(np);
       });
     } else {
+      // A cover that failed outright - /art answering 204 because the server's
+      // idea of the current track had already rolled on - was lost for the
+      // whole song, because art is only ever fetched on a track change. Try
+      // again on a later poll, a bounded number of times so a track that
+      // genuinely has no cover is not re-requested every 1.5s all song.
+      // Deliberately does NOT bump prepToken: this must never cancel a real
+      // song change, only be cancelled by one.
+      if(showArt && np.hasArt && !artOk && artTries < 3){
+        artTries++;
+        var mineArt = prepToken;
+        prepare(np, function(){
+          if(mineArt !== prepToken || !np._art) return;
+          artOk = true;
+          setArt(np);
+          if(autoAccent && np._accent) root.style.setProperty('--accent', np._accent);
+        });
+      }
       showState(np);
     }
     tickerStopped = !np.playing;
