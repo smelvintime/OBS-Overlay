@@ -601,6 +601,12 @@ if(window.NPO) NPO.themeBoot('source');
     var rpm = parseFloat(q.get('spinrpm'));
     if(!isFinite(rpm) || rpm < 0) rpm = 12;
     if(rpm > 300) rpm = 300;
+    // A floor as well as a ceiling. Below this, 60/rpm is large enough that
+    // toFixed renders it in exponential notation - "1e+22s" is not a valid
+    // CSS time, so the whole animation shorthand would be dropped rather than
+    // slowed. One turn every ten minutes is already indistinguishable from
+    // holding still, which is what ?spinrpm=0 is for.
+    if(rpm > 0 && rpm < 0.1) rpm = 0.1;
     if(rpm > 0) root.style.setProperty('--spin-dur', (60/rpm).toFixed(3)+'s');
     else body.classList.add('spin-still');
     if(q.get('spinvinyl') !== '0') body.classList.add('spin-vinyl');
@@ -675,11 +681,13 @@ if(window.NPO) NPO.themeBoot('source');
     // The art is what reads as "the card got taller", so it grows to fill
     // the new height: square, minus the layout's vertical padding.
     // Minimal has no padding of its own - unless it was asked to wear a panel,
-    // which adds 12px top and bottom. Ignoring that made the art taller than
-    // the wrap's content box, and fixed-box's overflow:hidden cropped 24px off
-    // the bottom of the cover (a visibly flat-bottomed circle under ?spin=1).
+    // which adds 12px top and bottom plus a 1px border - and under fixed-box
+    // the wrap is border-box, so both come out of the content height.
+    // Ignoring them made the art taller than the box it sits in, and
+    // overflow:hidden cropped the difference off the bottom of the cover: a
+    // visibly flat-bottomed circle under ?spin=1.
     var artPad = layout === 'card' ? 28 : layout === 'big' ? 48
-               : (chrome === 'glass' || chrome === 'solid') ? 24 : 0;
+               : (chrome === 'glass' || chrome === 'solid') ? 26 : 0;
     var artSize = Math.max(24, fixH - artPad);
     // ...but never at the words' expense. With the width fixed too, a tall
     // box would otherwise turn into an art tile with the text crushed

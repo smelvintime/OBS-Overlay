@@ -364,7 +364,16 @@
            switch would never again reach the thing actually on stream. */
         var guard = setTimeout(function () { next(0); }, 20000);
         try {
-          NPO.themes(function (j) { clearTimeout(guard); paint(j); next(5000); });
+          NPO.themes(function (j) {
+            clearTimeout(guard);
+            /* Arm the next poll BEFORE painting. paint() writes to the DOM,
+               and a throw in there would otherwise skip the scheduling and
+               freeze this source on its current palette for the rest of the
+               stream - the very thing the watchdog above exists to stop, let
+               back in through the door it was guarding. */
+            next(5000);
+            paint(j);
+          });
         } catch (e) { clearTimeout(guard); next(5000); }
       })();
     } else {

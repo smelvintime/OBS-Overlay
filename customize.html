@@ -265,6 +265,12 @@
   // Shockblade first: the electric blue, its paler lightning tint, the white of
   // the garb and the gold of the trim. The rest stay for anyone who wants them.
   var SWATCHES = ['9bd4f5','8fe3ff','ffffff','c9a961','7b5cff','00e5c0','fa2d48','ffb300'];
+
+  // How many files one sound or clip group may hold. Must match MAX_PICKS in
+  // alerts.html, which is where the truncation would actually happen - this
+  // side just stops the Add button before it can build a group the source
+  // would silently cut short.
+  var MAX_PICKS = 24;
   var BACKGROUNDS = [['stream','Gameplay'],['dark','Dark'],['light','Light'],['grid','Grid']];
 
   // True OBS source dimensions. The preview derives its own size from these, so
@@ -1487,34 +1493,50 @@
                   else if(!sel.value && rows.length > 1) rows.splice(i, 1);
                   else rows[i] = sel.value;
                   commit();
-                  build();
+                  // build() replaces every select, including the one that just
+                  // fired this - so focus would fall to <body>. On Windows the
+                  // arrow keys change a closed select's value and fire change
+                  // immediately, which made the control unusable from the
+                  // keyboard: one Down moved to the second option and the next
+                  // Down went nowhere. Put focus back where it was.
+                  build(document.activeElement === sel ? Math.min(i, rows.length - 1) : -1);
                 });
                 return sel;
               }
-              function build(){
+              function build(focusRow){
                 box.innerHTML = '';
                 model().forEach(function(v, i){ box.appendChild(rowFor(v, i)); });
                 var last = rows[rows.length - 1];
-                // Only offer another slot once the last one is filled, and
-                // never after an explicit "nothing" - a group that opens with
-                // "off" is a contradiction.
-                if(last && last !== 'none' && files.length){
+                // Only offer another slot once the last one is filled, never
+                // after an explicit "nothing" - a group that opens with "off"
+                // is a contradiction - and never past the cap the alerts page
+                // enforces, so the control can't build a group it will then
+                // silently truncate.
+                if(last && last !== 'none' && files.length && rows.length < MAX_PICKS){
                   var add = document.createElement('button');
                   add.type = 'button'; add.className = 'chip addmedia';
                   add.textContent = '+ Add another';
                   // Nothing is committed yet: an empty row is a slot, and it
                   // only reaches the URL once a file is chosen in it.
-                  add.addEventListener('click', function(){ rows.push(''); build(); });
+                  add.addEventListener('click', function(){ rows.push(''); build(rows.length - 1); });
                   box.appendChild(add);
                 }
+                if(focusRow >= 0){
+                  var again = box.querySelectorAll('select')[focusRow];
+                  if(again) again.focus();
+                }
               }
+              // Something to look at while the folder listing is in flight -
+              // but not a second time when the cache is already warm, because
+              // mediaList calls back synchronously then and all ten controls
+              // would rebuild themselves twice on every tab switch.
+              if(_mediaCache === undefined) build(-1);
               mediaList(function(list){
                 files = ((list && list.files) || []).filter(function(f){
                   return C.kind === 'audio' ? f.kind === 'audio' : f.kind !== 'audio';
                 });
-                build();
+                build(-1);
               });
-              build();
               refresh.push(function(){ rows = null; build(); });
               ctl.appendChild(box);
             })();
