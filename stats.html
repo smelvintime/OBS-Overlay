@@ -30,6 +30,7 @@
                                    for a plain box. The bracketed corners are
                                    the cut ones. Blade frame only
                                                                 (default tr,bl)
+     ?cthick=2                     bracket line thickness px 1-6 (default 2)
      ?slant=0|1                    lean the blades and their edges, or square
                                    them off for a rectangular scene (default 1)
      ?mark=2                       shuriken size, 1-3 (x9px)      (default 2)
@@ -507,6 +508,9 @@ if(window.NPO) NPO.themeBoot('source');
     var cnrs = NPO.cornerList(qs);
     NPO.corners(document.getElementById('boxFollow'), cnrs);
     NPO.corners(document.getElementById('boxSub'), cnrs);
+    var ct = parseInt(qs.get('cthick'),10);
+    if(isFinite(ct) && ct >= 1 && ct <= 6)
+      document.documentElement.style.setProperty('--cnr-w', ct+'px');
   }
 
   // Scenes are rectangular. The lean is the house style but it has to be

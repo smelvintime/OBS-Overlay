@@ -9,7 +9,9 @@
      ?accent=9bd4f5                base accent, hex no #
      ?scale=1.0                    size multiplier 0.6-2
      ?radius=14                    corner radius px 0-40        (default 14)
-     ?opacity=100                  bar opacity 10-100           (default 100)
+     ?opacity=100                  bar opacity 10-100; at 100 the plate is
+                                   fully solid - nothing shows through
+                                                                (default 100)
      ?w=0                          a set plate width px (40-1600), 0 = hug the
                                    content. Never squeezes below what the
                                    content needs - like the music card, the
@@ -27,6 +29,7 @@
                                    for a plain plate. The bracketed corners are
                                    the cut ones     (default tr,bl - the house
                                    diagonal, so old links are unchanged)
+     ?cthick=2                     bracket line thickness px 1-6 (default 2)
      ?mranked=1  ?mnormals=1       which modes count toward the tally and the
      ?maram=1    ?mother=1         form squares; 0 removes that bucket
                                    (default all on). Rank and LP are queue
@@ -92,6 +95,19 @@
     transition:opacity .45s ease,transform .45s cubic-bezier(.22,1.28,.35,1);
   }
   .card.show{opacity:var(--overlay-opacity);transform:none}
+  /* Full ?opacity= means SOLID: the house plate carries a .86 alpha, which
+     read as "slightly see-through even at 100%". The same colour is stacked
+     on itself until nothing shows through - (1-.86)^7 rounds to zero on an
+     8-bit pixel - rather than parsing out an opaque copy, so whatever hue
+     the current theme gave --card-bg stays exact and a live theme switch
+     keeps working. Below 100 the plate behaves exactly as before. */
+  body.op-max .card{background-image:
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg))}
   /* The accent brackets from the alert card ride the sharp corners, and which
      corners those are is ?corners=. NPO.corners hangs the brackets and cuts
      the matching corners; the radius above is the fallback shape if shared.js
@@ -204,6 +220,10 @@ if(window.NPO) NPO.themeBoot('source');
 
   // Which corners carry the bracket - and so which corners are cut square.
   if(window.NPO) NPO.corners(card, NPO.cornerList(qs));
+  // How thick the bracket arms draw. The webcam frame scales its own with
+  // its border; here it is a straight pick.
+  var ct = parseInt(qs.get('cthick'),10);
+  if(isFinite(ct) && ct >= 1 && ct <= 6) root.style.setProperty('--cnr-w', ct+'px');
 
   // zoom rather than transform, the trick alerts.html uses: zoom reflows, so
   // the footprint the size reporter measures below is the scaled one for free.
@@ -216,6 +236,8 @@ if(window.NPO) NPO.themeBoot('source');
     op = Math.max(10, Math.min(100, op));
     root.style.setProperty('--overlay-opacity', (op/100).toFixed(3));
   }
+  // Absent means the default 100, and 100 means the plate is fully solid.
+  if(!isFinite(op) || op >= 100) document.body.classList.add('op-max');
 
   // A set size, the music card's way: the plate holds at exactly this many
   // px, except it never squeezes below what the content needs - the bar's

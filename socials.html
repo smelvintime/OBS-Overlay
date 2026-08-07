@@ -30,7 +30,9 @@
      ?accent=9bd4f5                accent colour, hex no #
      ?scale=1.0                    size multiplier 0.6-2        (default 1)
      ?radius=12                    corner radius px 0-40        (default 12)
-     ?opacity=100                  plate opacity 10-100         (default 100)
+     ?opacity=100                  plate opacity 10-100; at 100 the plate is
+                                   fully solid - nothing shows through
+                                                                (default 100)
      ?frame=blade|soft|none        blade = dark plate with the house cut corners
                                    and the accent brackets; soft = plain
                                    rounded dark plate, no brackets; none = no
@@ -41,6 +43,7 @@
                                    for a plain plate. The bracketed corners are
                                    the cut ones. Blade frame only
                                                                 (default tr,bl)
+     ?cthick=2                     bracket line thickness px 1-6 (default 2)
      ?theme=name                   pin this source to one theme
 
      Two modes because two scenes. rotate is the compact one for gameplay: the
@@ -98,6 +101,18 @@
   body.frame-blade .card{border-radius:var(--radius) 3px var(--radius) 3px}
 
   body.frame-soft .card{border-radius:var(--radius)}
+  /* Full ?opacity= means SOLID - the house .86 alpha stacked on itself until
+     nothing shows through ((1-.86)^7 rounds to zero on an 8-bit pixel),
+     keeping whatever hue the theme gave --card-bg. Deliberately BEFORE the
+     frame-none rule below: equal specificity, so source order lets the bare
+     mode strip the plate entirely, solid or not. */
+  body.op-max .card{background-image:
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg))}
   /* Nothing but the icon and the name. The shadow goes too - a drop shadow
      under text with no plate behind it is just a smudge. */
   body.frame-none .card{background:none;border:0;box-shadow:none;padding:0}
@@ -172,6 +187,8 @@ if(window.NPO) NPO.themeBoot('source');
     op = Math.max(10, Math.min(100, op));
     root.style.setProperty('--overlay-opacity', (op/100).toFixed(3));
   }
+  // Absent means the default 100, and 100 means the plate is fully solid.
+  if(!isFinite(op) || op >= 100) document.body.classList.add('op-max');
 
   // Absent and empty are different answers here: no ?prefix= means the default
   // @, ?prefix= with nothing after it means the streamer asked for none.
@@ -265,6 +282,8 @@ if(window.NPO) NPO.themeBoot('source');
   // Which corners carry the bracket - and so which corners are cut square.
   // After the no-handle bail above, so a page that draws nothing hangs nothing.
   if(window.NPO && frame === 'blade') NPO.corners(card, NPO.cornerList(qs));
+  var ct = parseInt(qs.get('cthick'),10);
+  if(isFinite(ct) && ct >= 1 && ct <= 6) root.style.setProperty('--cnr-w', ct+'px');
 
   // ---- reveal ---------------------------------------------------------------
   // Same rAF-plus-timer net as every other page here: an OBS source that is not

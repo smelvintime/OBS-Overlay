@@ -250,7 +250,7 @@ corners carry the glowing accent bracket; dark ones don't.
 
 The corners you pick are also the corners that get **cut square**, because a
 square bracket sitting on a rounded corner reads as a mistake rather than a
-style. The **Corners** slider still rounds whichever ones you left off. Pick
+style. The **Rounding** slider still rounds whichever ones you left off. Pick
 none for a plain plate with no accent at all, or all four to box it in.
 
 The default is the top-right and bottom-left pair the app has always drawn, so

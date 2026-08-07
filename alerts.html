@@ -25,11 +25,14 @@
                                    for a plain card. The bracketed corners are
                                    the cut ones. Blade frame only
                                                                 (default tr,bl)
+     ?cthick=2                     bracket line thickness px 1-6 (default 2)
      ?align=left|center|right      horizontal position          (default center)
      ?valign=top|middle|bottom     vertical position            (default top)
      ?scale=1.0                    size multiplier
      ?radius=16                    corner radius px
-     ?opacity=100                  alert opacity 10-100         (default 100)
+     ?opacity=100                  alert opacity 10-100; at 100 the card is
+                                   fully solid - nothing shows through
+                                                                (default 100)
      ?hold=6                       seconds on screen            (default 6)
      ?spins=1.5                    how many turns the shuriken makes while a
                                    slash arrival lands, 0.5-6   (default 1.5)
@@ -148,6 +151,20 @@
 
   body.frame-soft .alert::before{content:"";position:absolute;left:0;top:14%;bottom:14%;
     width:3px;border-radius:3px;background:var(--c);box-shadow:0 0 14px var(--c)}
+
+  /* Full ?opacity= means SOLID - the house .86 alpha stacked on itself until
+     nothing shows through ((1-.86)^7 rounds to zero on an 8-bit pixel),
+     keeping whatever hue the theme gave --card-bg. The backdrop blur stays
+     declared and simply has nothing left to show; the event tints above sit
+     on top of the background and are unaffected. Below 100, exactly as
+     before. */
+  body.op-max .alert{background-image:
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg))}
 
   /* The tinted plate and its ring are drawn as two stacked pseudo-elements at
      reduced opacity rather than with color-mix(). color-mix needs Chrome 111,
@@ -406,8 +423,11 @@ if(window.NPO) NPO.themeBoot('source');
   // Which corners carry the bracket - and so which corners are cut. Blade
   // only: twin drops the card entirely and plain wears a stripe down one
   // edge, so neither has a corner to bracket.
-  if(window.NPO && frame === 'blade')
+  if(window.NPO && frame === 'blade'){
     NPO.corners(document.getElementById('alert'), NPO.cornerList(qs));
+    var ct = parseInt(qs.get('cthick'),10);
+    if(isFinite(ct) && ct >= 1 && ct <= 6) root.style.setProperty('--cnr-w', ct+'px');
+  }
 
   // Matches stats.html: one switch for every diagonal on the card.
   document.body.classList.add(qs.get('slant') === '0' ? 'slant-off' : 'slant-on');
@@ -434,6 +454,8 @@ if(window.NPO) NPO.themeBoot('source');
     op = Math.max(10, Math.min(100, op));
     root.style.setProperty('--overlay-opacity', (op/100).toFixed(3));
   }
+  // Absent means the default 100, and 100 means the card is fully solid.
+  if(!isFinite(op) || op >= 100) document.body.classList.add('op-max');
 
   var hold = parseFloat(qs.get('hold'));
   if(!isFinite(hold) || hold < 1 || hold > 30) hold = 6;

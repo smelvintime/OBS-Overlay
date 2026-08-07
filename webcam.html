@@ -15,7 +15,8 @@
      ?cut=22                       bracket arm length px, 12-60 (default 22)
      ?radius=10                    corner radius px, 0-40       (default 10)
      ?glow=1                       0 removes the accent glows   (default 1)
-     ?opacity=100                  frame opacity 10-100         (default 100)
+     ?opacity=100                  frame opacity 10-100; at 100 the name
+                                   plate is fully solid         (default 100)
      ?corners=tr,bl                which corners carry the accent bracket, from
                                    tl / tr / br / bl; "all" for four, "none"
                                    for a bare border. The bracketed corners are
@@ -130,6 +131,17 @@
     border-radius:3px;background:var(--card-bg);border-left:3px solid var(--c);
     color:var(--text);font-size:12.5px;font-weight:700;line-height:1.2;
     letter-spacing:.08em;text-transform:uppercase}
+  /* Full ?opacity= means SOLID - the house .86 alpha stacked on itself until
+     nothing shows through ((1-.86)^7 rounds to zero on an 8-bit pixel),
+     keeping whatever hue the theme gave --card-bg. The camera's face was
+     showing through the name plate at "100%", which read as a bug. */
+  body.op-max #label .plate{background-image:
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg)),
+    linear-gradient(var(--card-bg),var(--card-bg))}
   /* 40 characters can still outrun a small camera; clip with an ellipsis
      rather than poke out of the frame. overflow:hidden also zeroes the flex
      item's automatic minimum size, so the text is the part that gives. */
@@ -220,6 +232,8 @@ if(window.NPO) NPO.themeBoot('source');
     op = Math.max(10, Math.min(100, op));
     root.style.setProperty('--frame-opacity', (op/100).toFixed(3));
   }
+  // Absent means the default 100, and 100 means the plate is fully solid.
+  if(!isFinite(op) || op >= 100) document.body.classList.add('op-max');
 
   var label = (qs.get('label') || '').trim();
   // Clipped rather than dropped: a name one character over the limit

@@ -77,6 +77,13 @@
     function clean(s) {
       s = (s || '').trim();
       while (s.charAt(0) === '@') s = s.slice(1);   /* the prefix redraws it */
+      /* Handles on all three platforms are letters, digits, dots, dashes and
+         underscores - nothing else. Anything past the first character outside
+         that set is a mangled query riding along, not a name: one hand-edited
+         OBS URL that ran two params together painted "@ALEXSZEDS=40" on
+         stream. Cut there rather than display it. */
+      var m = s.match(/^[A-Za-z0-9._-]*/);
+      s = m ? m[0] : '';
       return s.length > 32 ? s.slice(0, 32) : s;
     }
     var shared = clean(qs.get('handle'));

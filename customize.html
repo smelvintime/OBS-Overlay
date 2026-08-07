@@ -371,7 +371,7 @@
             floor:'h',
             note:'A set height holds the card there too, and the album art grows to fill a '
                + 'taller card - up to what the text column can spare.' },
-          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' }
+          { key:'radius', label:'Rounding', type:'range', min:0, max:40, step:1, unit:'px' }
         ]},
         { title:'New song', controls:[
           { key:'transition', label:'Arrives', type:'seg', options:[
@@ -410,7 +410,7 @@
       defaults:{
         style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
-        radius:16, opacity:100, hold:6, spins:1.5, corners:'tr,bl',
+        radius:16, opacity:100, hold:6, spins:1.5, corners:'tr,bl', cthick:2,
         sound:'', soundvol:70, media:'', mediah:180, mediax:50, mediay:50, mediadelay:0,
         medialoop:1,
         soundfollow:'', soundsub:'', soundresub:'', soundgift:'',
@@ -440,8 +440,10 @@
                + 'Plain is the original bar down one edge.' },
           { key:'slant', label:'', type:'toggle', text:'Lean the blades',
             note:'Off squares the card up for a rectangular scene. Twin blades only.' },
-          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
-          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%',
+            note:'100 means it: the card is completely solid and nothing shows through. '
+               + 'Anything lower fades the whole card as before.' },
+          { key:'radius', label:'Rounding', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
         ]},
         { title:'Accent corners', only:'blade', controls:[
@@ -449,7 +451,8 @@
             note:'Click the corners that carry the lit accent bracket. Those same '
                + 'corners are the ones cut square &mdash; a bracket only looks right on '
                + 'a sharp corner &mdash; so the shape follows what you pick. Blade frame '
-               + 'only; the other frames have no corner to bracket.' }
+               + 'only; the other frames have no corner to bracket.' },
+          { key:'cthick', label:'Thickness', type:'range', min:1, max:6, step:1, unit:'px' }
         ]},
         { title:'Position', controls:[
           { key:'align', label:'Side', type:'seg', options:[
@@ -543,7 +546,7 @@
         opacity:100, cycle:8, mode:'pair', faces:'all', order:'subs', arrange:'stack',
         takeover:0, hold:6,
         transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1,
-        followStep:0, subStep:0, corners:'tr,bl'
+        followStep:0, subStep:0, corners:'tr,bl', cthick:2
       },
       size:function(){ return {w:360, h:240}; },
       // Same envelope the alerts page takes, so one button drives whichever of
@@ -569,14 +572,15 @@
             note:'How big the mark on the label is. Blade and Twin blades only.' },
           { key:'theme', label:'Chrome', type:'seg', options:[['glass','Frosted'],['solid','Solid']] },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' },
-          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'radius', label:'Rounding', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' }
         ]},
         { title:'Accent corners', only:'blade', controls:[
           { key:'corners', label:'Corners', type:'corners',
             note:'Click the corners that carry the lit accent bracket &mdash; both boxes '
                + 'follow the same choice. Those same corners are the ones cut square, '
-               + 'since a bracket only looks right on a sharp corner. Blade frame only.' }
+               + 'since a bracket only looks right on a sharp corner. Blade frame only.' },
+          { key:'cthick', label:'Thickness', type:'range', min:1, max:6, step:1, unit:'px' }
         ]},
         { title:'Position and shape', controls:[
           { key:'align', label:'Side', type:'seg', options:[
@@ -656,7 +660,8 @@
           + 'there is something to show. The preview below runs on sample numbers.',
       live:[],
       defaults:{
-        accent:'9bd4f5', scale:1, radius:14, opacity:100, w:0, h:0, corners:'tr,bl',
+        accent:'9bd4f5', scale:1, radius:14, opacity:100, w:0, h:0,
+        corners:'tr,bl', cthick:2,
         showrank:1, showlp:1, showtoday:1, showform:1, showname:0,
         mranked:1, mnormals:1, maram:1, mother:1
       },
@@ -688,15 +693,18 @@
           { key:'h', label:'Height', type:'range', min:0, max:240, step:8, unit:'px',
             zeroText:'Auto',
             note:'Extra height is shared above and below &mdash; the line stays centred.' },
-          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
-          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+          { key:'radius', label:'Rounding', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%',
+            note:'100 means it: the plate is completely solid and nothing shows through. '
+               + 'Anything lower fades the whole bar as before.' }
         ]},
         { title:'Accent corners', controls:[
           { key:'corners', label:'Corners', type:'corners',
             note:'Click the corners that carry the lit accent bracket. Those same corners '
                + 'are the ones cut square &mdash; a bracket only looks right on a sharp '
                + 'corner &mdash; so the plate&rsquo;s shape follows what you pick, and the '
-               + 'Corners slider above rounds whichever are left over.' }
+               + 'Rounding slider above rounds whichever are left over.' },
+          { key:'cthick', label:'Thickness', type:'range', min:1, max:6, step:1, unit:'px' }
         ]}
       ]
     },
@@ -718,7 +726,7 @@
         handle:'', tiktok:'', youtube:'', instagram:'',
         mode:'rotate', cycle:5, prefix:'@', brand:0,
         frame:'blade', accent:'9bd4f5', scale:1, radius:12, opacity:100,
-        corners:'tr,bl'
+        corners:'tr,bl', cthick:2
       },
       size:function(){ return {w:420, h:80}; },
       groups:[
@@ -749,14 +757,17 @@
                + 'over your scene.' },
           { key:'accent', label:'Accent', type:'color' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
-          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
-          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+          { key:'radius', label:'Rounding', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%',
+            note:'100 means it: the plate is completely solid and nothing shows through. '
+               + 'Anything lower fades the whole plate as before.' }
         ]},
         { title:'Accent corners', only:'blade', controls:[
           { key:'corners', label:'Corners', type:'corners',
             note:'Click the corners that carry the lit accent bracket. Those same corners '
                + 'are the ones cut square. Blade frame only &mdash; the plain plate and '
-               + 'the bare mode have no corner to bracket.' }
+               + 'the bare mode have no corner to bracket.' },
+          { key:'cthick', label:'Thickness', type:'range', min:1, max:6, step:1, unit:'px' }
         ]}
       ]
     },
@@ -804,16 +815,18 @@
           { key:'accent', label:'Accent', type:'color' },
           { key:'thick', label:'Border', type:'range', min:1, max:8, step:1, unit:'px' },
           { key:'cut', label:'Brackets', type:'range', min:12, max:60, step:2, unit:'px' },
-          { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
+          { key:'radius', label:'Rounding', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'glow', label:'', type:'toggle', text:'Glow on the brackets' },
-          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
+          { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%',
+            note:'Fades the frame. At 100 the name plate is completely solid &mdash; the '
+               + 'camera never shows through your handle.' }
         ]},
         { title:'Accent corners', only:'blade', controls:[
           { key:'corners', label:'Corners', type:'corners',
             note:'Click the corners that carry the lit accent bracket. On a camera this '
                + 'earns its keep &mdash; brackets belong where the picture is quiet, and '
                + 'that is not the same two corners on every set. Those same corners are '
-               + 'the ones cut square; the Corners slider above rounds the rest. Blade '
+               + 'the ones cut square; the Rounding slider above rounds the rest. Blade '
                + 'frame only.' }
         ]},
         { title:'Name plate', controls:[
