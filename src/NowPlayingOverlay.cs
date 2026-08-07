@@ -169,6 +169,13 @@ namespace NowPlaying {
       }
     }
 
+    internal static string GetPref(string key) {
+      lock (_prefsLock) {
+        string v;
+        return Prefs().TryGetValue(key, out v) ? v : "";
+      }
+    }
+
     internal static void SetPref(string key, string value) {
       if (string.IsNullOrEmpty(key)) return;
       // One pref per line, so a stray newline in a value would corrupt every
@@ -1270,6 +1277,9 @@ namespace NowPlaying {
           } else if (route == "/prefs") {
             Send(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(PrefsJson()));
           } else if (route == "/prefs/set") {
+            // Writes prefs.txt to disk, so the same cross-site rule as every
+            // other state-writing route. Only our own pages call this.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             string pk = QueryParam(path, "key") ?? "";
             string pv = QueryParam(path, "value") ?? "";
             if (pk.Length > 0) SetPref(pk, pv);
@@ -1540,6 +1550,18 @@ namespace NowPlaying {
             bool uok = Updater.Begin(out uerr);
             SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
               "{\"ok\":" + (uok ? "true" : "false") + ",\"error\":" + Q(uerr) + "}"));
+          } else if (route == "/league/path") {
+            // Stores the folder League is installed in, for when discovery
+            // can't work it out alone (an elevated client on a machine where
+            // WMI is broken). Writes a pref and aims a file probe at a path,
+            // so the same cross-site rule as every state-writing route.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            string lp = (QueryParam(path, "value") ?? "").Trim().Trim('"');
+            if (lp.Length > 260) lp = lp.Substring(0, 260);
+            SetPref("leaguePath", lp);
+            AppLog.Write("league: install folder " + (lp.Length > 0 ? "set by hand" : "cleared"));
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(LeagueStats.StatusJson()));
           } else if (route == "/league/test") {
             // Pure: a canned match history through the real parser, touching
             // no state - so the formatting is provable with no League installed.

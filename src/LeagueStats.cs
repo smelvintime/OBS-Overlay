@@ -63,36 +63,194 @@ namespace NowPlaying {
     // client runs; it carries the local API's port and password. Found via
     // the live process rather than a hard-coded install path, so a D:\ or
     // moved install works the same.
+    //
+    // The process route breaks in one common setup: a client launched "as
+    // administrator" hides MainModule from this non-elevated app, and until
+    // there was a fallback that machine simply read as "not running". So
+    // discovery is tiered - live process, then the process COMMAND LINE via
+    // WMI (the WMI service is SYSTEM, so elevation does not blind it and it
+    // hands over the port and token with no file read at all), then a folder
+    // the user typed in, then the spots League installs to by default. The
+    // folder tiers only run while a League process is actually visible:
+    // process names are public even when the process is protected, and a
+    // lockfile with no client behind it is by definition stale.
+
+    // What the last discovery pass learned, for the dashboard: whether a
+    // League process exists at all, and which tier found the client. This is
+    // the difference between "start League" and "tell me where League is".
+    static volatile bool _clientSeen;
+    static volatile string _foundVia = "";
+    static string _loggedVia = "";       // log tier changes once, not per poll
+
+    public static bool ClientSeen { get { return _clientSeen; } }
+
     internal static bool FindLockfile(out int port, out string password) {
       port = 0; password = "";
+      bool seen = false;
+      string via = "";
+
+      // Tier 1: the lockfile beside the live process.
       foreach (var name in new[] { "LeagueClient", "LeagueClientUx" }) {
         System.Diagnostics.Process[] procs = null;
         try {
           procs = System.Diagnostics.Process.GetProcessesByName(name);
+          if (procs.Length > 0) seen = true;
           foreach (var p in procs) {
             try {
               string dir = Path.GetDirectoryName(p.MainModule.FileName);
-              string lf = Path.Combine(dir, "lockfile");
-              if (!File.Exists(lf)) continue;
-              // The client keeps the lockfile open for writing; a plain read
-              // throws a sharing violation, so share generously.
-              string text;
-              using (var fs = new FileStream(lf, FileMode.Open, FileAccess.Read,
-                                             FileShare.ReadWrite | FileShare.Delete))
-              using (var sr = new StreamReader(fs, Encoding.ASCII))
-                text = sr.ReadToEnd();
-              // ProcessName:PID:port:password:protocol
-              var parts = text.Trim().Split(':');
-              if (parts.Length >= 5 && int.TryParse(parts[2], out port) && port > 0) {
-                password = parts[3];
-                return true;
+              if (ReadLockfile(Path.Combine(dir, "lockfile"), out port, out password)) {
+                via = "process";
+                break;
               }
             } catch { }     // an elevated client hides MainModule; try the next
           }
         } catch { }
         finally { if (procs != null) foreach (var p in procs) { try { p.Dispose(); } catch { } } }
+        if (via.Length > 0) break;
       }
+
+      // No process, no client - a lockfile found on disk now would be a
+      // leftover from a crash, and connecting to it can only mislead.
+      if (via.Length == 0 && !seen) {
+        _clientSeen = false; _foundVia = "";
+        return false;
+      }
+
+      // Tier 2: the Ux process's own command line carries --app-port and
+      // --remoting-auth-token.
+      if (via.Length == 0 && TryCommandLine(out port, out password)) via = "command line";
+
+      // Tier 3: the folder the user typed into the Chat bot tab.
+      if (via.Length == 0) {
+        string pref = (Program.GetPref("leaguePath") ?? "").Trim().Trim('"');
+        if (pref.Length > 0)
+          foreach (var dir in PathCandidates(pref))
+            if (ReadLockfile(Path.Combine(dir, "lockfile"), out port, out password)) {
+              via = "your folder";
+              break;
+            }
+      }
+
+      // Tier 4: where League says it is (Riot's install metadata), then the
+      // default install root on every fixed drive.
+      if (via.Length == 0)
+        foreach (var dir in KnownDirs())
+          if (ReadLockfile(Path.Combine(dir, "lockfile"), out port, out password)) {
+            via = "install metadata";
+            break;
+          }
+
+      _clientSeen = seen;
+      _foundVia = via;
+      if (via != _loggedVia) {
+        _loggedVia = via;
+        AppLog.Write(via.Length > 0
+          ? "league: client found via " + via
+          : "league: a League process is running but no tier could reach it "
+            + "(elevated client with WMI unavailable?)");
+      }
+      return via.Length > 0;
+    }
+
+    // The client keeps the lockfile open for writing; a plain read throws a
+    // sharing violation, so share generously. ProcessName:PID:port:password:protocol
+    static bool ReadLockfile(string lf, out int port, out string password) {
+      port = 0; password = "";
+      try {
+        if (!File.Exists(lf)) return false;
+        string text;
+        using (var fs = new FileStream(lf, FileMode.Open, FileAccess.Read,
+                                       FileShare.ReadWrite | FileShare.Delete))
+        using (var sr = new StreamReader(fs, Encoding.ASCII))
+          text = sr.ReadToEnd();
+        var parts = text.Trim().Split(':');
+        if (parts.Length >= 5 && int.TryParse(parts[2], out port) && port > 0) {
+          password = parts[3];
+          return true;
+        }
+      } catch { }
       return false;
+    }
+
+    static bool TryCommandLine(out int port, out string password) {
+      port = 0; password = "";
+      try {
+        using (var s = new System.Management.ManagementObjectSearcher(
+            "SELECT CommandLine FROM Win32_Process WHERE Name='LeagueClientUx.exe'"))
+        using (var rows = s.Get()) {
+          foreach (System.Management.ManagementBaseObject mo in rows) {
+            string cmd = mo["CommandLine"] as string;
+            if (string.IsNullOrEmpty(cmd)) continue;
+            int p;
+            string t = ArgValue(cmd, "--remoting-auth-token=");
+            if (int.TryParse(ArgValue(cmd, "--app-port="), out p) && p > 0 && t.Length > 0) {
+              port = p; password = t;
+              return true;
+            }
+          }
+        }
+      } catch { }   // WMI can be broken on a given machine; the other tiers stand
+      return false;
+    }
+
+    // A value in a command line is bare or "quoted"; both end at the next
+    // quote or space.
+    static string ArgValue(string cmd, string name) {
+      int i = cmd.IndexOf(name, StringComparison.OrdinalIgnoreCase);
+      if (i < 0) return "";
+      i += name.Length;
+      if (i < cmd.Length && cmd[i] == '"') {
+        int e = cmd.IndexOf('"', i + 1);
+        return e < 0 ? "" : cmd.Substring(i + 1, e - i - 1);
+      }
+      int sp = cmd.IndexOfAny(new[] { ' ', '"' }, i);
+      return (sp < 0 ? cmd.Substring(i) : cmd.Substring(i, sp - i)).Trim();
+    }
+
+    // People paste whatever Explorer gave them: the install folder, the Riot
+    // Games root above it, the exe, even the lockfile itself. Meet all of
+    // them rather than teach the difference.
+    static List<string> PathCandidates(string p) {
+      var list = new List<string>();
+      try {
+        p = p.Replace('/', '\\').TrimEnd('\\');
+        if (p.EndsWith("\\lockfile", StringComparison.OrdinalIgnoreCase)
+            || p.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+          p = Path.GetDirectoryName(p);
+        if (string.IsNullOrEmpty(p)) return list;
+        list.Add(p);
+        list.Add(Path.Combine(p, "League of Legends"));
+      } catch { }
+      return list;
+    }
+
+    static List<string> KnownDirs() {
+      var list = new List<string>();
+      // Riot's own record of the install location - survives any drive letter
+      // or custom folder, because the launcher itself reads it.
+      try {
+        string meta = Path.Combine(
+          Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+          "Riot Games", "Metadata", "league_of_legends.live",
+          "league_of_legends.live.product_settings.yaml");
+        if (File.Exists(meta)) {
+          foreach (var line in File.ReadAllLines(meta)) {
+            int i = line.IndexOf("product_install_full_path:", StringComparison.OrdinalIgnoreCase);
+            if (i < 0) continue;
+            string v = line.Substring(i + "product_install_full_path:".Length)
+                           .Trim().Trim('"', '\'').Replace('/', '\\').TrimEnd('\\');
+            if (v.Length > 0) list.Add(v);
+            break;
+          }
+        }
+      } catch { }
+      // The default install root, wherever the drive letters landed.
+      try {
+        foreach (var d in DriveInfo.GetDrives())
+          if (d.DriveType == DriveType.Fixed)
+            list.Add(Path.Combine(d.Name, "Riot Games", "League of Legends"));
+      } catch { }
+      return list;
     }
 
     // ----------------------------------------------------------------- HTTPS
@@ -725,7 +883,12 @@ namespace NowPlaying {
           int port; string pw;
           if (!FindLockfile(out port, out pw)) {
             _status = "no-client";
-            _detail = "the League client is not running on this PC";
+            // Two different people act on these: one starts League, the
+            // other types the install folder into the Chat bot tab.
+            _detail = _clientSeen
+              ? "League looks like it is running, but the app cannot find its "
+                + "files - point it at the League folder on the Chat bot tab"
+              : "the League client is not running on this PC";
             phase = ""; freshPolls = 0; eogTries = 0;
             Thread.Sleep(10000);
             continue;
@@ -897,7 +1060,13 @@ namespace NowPlaying {
       sb.Append("\"last\":").Append(TwitchChat.Qs(last)).Append(',');
       string rankLine;
       lock (_resultLock) { rankLine = _rankLine; }
-      sb.Append("\"rank\":").Append(TwitchChat.Qs(rankLine));
+      sb.Append("\"rank\":").Append(TwitchChat.Qs(rankLine)).Append(',');
+      // Discovery, for the bot tab: is a League process visible at all, which
+      // tier reached it, and what folder the user has typed in (empty = none).
+      // seen/via only refresh while the tracker is on and looking.
+      sb.Append("\"seen\":").Append(_clientSeen ? "true" : "false").Append(',');
+      sb.Append("\"via\":").Append(TwitchChat.Qs(_foundVia)).Append(',');
+      sb.Append("\"pathSet\":").Append(TwitchChat.Qs((Program.GetPref("leaguePath") ?? "").Trim()));
       sb.Append('}');
       return sb.ToString();
     }

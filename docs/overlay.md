@@ -226,10 +226,16 @@ speaks one visual language.
 
 1. In OBS, add it as its own **Browser Source**, positioned and sized
    **exactly over the webcam source** (same X/Y, same width/height).
+   **Any size or shape works** — 16:9, 4:3, square, a portrait cam for a
+   vertical stream — the frame stretches to whatever the browser source is
+   given, so matching the camera is all there is to it.
 2. Dress it from the **Webcam frame** tab in the customizer: blade or plain
    frame, accent colour, border thickness, bracket size, glow, and an
    optional name plate in the bottom-left corner — with the shuriken on it
    if you like, or the shuriken alone as a corner emblem with no text.
+   The **Camera** control at the top reshapes the preview to your camera's
+   proportions so you can judge the look before OBS — it never becomes part
+   of the copied URL.
 
 The name plate can also carry your **socials** instead of fixed text: set
 **Shows** to *Socials* in the customizer, fill in the handle, and the plate

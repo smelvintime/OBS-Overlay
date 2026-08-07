@@ -228,6 +228,15 @@
       </select>
     </div>
     <div class="tryout" id="gsStatus"></div>
+    <!-- Only appears when the app can see a League process but cannot reach
+         its files by itself (or a folder is already set and worth showing).
+         The folder, the exe, even the Riot Games root all work. -->
+    <div class="addrow" id="gsPathRow" style="display:none">
+      <input type="text" id="gsPath" spellcheck="false"
+             placeholder="C:\Riot Games\League of Legends"
+             title="The folder League of Legends is installed in - the one with LeagueClient.exe inside. Leave empty to go back to automatic." />
+      <button type="button" class="primary" id="gsPathSave">Save</button>
+    </div>
   </div>
 
   <div class="panel">
@@ -485,7 +494,8 @@
 
   // ---- game stats (League) ---------------------------------------------------
   var gsOn = document.getElementById('gsOn'), gsAnnounce = document.getElementById('gsAnnounce'),
-      gsTimer = document.getElementById('gsTimer'), gsStatus = document.getElementById('gsStatus');
+      gsTimer = document.getElementById('gsTimer'), gsStatus = document.getElementById('gsStatus'),
+      gsPathRow = document.getElementById('gsPathRow'), gsPath = document.getElementById('gsPath');
 
   function renderGameStats(){
     gsOn.checked = !!data.gameStats;
@@ -504,15 +514,37 @@
                 + 'past ' + lg.record.split(' ').length + ': ' + lg.record)
             + '</span>' : ' No games seen yet this session.');
     } else if(lg.status === 'no-client'){
-      line = 'Waiting for the League client to be running on this PC. '
-           + 'It connects by itself the moment it is.';
+      // Two very different waits: no client at all, and a client the app can
+      // see but not read (usually League running as administrator). Only the
+      // second is the user's to fix, with the folder box below.
+      line = lg.seen
+        ? 'League looks like it is <b>running</b>, but the app can’t find its '
+          + 'files by itself. Point it at the folder League is installed in:'
+        : 'Waiting for the League client to be running on this PC. '
+          + 'It connects by itself the moment it is.';
     } else if(lg.status === 'error'){
       line = 'Problem reading the League client: ' + esc(lg.detail || 'unknown') + '.';
     } else {
       line = 'Starting up…';
     }
     gsStatus.innerHTML = line;
+
+    // The box shows itself only when it can help - or when a folder is
+    // already set, so it can always be corrected or cleared.
+    var wantRow = !!data.gameStats
+      && ((lg.status === 'no-client' && lg.seen) || (lg.pathSet || '').length > 0);
+    gsPathRow.style.display = wantRow ? '' : 'none';
+    if(wantRow && document.activeElement !== gsPath) gsPath.value = lg.pathSet || '';
   }
+
+  document.getElementById('gsPathSave').addEventListener('click', function(){
+    fetch('/league/path?value=' + encodeURIComponent(gsPath.value.trim()), {cache:'no-store'})
+      .then(function(){ return set(''); })   // re-pull /bot/set for a fresh league block
+      .catch(function(){});
+  });
+  gsPath.addEventListener('keydown', function(e){
+    if(e.key === 'Enter') document.getElementById('gsPathSave').click();
+  });
 
   function saveGameStats(){
     set('what=gamestats&value=' + (gsOn.checked ? '1' : '0')

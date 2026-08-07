@@ -108,6 +108,8 @@ one page. When two machines disagree, compare their `/diag` pages first.
 | `GET /update/status` | JSON: this build's version/date, and the updater's progress while one runs |
 | `GET /update/check` | Asks GitHub whether a newer commit exists (cached 30 min; `?force=1` re-asks). App pages only |
 | `GET /update/run` | Downloads the latest source, rebuilds locally, swaps the exe and restarts. App pages only |
+| `GET /league` | JSON: the League tracker's status, record, rank line and discovery state |
+| `GET /league/path?value=<folder>` | Stores where League is installed, for when discovery needs telling (empty clears it). App pages only |
 
 If the overlay ever shows the wrong thing, `/sources` is the fastest way to see why —
 it reports the Windows media session and iTunes separately, plus which one was chosen.

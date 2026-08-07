@@ -426,9 +426,16 @@ local API can also act — pick, ban, trade. This app never calls any of that.
 
 The panel on the bot tab shows what it is currently watching and the exact
 line it would say. If it shows "waiting for the League client", start League —
-there is nothing else to configure. The League client's local data service is
-unofficial, so a big League patch could interrupt this feature until an app
-update; if that happens the panel says so and everything else keeps working.
+there is nothing else to configure. The app finds the client by itself
+wherever it is installed, whatever the drive letter, even when League runs
+as administrator. In the rare setup where none of that works, the panel says
+"League looks like it is running, but…" and shows a box: paste the folder
+League is installed in (the one with `LeagueClient.exe` inside — the exe
+itself or the `Riot Games` folder above it work too) and press Save. Leave
+the box empty and Save to go back to automatic. The League client's local
+data service is unofficial, so a big League patch could interrupt this
+feature until an app update; if that happens the panel says so and
+everything else keeps working.
 
 ## Setting it up by hand instead
 

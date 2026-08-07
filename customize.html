@@ -698,16 +698,36 @@
       label:'Webcam frame', path:'/webcam', store:'nowplaying.customize.webcam',
       blurb:'A themed frame that sits exactly over the camera: add it as its own OBS '
           + '<strong>Browser Source</strong> in the same position and size as the webcam '
-          + 'source, and it draws the border on top. The middle stays fully transparent.',
+          + 'source, and it draws the border on top. The middle stays fully transparent. '
+          + 'Any camera size or shape works &mdash; the frame stretches to whatever the '
+          + 'browser source is given.',
       live:[],
       defaults:{
+        cam:'169',
         frame:'blade', accent:'9bd4f5', thick:2, cut:22, radius:10, glow:1,
         opacity:100, label:'', mark:0, slant:1,
         plate:'name', handle:'', tiktok:'', youtube:'', instagram:'',
         prefix:'@', cycle:5, brand:0
       },
-      size:function(){ return {w:640, h:360}; },
+      // The camera's shape belongs to this preview alone: the frame page has
+      // no size params at all - in OBS it takes the browser source's size,
+      // whatever that is. So 'cam' is previewOnly and never enters the URL.
+      previewOnly:['cam'],
+      sizeLabel:'Preview',
+      size:function(s){
+        return { '169':{w:640, h:360}, '43':{w:560, h:420},
+                 '11' :{w:460, h:460}, '916':{w:288, h:512} }[s.cam]
+            || {w:640, h:360};
+      },
       groups:[
+        { title:'Camera', controls:[
+          { key:'cam', label:'Shape', type:'seg', options:[
+            ['169','16:9'],['43','4:3'],['11','1:1'],['916','9:16']],
+            note:'Only this preview changes &mdash; pick your camera&rsquo;s shape to see the '
+               + 'frame the way OBS will draw it. In OBS itself the frame always takes the '
+               + 'exact size and shape of the browser source, so just match that to the '
+               + 'camera, whatever it is.' }
+        ]},
         { title:'Look', controls:[
           { key:'frame', label:'Frame', type:'seg', options:[['blade','Blade'],['soft','Plain']],
             note:'Blade cuts two corners and brackets them in the accent, matching the '
@@ -801,6 +821,9 @@
     var out = '';
     for(var key in T.defaults){
       if(skipLive && T.live.indexOf(key) >= 0) continue;
+      // Preview-only keys shape this page's canvas and nothing else - the
+      // source page has no such params, so they must never reach a URL.
+      if(T.previewOnly && T.previewOnly.indexOf(key) >= 0) continue;
       if(String(state[key]) === String(T.defaults[key])) continue;
       out += (out ? '&' : '') + key + '=' + encodeURIComponent(state[key]);
     }
@@ -1006,7 +1029,11 @@
                h: Math.max(nominal.h, contentSize.h + 48) };
     }
     var k = fitFrame(size);
-    dimsEl.textContent = 'OBS source  ' + nominal.w + ' × ' + nominal.h + '   ·   '
+    // "OBS source" is a promise the webcam frame can't make - its real size
+    // is whatever the camera's browser source is - so that target relabels
+    // the number as the preview it is.
+    dimsEl.textContent = (T.sizeLabel || 'OBS source') + '  ' + nominal.w + ' × ' + nominal.h
+      + '   ·   '
       + (k < 1 ? 'preview at ' + Math.round(k * 100) + '%'
                : cropped ? 'actual size, cropped' : 'actual size');
     zoomEl.style.display = fitK < 1 ? '' : 'none';
