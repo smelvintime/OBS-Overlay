@@ -44,6 +44,7 @@
                                    the cut ones. Blade frame only
                                                                 (default tr,bl)
      ?cthick=2                     bracket line thickness px 1-6 (default 2)
+     ?clen=18                      bracket arm length px 8-48   (default 18)
      ?theme=name                   pin this source to one theme
 
      Two modes because two scenes. rotate is the compact one for gameplay: the
@@ -284,6 +285,9 @@ if(window.NPO) NPO.themeBoot('source');
   if(window.NPO && frame === 'blade') NPO.corners(card, NPO.cornerList(qs));
   var ct = parseInt(qs.get('cthick'),10);
   if(isFinite(ct) && ct >= 1 && ct <= 6) root.style.setProperty('--cnr-w', ct+'px');
+  // How far the arms reach along each edge.
+  var cl = parseInt(qs.get('clen'),10);
+  if(isFinite(cl) && cl >= 8 && cl <= 48) root.style.setProperty('--cnr-size', cl+'px');
 
   // ---- reveal ---------------------------------------------------------------
   // Same rAF-plus-timer net as every other page here: an OBS source that is not

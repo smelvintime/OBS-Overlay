@@ -30,6 +30,7 @@
                                    the cut ones     (default tr,bl - the house
                                    diagonal, so old links are unchanged)
      ?cthick=2                     bracket line thickness px 1-6 (default 2)
+     ?clen=18                      bracket arm length px 8-48   (default 18)
      ?mranked=1  ?mnormals=1       which modes count toward the tally and the
      ?maram=1    ?mother=1         form squares; 0 removes that bucket
                                    (default all on). Rank and LP are queue
@@ -224,6 +225,9 @@ if(window.NPO) NPO.themeBoot('source');
   // its border; here it is a straight pick.
   var ct = parseInt(qs.get('cthick'),10);
   if(isFinite(ct) && ct >= 1 && ct <= 6) root.style.setProperty('--cnr-w', ct+'px');
+  // How far the arms reach along each edge.
+  var cl = parseInt(qs.get('clen'),10);
+  if(isFinite(cl) && cl >= 8 && cl <= 48) root.style.setProperty('--cnr-size', cl+'px');
 
   // zoom rather than transform, the trick alerts.html uses: zoom reflows, so
   // the footprint the size reporter measures below is the scaled one for free.

@@ -410,7 +410,7 @@
       defaults:{
         style:'slide', frame:'blade', slant:1, accent:'9bd4f5', followColor:'9bd4f5',
         subColor:'a970ff', giftColor:'ff9d3f', align:'center', valign:'top', scale:1,
-        radius:16, opacity:100, hold:6, spins:1.5, corners:'tr,bl', cthick:2,
+        radius:16, opacity:100, hold:6, spins:1.5, corners:'tr,bl', cthick:2, clen:18,
         sound:'', soundvol:70, media:'', mediah:180, mediax:50, mediay:50, mediadelay:0,
         medialoop:1,
         soundfollow:'', soundsub:'', soundresub:'', soundgift:'',
@@ -452,6 +452,9 @@
                + 'corners are the ones cut square &mdash; a bracket only looks right on '
                + 'a sharp corner &mdash; so the shape follows what you pick. Blade frame '
                + 'only; the other frames have no corner to bracket.' },
+          { key:'clen', label:'Length', type:'range', min:8, max:48, step:1, unit:'px',
+            note:'How far each bracket reaches along its two edges. Thickness below is '
+               + 'their weight; this is their reach.' },
           { key:'cthick', label:'Thickness', type:'range', min:1, max:6, step:1, unit:'px' }
         ]},
         { title:'Position', controls:[
@@ -546,7 +549,7 @@
         opacity:100, cycle:8, mode:'pair', faces:'all', order:'subs', arrange:'stack',
         takeover:0, hold:6,
         transition:'slide', width:300, gap:12, showFollowers:1, showSubs:1,
-        followStep:0, subStep:0, corners:'tr,bl', cthick:2
+        followStep:0, subStep:0, corners:'tr,bl', cthick:2, clen:15
       },
       size:function(){ return {w:360, h:240}; },
       // Same envelope the alerts page takes, so one button drives whichever of
@@ -580,6 +583,9 @@
             note:'Click the corners that carry the lit accent bracket &mdash; both boxes '
                + 'follow the same choice. Those same corners are the ones cut square, '
                + 'since a bracket only looks right on a sharp corner. Blade frame only.' },
+          { key:'clen', label:'Length', type:'range', min:8, max:48, step:1, unit:'px',
+            note:'How far each bracket reaches along its two edges. Thickness below is '
+               + 'their weight; this is their reach.' },
           { key:'cthick', label:'Thickness', type:'range', min:1, max:6, step:1, unit:'px' }
         ]},
         { title:'Position and shape', controls:[
@@ -661,7 +667,7 @@
       live:[],
       defaults:{
         accent:'9bd4f5', scale:1, radius:14, opacity:100, w:0, h:0,
-        corners:'tr,bl', cthick:2,
+        corners:'tr,bl', cthick:2, clen:18,
         showrank:1, showlp:1, showtoday:1, showform:1, showname:0,
         mranked:1, mnormals:1, maram:1, mother:1
       },
@@ -706,6 +712,9 @@
                + 'are the ones cut square &mdash; a bracket only looks right on a sharp '
                + 'corner &mdash; so the plate&rsquo;s shape follows what you pick, and the '
                + 'Rounding slider above rounds whichever are left over.' },
+          { key:'clen', label:'Length', type:'range', min:8, max:48, step:1, unit:'px',
+            note:'How far each bracket reaches along its two edges. Thickness below is '
+               + 'their weight; this is their reach.' },
           { key:'cthick', label:'Thickness', type:'range', min:1, max:6, step:1, unit:'px' }
         ]}
       ]
@@ -728,7 +737,7 @@
         handle:'', tiktok:'', youtube:'', instagram:'',
         mode:'rotate', cycle:5, prefix:'@', brand:0,
         frame:'blade', accent:'9bd4f5', scale:1, radius:12, opacity:100,
-        corners:'tr,bl', cthick:2
+        corners:'tr,bl', cthick:2, clen:18
       },
       size:function(){ return {w:420, h:80}; },
       groups:[
@@ -769,6 +778,9 @@
             note:'Click the corners that carry the lit accent bracket. Those same corners '
                + 'are the ones cut square. Blade frame only &mdash; the plain plate and '
                + 'the bare mode have no corner to bracket.' },
+          { key:'clen', label:'Length', type:'range', min:8, max:48, step:1, unit:'px',
+            note:'How far each bracket reaches along its two edges. Thickness below is '
+               + 'their weight; this is their reach.' },
           { key:'cthick', label:'Thickness', type:'range', min:1, max:6, step:1, unit:'px' }
         ]}
       ]
@@ -816,7 +828,6 @@
                + 'alerts and the goal boxes. Plain is a simple rounded border.' },
           { key:'accent', label:'Accent', type:'color' },
           { key:'thick', label:'Border', type:'range', min:1, max:8, step:1, unit:'px' },
-          { key:'cut', label:'Brackets', type:'range', min:12, max:60, step:2, unit:'px' },
           { key:'radius', label:'Rounding', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'glow', label:'', type:'toggle', text:'Glow on the brackets' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%',
@@ -830,12 +841,14 @@
                + 'that is not the same two corners on every set. Those same corners are '
                + 'the ones cut square; the Rounding slider above rounds the rest. Blade '
                + 'frame only.' },
+          { key:'cut', label:'Length', type:'range', min:12, max:60, step:1, unit:'px',
+            note:'How far each bracket reaches along its two edges. This used to sit up '
+               + 'in Look as &ldquo;Brackets&rdquo;, which said nothing about what it did.' },
           { key:'cthick', label:'Thickness', type:'range', min:0, max:6, step:1, unit:'px',
             zeroText:'Auto',
-            note:'How heavy the bracket lines draw. Auto follows the Border slider above '
+            note:'How heavy the bracket lines draw. Auto follows the Border slider in Look '
                + '&mdash; hairline brackets beside a thick border read as two unrelated '
-               + 'frames &mdash; so set this only when you want to break that pairing. '
-               + 'The Brackets slider above is their length; this is their weight.' }
+               + 'frames &mdash; so set this only when you want to break that pairing.' }
         ]},
         { title:'Name plate', controls:[
           { key:'plate', label:'Shows', type:'seg', options:[

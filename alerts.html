@@ -26,6 +26,7 @@
                                    the cut ones. Blade frame only
                                                                 (default tr,bl)
      ?cthick=2                     bracket line thickness px 1-6 (default 2)
+     ?clen=18                      bracket arm length px 8-48   (default 18)
      ?align=left|center|right      horizontal position          (default center)
      ?valign=top|middle|bottom     vertical position            (default top)
      ?scale=1.0                    size multiplier
@@ -427,6 +428,9 @@ if(window.NPO) NPO.themeBoot('source');
     NPO.corners(document.getElementById('alert'), NPO.cornerList(qs));
     var ct = parseInt(qs.get('cthick'),10);
     if(isFinite(ct) && ct >= 1 && ct <= 6) root.style.setProperty('--cnr-w', ct+'px');
+    // How far the arms reach along each edge.
+    var cl = parseInt(qs.get('clen'),10);
+    if(isFinite(cl) && cl >= 8 && cl <= 48) root.style.setProperty('--cnr-size', cl+'px');
   }
 
   // Matches stats.html: one switch for every diagonal on the card.
