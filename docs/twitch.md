@@ -411,6 +411,10 @@ dressed from the **League tracker** tab in the customizer:
   count, whatever is ticked.
 - The source stays **invisible until there is something to show**, and keeps
   the last numbers on screen if the League client closes between games.
+- **Width and Height sliders** hold the plate at a set size, the same way the
+  music card's do — Auto hugs the content, and a set size never squeezes
+  below what the content needs. The size hint under the preview always shows
+  the true painted size to type into OBS.
 - It costs nothing while unused: the app only polls the League client while
   the tracker source is actually open (or the bot's Game stats switch is on).
 

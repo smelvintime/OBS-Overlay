@@ -609,13 +609,17 @@
     session: {
       label:'League tracker', path:'/session', store:'nowplaying.customize.session',
       sizeToContent:true,
+      // Same growth rule as the stat boxes: a widened or doubled bar would
+      // otherwise be clipped by the nominal canvas, which reads as OBS
+      // cropping it - and makes the measured size below look like a lie.
+      growToContent:true,
       blurb:'Today&rsquo;s record, recent form and the current rank, read straight from the '
           + 'League client on this PC &mdash; nothing typed in, nothing to update by hand. '
           + 'Add it as its own OBS <strong>Browser Source</strong>; it stays invisible until '
           + 'there is something to show. The preview below runs on sample numbers.',
       live:[],
       defaults:{
-        accent:'9bd4f5', scale:1, radius:14, opacity:100,
+        accent:'9bd4f5', scale:1, radius:14, opacity:100, w:0, h:0,
         showrank:1, showlp:1, showtoday:1, showform:1, showname:0,
         mranked:1, mnormals:1, maram:1, mother:1
       },
@@ -639,6 +643,14 @@
         { title:'Look', controls:[
           { key:'accent', label:'Accent', type:'color' },
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
+          { key:'w', label:'Width', type:'range', min:0, max:1200, step:20, unit:'px',
+            zeroText:'Auto',
+            note:'Auto hugs the content, exactly as before. A set width holds the plate at '
+               + 'that size whatever the numbers do &mdash; it never squeezes below what the '
+               + 'content needs, so too small simply sits at the content&rsquo;s own edge.' },
+          { key:'h', label:'Height', type:'range', min:0, max:240, step:8, unit:'px',
+            zeroText:'Auto',
+            note:'Extra height is shared above and below &mdash; the line stays centred.' },
           { key:'radius', label:'Corners', type:'range', min:0, max:40, step:1, unit:'px' },
           { key:'opacity', label:'Opacity', type:'range', min:10, max:100, step:5, unit:'%' }
         ]}
@@ -648,6 +660,10 @@
     socials: {
       label:'Socials', path:'/socials', store:'nowplaying.customize.socials',
       sizeToContent:true,
+      // Long handles, Show-them-all mode and 2x scale all outgrow the nominal
+      // canvas; without growth the preview clips them - which looks exactly
+      // like OBS cropping the source - and the measured size reads as wrong.
+      growToContent:true,
       blurb:'Your handles as their own OBS <strong>Browser Source</strong>. <em>Rotating icon</em> '
           + 'keeps the name written once and cycles only the platform mark &mdash; the compact '
           + 'one for a gameplay scene. <em>Show them all</em> puts every platform on screen at '

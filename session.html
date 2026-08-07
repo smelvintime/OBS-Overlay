@@ -10,6 +10,13 @@
      ?scale=1.0                    size multiplier 0.6-2
      ?radius=14                    corner radius px 0-40        (default 14)
      ?opacity=100                  bar opacity 10-100           (default 100)
+     ?w=0                          a set plate width px (40-1600), 0 = hug the
+                                   content. Never squeezes below what the
+                                   content needs - like the music card, the
+                                   bar clamps up rather than clipping
+     ?h=0                          a set plate height px (30-400), 0 = hug;
+                                   extra room is shared above and below
+                                                                (default 0/0)
      ?showrank=1                   rank block: queue, tier, LP  (default 1)
      ?showlp=1                     the LP-won-today pill        (default 1)
      ?showtoday=1                  today's win-loss tally       (default 1)
@@ -69,6 +76,9 @@
   .card{
     position:relative;display:flex;align-items:center;gap:14px;
     padding:12px 18px;
+    /* border-box so a ?w= means the whole plate, padding and border included -
+       the number typed into the customizer is the number OBS sees painted. */
+    box-sizing:border-box;
     border-radius:var(--radius) 3px var(--radius) 3px;
     background:var(--card-bg);border:1px solid var(--card-border);
     box-shadow:0 8px 26px rgba(0,0,0,.4);
@@ -203,6 +213,27 @@ if(window.NPO) NPO.themeBoot('source');
     root.style.setProperty('--overlay-opacity', (op/100).toFixed(3));
   }
 
+  // A set size, the music card's way: the plate holds at exactly this many
+  // px, except it never squeezes below what the content needs - the bar's
+  // blocks can't scroll the way a song title can, so clamping up is the only
+  // honest floor. 0 (the default) hugs the content as before.
+  var fxW = parseInt(qs.get('w'),10);
+  fxW = (isFinite(fxW) && fxW >= 40) ? Math.min(fxW, 1600) : 0;
+  var fxH = parseInt(qs.get('h'),10);
+  fxH = (isFinite(fxH) && fxH >= 30) ? Math.min(fxH, 400) : 0;
+
+  // offsetWidth, not getBoundingClientRect: the wrapper above carries the
+  // ?scale= zoom, and style.width is written in the card's own CSS px, so the
+  // natural size must be read in that same coordinate space. The rect would
+  // hand back zoomed pixels and the clamp would drift with the scale.
+  function applySize(){
+    if(!fxW && !fxH) return;
+    card.style.width = ''; card.style.height = '';
+    var nw = card.offsetWidth, nh = card.offsetHeight;
+    if(fxW) card.style.width  = Math.max(fxW, nw) + 'px';
+    if(fxH) card.style.height = Math.max(fxH, nh) + 'px';
+  }
+
   var showRank  = qs.get('showrank')  !== '0';
   var showLp    = qs.get('showlp')    !== '0';
   var showToday = qs.get('showtoday') !== '0';
@@ -309,6 +340,10 @@ if(window.NPO) NPO.themeBoot('source');
     var left  = vm.rank !== null || vm.chip !== null;
     var right = vm.today !== null || vm.form !== null;
     vdivEl.className = (left && right) ? 'vdiv' : 'vdiv off';
+
+    // After the DOM settles: the natural size this clamps against just moved
+    // with the content, and only render's snapshot gate lets that happen.
+    applySize();
   }
 
   // ---- reveal -------------------------------------------------------------

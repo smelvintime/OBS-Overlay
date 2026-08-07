@@ -269,6 +269,30 @@ if(window.NPO) NPO.themeBoot('source');
   function on(){ card.classList.add('show'); }
   requestAnimationFrame(on);
   setTimeout(on, 60);
+
+  // The recommended OBS source size is a guess; the true footprint moves with
+  // the handle length, the mode and ?scale=. Same mechanism as stats.html and
+  // session.html - and the wrapper is the zoom target, so the measured number
+  // is painted pixels with the scale already in it. This page builds its card
+  // synchronously above, so there is no reveal gate to wait behind - and the
+  // no-handle case bailed out long before here, so a blank page never reports
+  // the size of nothing.
+  if(window.top !== window.self && window.ResizeObserver){
+    var lastReport = '';
+    var reportSize = function(){
+      var r = wrap.getBoundingClientRect();
+      if(r.width <= 0 || r.height <= 0) return;
+      var w = Math.round(r.width), h = Math.round(r.height);
+      var key = w + 'x' + h;
+      if(key === lastReport) return;
+      lastReport = key;
+      try {
+        window.parent.postMessage({type:'nowplaying:content-size', w:w, h:h}, location.origin);
+      } catch(e){}
+    };
+    new ResizeObserver(reportSize).observe(wrap);
+    window.addEventListener('load', reportSize);
+  }
 })();
 </script>
 </body>

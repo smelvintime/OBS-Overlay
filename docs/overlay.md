@@ -270,3 +270,9 @@ entirely if you just want the mark and the name floating over your scene.
 
 The page draws nothing at all until a handle is set, so an unconfigured source
 is invisible rather than an empty box.
+
+The customizer preview grows to whatever the plate actually measures — a long
+handle, Show-them-all mode or a larger Size all get shown whole rather than
+cut off at the canvas edge — and the size hint under it reports the true
+painted size. Set the OBS Browser Source to that number and nothing is ever
+cropped.
