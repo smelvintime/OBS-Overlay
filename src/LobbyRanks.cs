@@ -72,9 +72,8 @@ namespace NowPlaying {
           _phase = ph.Trim().Trim('"');
 
           if (_phase == "ChampSelect") {
-            string session = LeagueStats.LcuGet(port, pw, "/lol-champ-select/v1/session");
-            if (session != null)
-              SnapshotDraft(port, pw, Nav(TwitchEvents.NavPublic(session), "myTeam") as object[]);
+            SnapshotDraftFrom(port, pw,
+              LeagueStats.LcuGet(port, pw, "/lol-champ-select/v1/session"));
           } else if (InGame()) {
             EnsureGameRoster(port, pw);
           }
@@ -208,29 +207,73 @@ namespace NowPlaying {
       return pos.Length > 0 ? pos : TwitchEvents.SNavPublic(p, "assignedPosition");
     }
 
+    // Hidden is not the same as unknown, and the line should not pretend it
+    // is. "?" means the rank was asked for and the answer did not come back.
+    // "_" means the client never said who the player was, so there was nobody
+    // to ask about - which in ranked champ select is every enemy, deliberately,
+    // right up until the match starts.
+    const string HiddenTag = "_";
+
+    // The client blanks a withheld identity rather than dropping the seat: an
+    // empty puuid, or the all-zero one. Both mean the same thing here.
+    static bool IsAnonymous(string puuid) {
+      if (string.IsNullOrEmpty(puuid)) return true;
+      foreach (char c in puuid)
+        if (c != '0' && c != '-') return false;
+      return true;
+    }
+
     static string SideLine(int port, string pw, IEnumerable<object> team) {
       var seats = new List<Seat>();
       foreach (var p in team) {
         string puuid = TwitchEvents.SNavPublic(p, "puuid");
-        if (puuid.Length == 0) continue;
+        // An anonymised seat is still a seat. Skipping it printed a five-man
+        // team as four - the exact failure the "?" fallback below exists to
+        // prevent - and it did it silently, so a hidden team produced no line
+        // at all rather than a line saying it was hidden.
+        if (IsAnonymous(puuid)) {
+          seats.Add(new Seat { Role = RoleTag(PositionOf(p)), Tag = HiddenTag });
+          continue;
+        }
         string tag = FetchTag(port, pw, puuid);
-        // A failed lookup must not delete the player: a five-man team that
-        // prints as four is a wrong answer, where an unknown rank is merely
-        // an incomplete one.
+        // A failed lookup must not delete the player either: an unknown rank
+        // is an incomplete answer, a missing player is a wrong one.
         seats.Add(new Seat { Role = RoleTag(PositionOf(p)), Tag = tag.Length == 0 ? "?" : tag });
       }
       return Format(seats);
     }
 
     // ------------------------------------------------------------ champ select
-    // Allies only, and not by choice: ranked hides the enemy team behind
-    // obfuscated puuids during the draft, so there is nothing to look up.
+    // Ranked hides the enemy team behind obfuscated puuids during the draft,
+    // so their ranks cannot be looked up. They are printed as hidden rather
+    // than left out: "five enemies, ranks not readable yet" is an answer, and
+    // it is the one that stops chat wondering why only half a lobby showed up.
+    // The labels match the in-game line, so the same row of seats is in the
+    // same place all the way through - you watch the underscores become ranks
+    // when the match starts.
+    //
+    // Carries its own labels, like _gameLine, because which ones apply is
+    // decided here: a queue that does not hide the enemy gets both sides
+    // named, and a payload with no enemy array at all gets "My team".
     static string _draftLine = "";
 
-    static void SnapshotDraft(int port, string pw, object[] team) {
-      if (team == null || team.Length == 0) return;
-      string line = SideLine(port, pw, team);
-      if (line.Length > 0) lock (_lock) _draftLine = line;
+    static void SnapshotDraft(int port, string pw, object[] mine, object[] theirs) {
+      if (mine == null || mine.Length == 0) return;
+      string us = SideLine(port, pw, mine);
+      if (us.Length == 0) return;
+      string them = (theirs == null || theirs.Length == 0) ? "" : SideLine(port, pw, theirs);
+      lock (_lock) {
+        _draftLine = them.Length > 0 ? "Us: " + us + "  |  Them: " + them
+                                     : "My team: " + us;
+      }
+    }
+
+    // Both sides of the champ-select payload, in one place - the poll loop and
+    // the command read it identically.
+    static void SnapshotDraftFrom(int port, string pw, string session) {
+      if (session == null) return;
+      object root = TwitchEvents.NavPublic(session);
+      SnapshotDraft(port, pw, Nav(root, "myTeam") as object[], Nav(root, "theirTeam") as object[]);
     }
 
     // ---------------------------------------------------------------- in game
@@ -338,12 +381,11 @@ namespace NowPlaying {
         }
 
         if (_phase == "ChampSelect") {
-          string session = LeagueStats.LcuGet(port, pw, "/lol-champ-select/v1/session");
-          var team = session == null ? null : Nav(TwitchEvents.NavPublic(session), "myTeam") as object[];
-          if (team != null) SnapshotDraft(port, pw, team);
+          SnapshotDraftFrom(port, pw,
+            LeagueStats.LcuGet(port, pw, "/lol-champ-select/v1/session"));
           string draft;
           lock (_lock) draft = _draftLine;
-          return draft.Length > 0 ? "My team: " + draft
+          return draft.Length > 0 ? draft
                : "No ranks to read yet - the draft just started.";
         }
 
@@ -378,6 +420,18 @@ namespace NowPlaying {
         RankTag("Challenger", "I", 1204),
         RankTag("Master", "I", 0),
         RankTag("", "", 0)
+      });
+    }
+
+    // Which identities count as withheld. The all-zero puuid is the one that
+    // matters and the one that cannot be checked by playing: it only appears
+    // on the enemy side of a ranked draft.
+    internal static string HiddenFixtures() {
+      return string.Join(" ", new[] {
+        IsAnonymous(null) ? HiddenTag : "x",
+        IsAnonymous("") ? HiddenTag : "x",
+        IsAnonymous("00000000-0000-0000-0000-000000000000") ? HiddenTag : "x",
+        IsAnonymous("7f3c1a52-9b0e-4d21-8a44-1c9de0b57a63") ? HiddenTag : "x"
       });
     }
 

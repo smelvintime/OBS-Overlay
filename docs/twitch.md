@@ -395,8 +395,12 @@ In chat:
   down the matchup. No labels: five ranks read faster than five ranks wearing
   name tags.
   - Tiers are the first letter plus the division — `E3` is Emerald III, `G1`
-    Gold I, `P4` Platinum IV, `UR` unranked, `?` a rank that could not be
-    read.
+    Gold I, `P4` Platinum IV, `UR` unranked.
+  - `_` is **hidden** and `?` is **unknown**, and they are worth telling
+    apart. `_` means the client never said who the player was, so there was
+    nobody to look up — every enemy in a ranked draft, by design. `?` means
+    the rank *was* asked for and no answer came back. One is the client
+    keeping a secret; the other is something going wrong.
   - **Master and above show LP instead of a division** — `M342` is Master on
     342 LP, `GM721` Grandmaster on 721, `C1204` Challenger on 1204. Apex is one
     pool with no divisions, so a bare `M` would file a freshly promoted Master
@@ -406,8 +410,12 @@ In chat:
   - **In game** (and right through the post-game screen) it shows **both
     teams**. Once a match starts the client stops hiding the enemy side, so
     their ranks become readable — this is the only window where that is true.
-  - **In champ select** it is your own team only. Ranked hides the enemy team
-    during the draft, so there is genuinely nothing to look up yet.
+  - **In champ select** your team is real and the enemy is hidden — *"Us: E3
+    E4 G3 E2 E3 | Them: \_ \_ \_ \_ \_"*. Ranked anonymises the enemy for the
+    whole draft, so there is genuinely nothing to look up yet; the seats are
+    printed anyway, because "five enemies, not readable yet" is an answer and
+    half a lobby with no explanation is not. The layout matches the in-game
+    line, so you watch the underscores turn into ranks when the match starts.
   - Outside a game it says so plainly rather than answering with a stale
     lobby.
 - **`!rank`** (also `!elo`, `!lp`) answers with the real, current rank:
