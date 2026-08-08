@@ -121,6 +121,12 @@
     display:flex;flex-direction:column;align-items:stretch;gap:6px}
   .medialist select{flex:0 0 auto;width:100%;max-width:none}
   .medialist .addmedia{align-self:flex-start;padding:4px 11px;font-size:11.5px}
+  /* The upload sits under Add another and reads as the heavier of the two,
+     because for most people it is the only one that matters: it is the way a
+     file gets into the folder at all. */
+  .medialist .uploadmedia{align-self:stretch;padding:6px 11px;font-size:11.5px}
+  .medialist .upstat{font-size:11px;line-height:1.35;opacity:.75;word-break:break-word}
+  .medialist .upstat.bad{opacity:1;color:var(--bad,#ff8b8b)}
 
   /* The corner picker: a little plate you click the corners of. Reading it is
      the whole point - four checkboxes labelled "top left" would make you
@@ -271,6 +277,14 @@
   // side just stops the Add button before it can build a group the source
   // would silently cut short.
   var MAX_PICKS = 24;
+
+  // Must match MediaUploadCap in NowPlayingOverlay.cs. Checked here as well as
+  // there so an over-size file is refused with its size named, instantly and
+  // without sending anything: the server can only answer once it has read the
+  // upload, and closing early on a browser mid-write turns the reason into a
+  // bare network error. The server's copy is still the boundary - this one is
+  // only how the sentence reaches the person who needs it.
+  var MEDIA_CAP_MB = 40;
   var BACKGROUNDS = [['stream','Gameplay'],['dark','Dark'],['light','Light'],['grid','Grid']];
 
   // True OBS source dimensions. The preview derives its own size from these, so
@@ -512,8 +526,9 @@
         ]},
         { title:'Sound and clip', controls:[
           { key:'sound', label:'Sound', type:'media', kind:'audio',
-            note:'Plays each time an alert lands. Drop mp3 / wav / ogg files into the media '
-               + 'folder (tray icon → Open media folder), then pick one here. '
+            note:'Plays each time an alert lands. <strong>Upload a sound</strong> takes an '
+               + 'mp3 / wav / ogg straight off your machine and picks it here; you can also '
+               + 'drop files into the media folder yourself (tray icon → Open media folder). '
                + '<strong>Add another</strong> makes it a group: the alert draws one of them '
                + 'each time instead of always the same file. In a normal browser tab the '
                + 'preview stays silent until you click the page once - that is a browser '
@@ -527,9 +542,11 @@
           { key:'soundvol', label:'Volume', type:'range', min:0, max:100, step:5, unit:'%' },
           { key:'media', label:'Clip', type:'media', kind:'visual',
             note:'A gif, image or looping video (mp4 / webm, always muted) shown while each '
-               + 'alert is up. Gifs and videos restart from their first frame on every '
-               + 'alert; size and place it with the sliders below. <strong>Add another</strong> '
-               + 'turns it into a group and the alert draws one clip from it each time.' },
+               + 'alert is up. <strong>Upload a GIF or clip</strong> takes the file straight '
+               + 'off your machine — pick several at once and they become a group. Gifs and '
+               + 'videos restart from their first frame on every alert; size and place it '
+               + 'with the sliders below. <strong>Add another</strong> adds a clip already in '
+               + 'the folder.' },
           { key:'mediapick', label:'Order', type:'seg',
             options:[['cycle','In turn'],['random','Random']],
             note:'How the next clip comes out of a group, exactly as the sound order above.' },
@@ -1277,9 +1294,15 @@
       .catch(function(){ settle(null); });
   }
 
+  // Every media picker currently on the page. One upload should show up in all
+  // of them, not just the control whose button was pressed - a clip uploaded
+  // for the follow alert is usually wanted in the per-event pickers too.
+  var mediaRefresh = [];
+
   function buildControls(){
     groupsEl.innerHTML = '';
     refresh = [];
+    mediaRefresh = [];
 
     T.groups.forEach(function(G){
       var g = document.createElement('div');
@@ -1521,22 +1544,123 @@
                   add.addEventListener('click', function(){ rows.push(''); build(rows.length - 1); });
                   box.appendChild(add);
                 }
+                // Always offered, including when the folder is empty - that is
+                // the moment it is most needed, and it is exactly when the
+                // dropdown above has nothing to say but "the folder is empty".
+                box.appendChild(up);
+                box.appendChild(picker);
+                box.appendChild(stat);
                 if(focusRow >= 0){
                   var again = box.querySelectorAll('select')[focusRow];
                   if(again) again.focus();
                 }
+              }
+
+              // ---- upload ------------------------------------------------
+              // Built once and re-appended by build(), so the status line
+              // survives the rebuild that follows a successful upload.
+              var picker = document.createElement('input');
+              picker.type = 'file';
+              picker.multiple = true;       // a group in one go, not one at a time
+              picker.style.display = 'none';
+              // A hint to the file dialog, not a check - the server decides.
+              picker.accept = C.kind === 'audio'
+                ? 'audio/*,.mp3,.wav,.ogg,.oga,.opus,.m4a,.aac,.flac'
+                : 'image/*,video/*,.gif,.apng,.png,.jpg,.jpeg,.webp,.avif,.mp4,.m4v,.webm';
+
+              var up = document.createElement('button');
+              up.type = 'button'; up.className = 'chip uploadmedia';
+              up.textContent = C.kind === 'audio' ? '⬆ Upload a sound' : '⬆ Upload a GIF or clip';
+
+              var stat = document.createElement('div');
+              stat.className = 'upstat';
+
+              function say(text, bad){
+                stat.textContent = text || '';
+                stat.className = 'upstat' + (bad ? ' bad' : '');
+              }
+
+              up.addEventListener('click', function(){ picker.click(); });
+              picker.addEventListener('change', function(){
+                var list = Array.prototype.slice.call(picker.files || []);
+                // Cleared so picking the SAME file again still fires change -
+                // otherwise a failed upload could not simply be retried.
+                picker.value = '';
+                if(list.length) send(list, 0, [], []);
+              });
+
+              // One at a time. Ten parallel POSTs of a few MB each onto a
+              // single-threaded-per-connection local server is a good way to
+              // find its connection cap, and the progress line can only tell
+              // the truth about one file anyway.
+              function send(list, i, done, failed){
+                if(i >= list.length){ landed(done, failed); return; }
+                var f = list[i];
+                if(f.size > MEDIA_CAP_MB * 1024 * 1024){
+                  failed.push(f.name + ' — ' + Math.round(f.size / (1024 * 1024))
+                              + ' MB, and the limit is ' + MEDIA_CAP_MB + ' MB');
+                  send(list, i + 1, done, failed);
+                  return;
+                }
+                say('Uploading ' + f.name
+                    + (list.length > 1 ? '  (' + (i + 1) + ' of ' + list.length + ')' : '') + '…');
+                fetch('/media/upload?name=' + encodeURIComponent(f.name),
+                      {method:'POST', body:f})
+                  .then(function(r){ return r.json(); })
+                  .then(function(j){
+                    if(j && j.ok) done.push(j.name);
+                    else failed.push(f.name + ' — ' + ((j && j.why) || 'refused'));
+                    send(list, i + 1, done, failed);
+                  })
+                  .catch(function(){
+                    failed.push(f.name + ' — the app did not answer');
+                    send(list, i + 1, done, failed);
+                  });
+              }
+
+              function landed(done, failed){
+                if(!done.length){ say(failed.join('  ·  '), true); return; }
+                // The shared folder listing is stale now. Drop it, read it
+                // once, and hand the result to every picker on the page.
+                _mediaCache = undefined;
+                mediaList(function(list){
+                  mediaRefresh.forEach(function(fn){ fn(list); });
+                  // Then pick the new files here, in the control the button
+                  // belongs to. An upload that reached the folder but nothing
+                  // in the look would leave the client where they started -
+                  // which is the whole problem this button exists to solve.
+                  model();
+                  var picked = 0;
+                  done.forEach(function(n){
+                    if(rows.length === 1 && (!rows[0] || rows[0] === 'none')) rows[0] = n;
+                    else if(rows.length < MAX_PICKS) rows.push(n);
+                    else return;
+                    picked++;
+                  });
+                  commit();
+                  build(-1);
+                  var note = picked === done.length
+                    ? (done.length === 1 ? 'Added ' + done[0] : 'Added ' + done.length + ' files')
+                    : 'Added ' + picked + ' of ' + done.length
+                      + ' — the rest are in the folder, the group is full at ' + MAX_PICKS;
+                  say(failed.length ? note + '  ·  ' + failed.join('  ·  ') : note,
+                      failed.length > 0);
+                });
               }
               // Something to look at while the folder listing is in flight -
               // but not a second time when the cache is already warm, because
               // mediaList calls back synchronously then and all ten controls
               // would rebuild themselves twice on every tab switch.
               if(_mediaCache === undefined) build(-1);
-              mediaList(function(list){
+              function applyFiles(list){
                 files = ((list && list.files) || []).filter(function(f){
                   return C.kind === 'audio' ? f.kind === 'audio' : f.kind !== 'audio';
                 });
                 build(-1);
-              });
+              }
+              mediaList(applyFiles);
+              // Re-run on any upload, from this control's button or another's.
+              mediaRefresh.push(applyFiles);
               refresh.push(function(){ rows = null; build(); });
               ctl.appendChild(box);
             })();

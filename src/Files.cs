@@ -29,10 +29,21 @@ namespace NowPlaying {
     // next restart. Distinct temps mean the worst case is a harmless
     // last-writer-wins instead of a silently lost save.
     internal static void WriteAtomic(string path, string text) {
+      Swap(path, delegate(string tmp) { File.WriteAllText(tmp, text); });
+    }
+
+    // Same guarantee for bytes. Uploaded alert media comes through here: a clip
+    // half-written by a cancelled upload would sit in the folder looking like a
+    // real file, get picked in the customizer, and fail to render on stream.
+    internal static void WriteAtomic(string path, byte[] bytes) {
+      Swap(path, delegate(string tmp) { File.WriteAllBytes(tmp, bytes); });
+    }
+
+    static void Swap(string path, System.Action<string> write) {
       string tmp = path + "." + System.Guid.NewGuid().ToString("N") + ".tmp";
       SweepStale(path);
       try {
-        File.WriteAllText(tmp, text);
+        write(tmp);
         if (File.Exists(path)) File.Replace(tmp, path, null);
         else File.Move(tmp, path);
       } catch {

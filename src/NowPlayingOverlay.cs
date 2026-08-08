@@ -1655,6 +1655,13 @@ namespace NowPlaying {
           } else if (route == "/media-list") {
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(MediaListJson()));
+          } else if (route == "/media/upload") {
+            // Ahead of the /media/ serving branch, which would otherwise read
+            // "upload" as a filename. Writes into the media folder, so it sits
+            // behind the same guard as every other state-writing route.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(MediaUpload(ns, req, buf, read, path)));
           } else if (route.StartsWith("/media/", StringComparison.Ordinal)) {
             string mname;
             try { mname = Uri.UnescapeDataString(route.Substring("/media/".Length)); }
@@ -2328,6 +2335,148 @@ namespace NowPlaying {
       }
     }
 
+    // ---- uploads --------------------------------------------------------------
+    // The other way into the media folder. Copying files into a directory
+    // behind a tray menu is a small step for whoever set the app up and a wall
+    // for the person actually streaming - it is the step that stopped alert
+    // clips being used at all. The customizer takes the file itself now; the
+    // folder is still there and still works.
+    //
+    // Nothing about the security boundary moves: the same name rules and the
+    // same extension whitelist that decide what can be SERVED decide what can
+    // be written, so an upload cannot put anything in the folder that /media/
+    // would then refuse - or worse, agree - to hand out.
+
+    // Generous for a gif, mean enough that a mis-dropped video export is
+    // refused with a sentence instead of quietly eating the request thread.
+    const int MediaUploadCap = 40 * 1024 * 1024;
+
+    // A name the folder and the group syntax can both live with. This repairs
+    // rather than rejects, deliberately: the entire point of the button is that
+    // nobody has to think about file names, and "Refused: bad character" would
+    // put the wall straight back up. The comma matters most - alerts.html
+    // splits ?media= on commas, so a file with one in its name could never be
+    // addressed even sitting in the folder.
+    static string SafeMediaName(string raw) {
+      string name = (raw ?? "").Trim();
+      // Drop any directory part by hand, before the character pass. Doing it
+      // with Path.GetFileName first looks equivalent and is not: it reads a
+      // colon as a drive separator, so "my cool, gif: v2.gif" came back as
+      // "v2.gif" and the client's file quietly lost most of its name. Safe,
+      // but wrong - and wrong in the one place this feature is judged.
+      int cut = name.LastIndexOfAny(new[] { '/', '\\' });
+      if (cut >= 0) name = name.Substring(cut + 1);
+
+      var sb = new StringBuilder();
+      foreach (char c in name)
+        sb.Append(c < 0x20 || "/\\:*?\"<>|,".IndexOf(c) >= 0 ? '-' : c);
+      name = sb.ToString().Trim();
+      // A leading dot or tilde is the one thing the name rule cannot allow:
+      // that is what ".." is made of.
+      while (name.Length > 0 && (name[0] == '.' || name[0] == '~'))
+        name = name.Substring(1).Trim();
+      // The rule allows 128; stopping at 100 leaves room for a " (12)" suffix
+      // without the dedupe below pushing a legal name over the edge.
+      if (name.Length > 100) {
+        string keep = Path.GetExtension(name);
+        if (keep.Length > 20) keep = "";                 // not an extension, just a long tail
+        name = name.Substring(0, 100 - keep.Length) + keep;
+      }
+      return name;
+    }
+
+    static string MediaUpload(NetworkStream ns, string req, byte[] buf, int read, string path) {
+      if (!req.StartsWith("POST ", StringComparison.Ordinal))
+        return "{\"ok\":false,\"why\":\"An upload has to be a POST.\"}";
+
+      string name = SafeMediaName(QueryParam(path, "name"));
+      if (name.Length == 0 || !MediaNameRe.IsMatch(name))
+        return "{\"ok\":false,\"why\":\"That file name can't be used.\"}";
+      if (MediaMime(name) == null) {
+        string ext = Path.GetExtension(name);
+        return "{\"ok\":false,\"why\":" + Q((ext.Length > 0 ? ext + " files" : "Files with no extension")
+             + " can't be used as alert media.") + "}";
+      }
+
+      string why;
+      byte[] body = ReadBody(ns, req, buf, read, MediaUploadCap, out why);
+      if (body == null) return "{\"ok\":false,\"why\":" + Q(why) + "}";
+      if (body.Length == 0) return "{\"ok\":false,\"why\":\"That file is empty.\"}";
+
+      // Never overwrite. The folder is the user's own and predates this button;
+      // a file already in it may be named in a look saved months ago, and
+      // silently replacing its contents would change that look with no trace.
+      string dir = MediaDir();
+      string bare = Path.GetFileNameWithoutExtension(name), ext2 = Path.GetExtension(name);
+      string final = name;
+      for (int i = 2; i < 1000 && File.Exists(Path.Combine(dir, final)); i++)
+        final = bare + " (" + i + ")" + ext2;
+
+      try {
+        Files.WriteAtomic(Path.Combine(dir, final), body);
+      } catch (Exception ex) {
+        AppLog.Write("media: upload of " + final + " failed - " + ex.Message);
+        return "{\"ok\":false,\"why\":" + Q("Could not save it - " + ex.Message) + "}";
+      }
+      AppLog.Write("media: uploaded " + final + " (" + (body.Length / 1024) + " KB)");
+      return "{\"ok\":true,\"name\":" + Q(final) + "}";
+    }
+
+    // The one request here with a body. Handle's read loop stops at the blank
+    // line, so the first slice of the body is already sitting in its buffer and
+    // the rest still has to be pulled off the socket.
+    static byte[] ReadBody(NetworkStream ns, string req, byte[] buf, int read,
+                           int cap, out string why) {
+      why = "";
+      int hdrEnd = req.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+      if (hdrEnd < 0) { why = "The request headers never finished."; return null; }
+      // Headers are ASCII and Handle decodes them one byte per char, so this
+      // string index is also the byte index into buf.
+      int start = hdrEnd + 4;
+
+      int want;
+      string cl = HeaderValue(req, "Content-Length");
+      if (cl == null || !int.TryParse(cl.Trim(), out want) || want < 0) {
+        why = "The upload didn't say how big it was."; return null;
+      }
+      if (want > cap) {
+        why = "That file is " + (want / (1024 * 1024)) + " MB and the limit is "
+            + (cap / (1024 * 1024)) + " MB.";
+        // Read the body and throw it away before answering. Closing on a peer
+        // that is still writing resets the connection, and a reset reaches
+        // fetch() as a network failure - so the one refusal whose reason the
+        // user most needs to read is the one that would arrive as "the app did
+        // not answer". Bounded: past a point an unbounded body is not an
+        // upload, and the 4s read timeout ends a stalled one regardless.
+        Discard(ns, (long)want - (read - start), 128L * 1024 * 1024);
+        return null;
+      }
+
+      var body = new byte[want];
+      int have = read - start;
+      if (have > want) have = want;               // a pipelined next request, not our body
+      // System.Buffer spelled out: the WinRT references pull in
+      // Windows.Storage.Streams.Buffer and the bare name is ambiguous.
+      if (have > 0) System.Buffer.BlockCopy(buf, start, body, 0, have);
+      while (have < want) {
+        int n = ns.Read(body, have, want - have);
+        if (n <= 0) { why = "The upload stopped part-way through."; return null; }
+        have += n;
+      }
+      return body;
+    }
+
+    static void Discard(NetworkStream ns, long remaining, long bound) {
+      var sink = new byte[64 * 1024];
+      try {
+        while (remaining > 0 && bound > 0) {
+          int n = ns.Read(sink, 0, (int)Math.Min(sink.Length, Math.Min(remaining, bound)));
+          if (n <= 0) return;
+          remaining -= n; bound -= n;
+        }
+      } catch { }        // a peer that stops talking has made the point for us
+    }
+
     static string MediaListJson() {
       var sb = new StringBuilder();
       // The folder path rides along so the customizer can say where to put
@@ -2447,6 +2596,12 @@ namespace NowPlaying {
       sb.Append("HTTP/1.1 ").Append(code).Append(code == 200 ? " OK" : " Error").Append("\r\n");
       sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
       sb.Append("Content-Length: ").Append(body == null ? 0 : body.Length).Append("\r\n");
+      // Every type declared here is correct, and the media folder now takes
+      // uploads - so a file whose bytes disagree with its extension must not be
+      // re-read by the browser as something scriptable. Every route on this
+      // origin is unauthenticated by design; content sniffing is the one way an
+      // image could stop being an image.
+      sb.Append("X-Content-Type-Options: nosniff\r\n");
       sb.Append("Cache-Control: ")
         .Append(cacheControl ?? "no-cache, no-store, must-revalidate").Append("\r\n");
       sb.Append("Connection: close\r\n\r\n");
@@ -2469,6 +2624,7 @@ namespace NowPlaying {
       // need no CORS at all. The old wildcard here meant any website the
       // user browsed could read /np and /twitch and learn what this machine
       // plays and whose Twitch channel it runs - recon nobody signed up for.
+      sb.Append("X-Content-Type-Options: nosniff\r\n");
       sb.Append("Cache-Control: ")
         .Append(cacheControl ?? "no-cache, no-store, must-revalidate").Append("\r\n");
       sb.Append("Connection: close\r\n\r\n");
