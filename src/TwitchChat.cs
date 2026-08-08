@@ -208,6 +208,7 @@ namespace NowPlaying {
       lock (_sendLock) {
         wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(text));
         _lastSent = text;
+        _lastSentAt = DateTime.UtcNow;
       }
       _sent++;
       Note(who, cmd, text);
@@ -700,16 +701,42 @@ namespace NowPlaying {
     // -------------------------------------------------------------- responding
     // Twitch silently drops a message identical to the previous one within about
     // 30 seconds, so a second !song on the same track would look like the bot
-    // had died. An invisible tag character alternates to keep repeats visible.
+    // had died. An invisible character alternates to keep repeats visible.
+    //
+    // U+200B, not the U+E0000 every chat bot reaches for. E0000 is an
+    // *unassigned* code point in the Tags block: desktop Twitch's font stack
+    // quietly swallowed it, phones drew the missing-glyph box, and the record
+    // line ended in a small square with a question mark in it. U+200B is a
+    // format character, which renderers are required to draw nothing for.
+    // Written as an escape on purpose: a literal invisible character in source
+    // is one bad copy-paste or encoding guess away from vanishing silently.
+    const string DedupMark = "\u200B";
+
+    // Only inside the window Twitch actually enforces. _lastSent never expired
+    // on its own, so the timer posting the record line at 9:00 made a viewer's
+    // !record at 9:40 look like a repeat, and marked a message Twitch would
+    // have taken bare. That is the path that was showing the box: the manual
+    // command is a "repeat" of an announcement nobody remembers seeing.
+    const double DedupWindowSec = 35;      // Twitch's is ~30; the margin is free
+
     static string _lastSent = "";
+    static DateTime _lastSentAt = DateTime.MinValue;
     static bool _altToggle;
 
-    static string Dedup(string text) {
-      if (text == _lastSent) {
-        _altToggle = !_altToggle;
-        if (_altToggle) return text + " " + char.ConvertFromUtf32(0xE0000);
+    // Pure, so /bot/test can prove the alternation without a live socket and
+    // without disturbing the real connection's toggle.
+    internal static string DedupCore(string text, string lastSent,
+                                     double sinceSec, ref bool toggle) {
+      if (text == lastSent && sinceSec < DedupWindowSec) {
+        toggle = !toggle;
+        if (toggle) return text + DedupMark;
       }
       return text;
+    }
+
+    static string Dedup(string text) {
+      return DedupCore(text, _lastSent,
+                       (DateTime.UtcNow - _lastSentAt).TotalSeconds, ref _altToggle);
     }
 
     static void HandleMessage(IrcEvent ev, StreamWriter wr) {
@@ -739,6 +766,7 @@ namespace NowPlaying {
         lock (_sendLock) {
           wr.WriteLine("PRIVMSG #" + _channel + " :" + Dedup(one));
           _lastSent = one;
+          _lastSentAt = DateTime.UtcNow;
         }
         _sent++;
         sent++;
@@ -841,10 +869,32 @@ namespace NowPlaying {
 
       string reply, matched;
       bool ok = BotCommands.TryRespond(ev, out reply, out matched);
+
+      // What the real dedup would do to this reply. Reported as a code point
+      // and as flags rather than by embedding the mark, since the entire point
+      // of the mark is that you cannot see it - and the bug it replaces was an
+      // invisible character that turned out to be very visible on phones.
+      string r = reply ?? "";
+      bool t = false;
+      bool fresh = DedupCore(r, "", 0, ref t).Length > r.Length;
+      t = false;
+      bool repeat1 = DedupCore(r, r, 5, ref t).Length > r.Length;
+      bool repeat2 = DedupCore(r, r, 5, ref t).Length > r.Length;
+      t = false;
+      bool stale = DedupCore(r, r, DedupWindowSec + 5, ref t).Length > r.Length;
+
       return "{\"parsed\":true,\"isMod\":" + (ev.IsMod ? "true" : "false")
            + ",\"matched\":" + Qs(matched ?? "")
            + ",\"answered\":" + (ok ? "true" : "false")
-           + ",\"reply\":" + Qs(reply ?? "") + "}";
+           + ",\"reply\":" + Qs(reply ?? "")
+           + ",\"dedup\":{\"mark\":\"U+"
+           + char.ConvertToUtf32(DedupMark, 0).ToString("X4")
+           + "\",\"windowSec\":" + ((int)DedupWindowSec)
+           + ",\"fresh\":" + (fresh ? "true" : "false")
+           + ",\"repeatInWindow\":" + (repeat1 ? "true" : "false")
+           + ",\"repeatAgain\":" + (repeat2 ? "true" : "false")
+           + ",\"repeatPastWindow\":" + (stale ? "true" : "false")
+           + "}}";
     }
 
     // ------------------------------------------------------------------ status
