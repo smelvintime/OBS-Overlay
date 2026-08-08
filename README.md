@@ -27,8 +27,8 @@ the music side at all.
   rank/LP as an OBS source, read straight from the League client on this PC
   (no Riot key), with switches for which game modes count
 - 🗡️ **Lobby ranks in chat** — `!ranks` posts everyone's rank by lane, both
-  teams once a game starts, read from the League client on this PC. No Riot
-  API key, read-only always
+  teams once a game starts, with LP from Master up where LP is the rank. Read
+  from the League client on this PC. No Riot API key, read-only always
 - 🎥 **A webcam frame** — a themed border that sits over the camera so the
   whole scene speaks one language
 - 💬 **A chat bot** — `!song` for the current track, `!record` and `!rank`

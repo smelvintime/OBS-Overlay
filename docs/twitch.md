@@ -395,8 +395,14 @@ In chat:
   down the matchup. No labels: five ranks read faster than five ranks wearing
   name tags.
   - Tiers are the first letter plus the division — `E3` is Emerald III, `G1`
-    Gold I, `P4` Platinum IV, `GM` Grandmaster, `UR` unranked, `?` a rank
-    that could not be read.
+    Gold I, `P4` Platinum IV, `UR` unranked, `?` a rank that could not be
+    read.
+  - **Master and above show LP instead of a division** — `M342` is Master on
+    342 LP, `GM721` Grandmaster on 721, `C1204` Challenger on 1204. Apex is one
+    pool with no divisions, so a bare `M` would file a freshly promoted Master
+    and someone a game off Challenger in the same box — up there LP *is* the
+    rank. Below apex it stays off: the division already places you inside the
+    tier, and ten LP values would cost the line the glance it is built for.
   - **In game** (and right through the post-game screen) it shows **both
     teams**. Once a match starts the client stops hiding the enemy side, so
     their ranks become readable — this is the only window where that is true.

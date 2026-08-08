@@ -90,33 +90,35 @@ namespace NowPlaying {
     // dressed-up read of your own row - verified by feeding it a fabricated
     // puuid, which comes back NONE while a live one comes back with a tier.
     // Looked up once per player and remembered until the client goes away.
-    static readonly Dictionary<string, string> _rankShort = new Dictionary<string, string>();
+    // The finished tag, not the raw tier: a rank is looked up once and the
+    // string that goes in the line is what gets remembered.
+    static readonly Dictionary<string, string> _rankTag = new Dictionary<string, string>();
 
     static void Forget() {
       lock (_lock) {
-        _rankShort.Clear();
+        _rankTag.Clear();
         _draftLine = ""; _gameLine = ""; _gameId = 0; _myPuuid = "";
       }
     }
 
-    static string RankShortOf(string puuid) {
+    static string TagOf(string puuid) {
       if (string.IsNullOrEmpty(puuid)) return "";
-      lock (_lock) { string s; return _rankShort.TryGetValue(puuid, out s) ? s : ""; }
+      lock (_lock) { string s; return _rankTag.TryGetValue(puuid, out s) ? s : ""; }
     }
 
     // Returns "" only when the client could not be asked at all; an account
-    // with no ranked history answers "Unranked", which is an answer.
-    static string FetchRank(int port, string pw, string puuid) {
-      string have = RankShortOf(puuid);
+    // with no ranked history answers "UR", which is an answer.
+    static string FetchTag(int port, string pw, string puuid) {
+      string have = TagOf(puuid);
       if (have.Length > 0) return have;
       string rj = LeagueStats.LcuGet(port, pw, "/lol-ranked/v1/ranked-stats/" + puuid);
       if (rj == null) return "";
       string tier, div, queue; int lp, w, l;
       if (!LeagueStats.ParseRankedStats(rj, out tier, out div, out lp, out w, out l, out queue))
         return "";
-      string rank = tier.Length > 0 ? tier + (div.Length > 0 ? " " + div : "") : "Unranked";
-      lock (_lock) _rankShort[puuid] = rank;
-      return rank;
+      string tag = RankTag(tier, div, lp);
+      lock (_lock) _rankTag[puuid] = tag;
+      return tag;
     }
 
     // ------------------------------------------------------- formatting
@@ -136,23 +138,46 @@ namespace NowPlaying {
       }
     }
 
-    // "Emerald III" -> "E3". The tier letter always leads, so Iron I is I1
-    // and never collides with a division numeral.
-    static string RankTag(string rank) {
-      if (rank.Length == 0 || rank == "?") return "?";
-      if (rank.StartsWith("Unranked", StringComparison.OrdinalIgnoreCase)) return "UR";
-      string[] parts = rank.Split(' ');
-      string tier = parts[0];
+    // Emerald III -> "E3". The tier letter always leads, so Iron I is I1 and
+    // never collides with a division numeral.
+    //
+    // Master and above carry LP instead: "M342", "GM721", "C1204". Apex is one
+    // shared pool with no divisions, so the letter on its own says almost
+    // nothing - M0 and M900 are "just promoted" and "one bad night from
+    // Challenger", and in a high-elo lobby every seat would otherwise read the
+    // same "M". LP is the actual ladder position up there, which is exactly
+    // what the rest of the line is for.
+    //
+    // The division field is filled in regardless - a numeral when ranked, the
+    // string "NA" when not - and what the client puts there for apex could not
+    // be checked from a Gold account. It does not matter: apex is decided on
+    // the tier before the division is read, so the tag is "M342" whether the
+    // client says I, NA or nothing. LP replaces that numeral rather than
+    // joining it, which is also why nothing here can be mistaken for one.
+    //
+    // Below apex LP stays off on purpose. The division already places you
+    // inside the tier, and ten LP values would push a line built to be taken
+    // in at a glance past the point where that works.
+    static bool IsApex(string tier) {
+      return tier.Equals("Master", StringComparison.OrdinalIgnoreCase)
+          || tier.Equals("Grandmaster", StringComparison.OrdinalIgnoreCase)
+          || tier.Equals("Challenger", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string RankTag(string tier, string div, int lp) {
+      tier = (tier ?? "").Trim();
+      if (tier.Length == 0 || tier.Equals("Unranked", StringComparison.OrdinalIgnoreCase))
+        return "UR";
       string letter =
           tier.Equals("Grandmaster", StringComparison.OrdinalIgnoreCase) ? "GM"
         : tier.Equals("Challenger", StringComparison.OrdinalIgnoreCase) ? "C"
         : tier.Substring(0, 1).ToUpperInvariant();
-      string div = parts.Length > 1 ? parts[1] : "";
+      if (IsApex(tier)) return letter + (lp > 0 ? lp : 0);
       string num = div == "I" ? "1" : div == "II" ? "2" : div == "III" ? "3" : div == "IV" ? "4" : "";
       return letter + num;
     }
 
-    class Seat { public string Role = ""; public string Rank = "?"; }
+    class Seat { public string Role = ""; public string Tag = "?"; }
 
     // A player the client gave no position for takes whichever lane is left
     // over. In a five-man team with exactly one hole that is deduction, not a
@@ -172,7 +197,7 @@ namespace NowPlaying {
         return ia.CompareTo(ib);
       });
       var bits = new List<string>();
-      foreach (var s in seats) bits.Add(RankTag(s.Rank));
+      foreach (var s in seats) bits.Add(s.Tag);
       return string.Join(" ", bits.ToArray());
     }
 
@@ -188,11 +213,11 @@ namespace NowPlaying {
       foreach (var p in team) {
         string puuid = TwitchEvents.SNavPublic(p, "puuid");
         if (puuid.Length == 0) continue;
-        string rank = FetchRank(port, pw, puuid);
+        string tag = FetchTag(port, pw, puuid);
         // A failed lookup must not delete the player: a five-man team that
         // prints as four is a wrong answer, where an unknown rank is merely
         // an incomplete one.
-        seats.Add(new Seat { Role = RoleTag(PositionOf(p)), Rank = rank.Length == 0 ? "?" : rank });
+        seats.Add(new Seat { Role = RoleTag(PositionOf(p)), Tag = tag.Length == 0 ? "?" : tag });
       }
       return Format(seats);
     }
@@ -334,6 +359,26 @@ namespace NowPlaying {
       } catch {
         return "Can't read the lobby right now.";
       }
+    }
+
+    // ------------------------------------------------------------------ test
+    // Every tag shape through the real formatter. The apex ones are the point:
+    // the streamer would have to reach Master to see them any other way, and
+    // "it looked right in a Gold lobby" proves nothing about the branch that
+    // only runs for someone else's rank. M0 is in there because a freshly
+    // promoted Master is the one apex value that could be mistaken for a
+    // division numeral, and UR because "" means unranked, not unreadable.
+    internal static string TagFixtures() {
+      return string.Join(" ", new[] {
+        RankTag("Emerald", "III", 42),
+        RankTag("Gold", "I", 88),
+        RankTag("Iron", "I", 7),
+        RankTag("Master", "I", 342),
+        RankTag("Grandmaster", "I", 721),
+        RankTag("Challenger", "I", 1204),
+        RankTag("Master", "I", 0),
+        RankTag("", "", 0)
+      });
     }
 
     // ------------------------------------------------------------------ json

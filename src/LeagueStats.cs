@@ -1187,6 +1187,10 @@ namespace NowPlaying {
            + ",\"rankOk\":" + (rok ? "true" : "false")
            + ",\"rankLine\":" + TwitchChat.Qs(rline)
            + ",\"absLp\":" + AbsoluteLp(tier, div, lp)
+           // The !ranks tags, apex included - the branch no Gold account can
+           // reach by playing.
+           + ",\"rankTags\":" + TwitchChat.Qs(LobbyRanks.TagFixtures())
+           + ",\"rankTagsExpected\":\"E3 G1 I1 M342 GM721 C1204 M0 UR\""
            + ",\"expected\":\"record W W (ranked only), newest 105, today ranked W/ranked W/normals W/aram L, abs 2245"
            + "; eog Victory (11/1/5) ranked, aram not ranked, no-WIN-key won\"}";
     }
