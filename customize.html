@@ -204,6 +204,9 @@
   .saverow{display:none;align-items:center;gap:8px}
   .saverow.on{display:flex}
   .saveerr{color:var(--bad,#e5383b);font-size:12px}
+  /* The paste box needs room for a real URL, not a look's name. */
+  #loadurl{min-width:min(420px, 46vw)}
+  .saveok{color:var(--good,#3ddc84);font-size:12px}
   .saverow input{background:var(--panel);border:1px solid var(--line);color:var(--fg);
     border-radius:7px;padding:8px 10px;font:inherit;font-size:12.5px;width:180px}
   footer{color:var(--dim);font-size:13px;padding:0 32px 46px;line-height:1.6}
@@ -255,6 +258,15 @@
       <!-- A save error belongs beside the box, not inside it. -->
       <span class="saveerr" id="saveerr"></span>
     </span>
+    <span class="saverow" id="loadrow">
+      <input type="text" id="loadurl" placeholder="Paste the URL from your OBS source">
+      <button type="button" class="primary" id="loadgo">Load</button>
+      <button type="button" class="action" id="loadcancel">Cancel</button>
+    </span>
+    <!-- Outside the row on purpose: the row is hidden again on success, and a
+         result reported from inside it would never be seen. -->
+    <span class="saveerr" id="loaderr"></span>
+    <button type="button" class="action" id="loadlook">Load from URL</button>
     <button type="button" class="action" id="savelook">Save look</button>
     <button type="button" class="action" id="reset">Reset all</button>
     <button type="button" class="primary" id="copy">Copy URL</button>
@@ -263,7 +275,8 @@
 
 <footer>
   Options you pick here are just query parameters, so you can also hand-edit the URL.
-  The full reference is in the README.
+  <strong>Load from URL</strong> goes the other way: paste what is already in your OBS
+  source and every control here fills in from it. The full reference is in the README.
 </footer>
 
 <script>
@@ -1972,12 +1985,117 @@
   // lands on the dashboard's Saved looks tab, stored by the app (not this
   // browser), so it is the same list from localhost, 127.0.0.1 and every
   // browser on the machine.
+  // ---- load a look back out of a URL ----------------------------------------
+  // The look you are editing lives in this browser's localStorage; the look
+  // that is actually on stream lives in a URL inside OBS. Those are different
+  // places, and nothing joined them: paste-nothing, and a source built in
+  // another browser - or before this browser forgot - showed up here as a
+  // page full of defaults, with the pickers reading "None" beside an overlay
+  // that was working perfectly. This is the way back.
+  //
+  // A look is fully described by its URL, because params() omits anything
+  // still at its default - so a missing parameter means "default", not "leave
+  // whatever is there". Importing therefore starts from defaults and lays the
+  // URL on top. Merging onto the current state would silently blend two looks
+  // and produce one that exists nowhere.
+  function importUrl(raw){
+    var text = String(raw || '').trim();
+    if(!text) return {ok:false, why:'Paste a URL first.'};
+    // Checked before parsing, because new URL() with a base happily resolves
+    // any old text as a relative path - so typing a sentence came back as
+    // "no source is served from /not a url at all", which is true and useless.
+    if(!/^(https?:)?\/\//i.test(text) && text.charAt(0) !== '/')
+      return {ok:false, why:'That does not look like a URL - it should start with http://.'};
+    var u;
+    try { u = new URL(text, location.origin); }
+    catch(e){ return {ok:false, why:'That does not look like a URL.'}; }
+
+    var path = u.pathname.replace(/\/+$/, '') || '/';
+    var name = null;
+    for(var i = 0; i < ORDER.length; i++){
+      var tp = TARGETS[ORDER[i]].path.replace(/\/+$/, '') || '/';
+      if(tp === path){ name = ORDER[i]; break; }
+    }
+    if(!name) return {ok:false, why:'No source here is served from ' + u.pathname + '.'};
+
+    var TT = TARGETS[name], st = states[name], k;
+    for(k in TT.defaults) st[k] = TT.defaults[k];
+
+    var applied = 0, unknown = [];
+    u.searchParams.forEach(function(v, key){
+      if(!(key in TT.defaults)){
+        // demo and preview dress THIS page's canvas; they are never part of a
+        // look, and a URL carrying one is not carrying a mistake.
+        if(key !== 'demo' && key !== 'preview') unknown.push(key);
+        return;
+      }
+      // previewOnly keys never reach a real URL, so one arriving in a pasted
+      // URL is not ours to trust either.
+      if(TT.previewOnly && TT.previewOnly.indexOf(key) >= 0) return;
+      if(typeof TT.defaults[key] === 'number'){
+        var n = parseFloat(v);
+        st[key] = isNaN(n) ? TT.defaults[key] : n;
+      } else {
+        st[key] = v;
+      }
+      applied++;
+    });
+    return {ok:true, target:name, label:TT.label, applied:applied, unknown:unknown};
+  }
+
+  var loadRow = document.getElementById('loadrow');
+  var loadUrl = document.getElementById('loadurl');
+  var loadErr = document.getElementById('loaderr');
+  var loadLookBtn = document.getElementById('loadlook');
+
+  loadLookBtn.addEventListener('click', function(){
+    closeSaveRow();               // one row open at a time; they share the space
+    loadLookBtn.style.display = 'none';
+    loadRow.className = 'saverow on';
+    loadErr.textContent = ''; loadErr.className = 'saveerr';
+    loadUrl.value = '';
+    loadUrl.focus();
+  });
+  function closeLoadRow(){
+    loadRow.className = 'saverow';
+    loadLookBtn.style.display = '';
+  }
+  document.getElementById('loadcancel').addEventListener('click', closeLoadRow);
+  loadUrl.addEventListener('keydown', function(ev){
+    if(ev.key === 'Enter') doLoad();
+    if(ev.key === 'Escape') closeLoadRow();
+  });
+  document.getElementById('loadgo').addEventListener('click', doLoad);
+
+  function doLoad(){
+    var r = importUrl(loadUrl.value);
+    if(!r.ok){
+      loadErr.className = 'saveerr';
+      loadErr.textContent = r.why;
+      return;
+    }
+    // Switch to whichever source the URL was for, so the tabs, the controls
+    // and the preview all agree with what was just loaded.
+    selectTarget(r.target);
+    [].forEach.call(tabsEl.children, function(x, i){
+      x.setAttribute('aria-pressed', String(ORDER[i] === r.target)); });
+    lastFrameUrl = '';
+    render();
+    closeLoadRow();
+    loadErr.className = 'saveok';
+    loadErr.textContent = 'Loaded ' + r.applied + ' setting'
+      + (r.applied === 1 ? '' : 's') + ' into ' + r.label
+      + (r.unknown.length ? ' - ignored ' + r.unknown.join(', ') : '');
+    setTimeout(function(){ loadErr.textContent = ''; }, 6000);
+  }
+
   var saveRow = document.getElementById('saverow');
   var saveName = document.getElementById('savename');
   var saveErr = document.getElementById('saveerr');
   var saveLookBtn = document.getElementById('savelook');
 
   saveLookBtn.addEventListener('click', function(){
+    closeLoadRow();
     saveLookBtn.style.display = 'none';
     saveRow.className = 'saverow on';
     saveErr.textContent = '';
