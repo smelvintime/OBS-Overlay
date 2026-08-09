@@ -100,6 +100,15 @@ namespace NowPlaying {
       }
     }
 
+    // Dropped after every game. A rank read this morning is not the rank now -
+    // a duo you keep queueing with would wear their breakfast rank all night -
+    // and the map otherwise grows by nine every game for as long as the client
+    // stays up. The cost is ten lookups on the next !ranks, which is what a
+    // new lobby needs from scratch anyway.
+    internal static void ForgetRanks() {
+      lock (_lock) _rankTag.Clear();
+    }
+
     static string TagOf(string puuid) {
       if (string.IsNullOrEmpty(puuid)) return "";
       lock (_lock) { string s; return _rankTag.TryGetValue(puuid, out s) ? s : ""; }

@@ -672,6 +672,10 @@ namespace NowPlaying {
     static string _rankTier = "", _rankDiv = "", _rankQueue = "";
     static int _rankLp, _rankWins, _rankLosses;
     static string _todayJson = "[]";
+    // How many pages the last complete read of today needed. Surfaced on the
+    // dashboard because a day quietly running past one page is precisely the
+    // condition that used to go wrong in silence.
+    static int _todayPages = 1;
 
     // ------------------------------------------------------- overlay support
     // The session tracker polls /league-state every few seconds while it is
@@ -725,14 +729,66 @@ namespace NowPlaying {
     // the BucketIx order) so !record templates can say "ranked only" without
     // re-walking anything. Fresh arrays every parse; readers treat them as
     // immutable.
+    // How far back one request reaches, and how many requests a day is worth.
+    // Twenty is what this always asked for; the change is that it can now ask
+    // again. Ten pages is two hundred games - past that it is not a day.
+    const int HistoryPageSize = 20;
+    const int HistoryPagesMax = 10;
+
+    static string HistoryPage(int port, string pw, int page) {
+      int beg = page * HistoryPageSize;
+      return LcuGet(port, pw,
+        "/lol-match-history/v1/products/lol/current-summoner/matches"
+        + "?begIndex=" + beg + "&endIndex=" + (beg + HistoryPageSize));
+    }
+
+    // Could there be more of today past this page? Only if the page is full
+    // AND its oldest game is still on or after midnight - a short page is the
+    // end of the account's history, and one that reaches back past midnight
+    // has already covered the whole day.
+    static bool MayHoldMoreOfToday(string json, long sinceMs) {
+      try {
+        var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
+        if (games == null || games.Length < HistoryPageSize) return false;
+        long oldest = 0;
+        foreach (var g in games) {
+          long c = LNav(g, "gameCreation");
+          if (c != 0 && (oldest == 0 || c < oldest)) oldest = c;
+        }
+        return oldest == 0 || oldest >= sinceMs;
+      } catch { return false; }
+    }
+
     internal static bool ParseToday(string json, long sinceMs, out string gamesJson,
                                     out int[] wins, out int[] losses) {
+      var one = new List<string>();
+      one.Add(json);
+      return ParseTodayPages(one, sinceMs, out gamesJson, out wins, out losses);
+    }
+
+    internal static bool ParseTodayPages(List<string> pages, long sinceMs, out string gamesJson,
+                                         out int[] wins, out int[] losses) {
       gamesJson = "[]";
       wins = new int[4]; losses = new int[4];
       try {
-        var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
-        if (games == null) return false;
-        var list = new List<object>(games);
+        var list = new List<object>();
+        var seen = new HashSet<long>();
+        bool any = false;
+        foreach (string json in pages) {
+          var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
+          if (games == null) continue;
+          any = true;
+          foreach (var g in games) {
+            // A game finishing between two page requests shifts everything
+            // older down a slot, so the same match can arrive on both sides of
+            // the seam. Counting it twice would be a worse answer than the
+            // short one this walk exists to fix.
+            long id = LNav(g, "gameId");
+            if (id != 0 && !seen.Add(id)) continue;
+            list.Add(g);
+          }
+        }
+        if (!any) return false;
         list.Sort(delegate(object a, object b) {
           return LNav(b, "gameCreation").CompareTo(LNav(a, "gameCreation"));
         });
@@ -885,6 +941,33 @@ namespace NowPlaying {
       return true;
     }
 
+    // -------------------------------------------------------------- resync
+    // A game ending is the one moment everything derived from the client is
+    // known to be stale, and the natural place to start clean. What drifts
+    // over a long session is not the numbers so much as the caches under
+    // them: who you are, and who you were just playing with. Both are read
+    // once and then trusted forever, which is fine for an evening and wrong
+    // by the end of a weekend.
+    static void ResyncAfterGame(int port, string pw) {
+      // Only ever replaced by a real answer. Blanking the name and then
+      // failing the re-read would move the day key from "date|Name" to
+      // "date|" - a key that has never been seen, so the LP baseline would
+      // reset and the day's LP would silently start again from zero.
+      string me = LcuGet(port, pw, "/lol-summoner/v1/current-summoner");
+      if (me != null) {
+        object root = TwitchEvents.NavPublic(me);
+        string name = TwitchEvents.SNavPublic(root, "displayName");
+        if (name.Length == 0) name = TwitchEvents.SNavPublic(root, "gameName");
+        if (name.Length > 0 && name != _summoner) {
+          AppLog.Write("league: account is now " + name
+                     + " (was " + (_summoner.Length > 0 ? _summoner : "unknown") + ")");
+          _summoner = name;
+        }
+      }
+      LobbyRanks.ForgetRanks();
+      _lastHttpError = "";        // last game's transport trouble is not this game's
+    }
+
     // ------------------------------------------------------------------ loop
     public static void Start() {
       var t = new Thread(Loop);
@@ -897,6 +980,7 @@ namespace NowPlaying {
       int freshPolls = 0;        // >0 = a game just ended; chase the updated history
       int eogTries = 0;          // >0 = still hoping the end-of-game screen appears
       DateTime lastHistory = DateTime.MinValue;
+      DateTime lastDeep = DateTime.MinValue;   // last walk past page one
 
       while (true) {
         try {
@@ -947,6 +1031,7 @@ namespace NowPlaying {
           phase = ph;
           if (gameJustEnded) {
             AppLog.Write("league: game ended (phase -> " + ph + ")");
+            ResyncAfterGame(port, pw);
             // History lags the end screen by anywhere up to a minute, and the
             // announcement is only as fast as the poll that finds it. 45
             // attempts at the 2s chase cadence below is the same ~90s of
@@ -985,18 +1070,61 @@ namespace NowPlaying {
                           || _newestGameId == 0;
           if (wantHistory) {
             if (freshPolls > 0) freshPolls--;
-            // 20 games, not 6: the session tracker counts a full day's worth,
-            // and a ranked grinder clears 6 well before dinner.
-            string hist = LcuGet(port, pw,
-              "/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=20");
+            string hist = HistoryPage(port, pw, 0);
             if (hist != null) {
               lastHistory = DateTime.UtcNow;
               string record, lastLine, at; long newest;
               if (ParseHistory(hist, out record, out lastLine, out newest, out at)) {
                 bool isNew;
+                long since = LocalMidnightEpochMs();
+
+                // One page used to be the whole story, and for most days it
+                // still is. It is not the story on a long one: twenty games
+                // covers a normal evening and nothing like a full session, and
+                // every game past the twentieth - ARAMs and practice games
+                // included, because they take a slot without being counted -
+                // pushed one of today's real games out of the window. The
+                // tally did not report a problem. It just quietly went short,
+                // which is exactly what "after a lot of games it stops working
+                // properly" looks like from the outside.
+                //
+                // So walk back until a page reaches past local midnight. That
+                // is the only definition of "all of today" that does not rest
+                // on a number somebody guessed, and it costs nothing on a day
+                // that fits in one page: the walk stops before asking twice.
+                var pages = new List<string>();
+                pages.Add(hist);
+                bool complete = !MayHoldMoreOfToday(hist, since);
+                if (!complete) {
+                  long known;
+                  lock (_resultLock) known = _newestGameId;
+                  // Deep walks are rationed. Today's tally cannot move until a
+                  // game lands, so re-reading forty games every two seconds
+                  // through a chase would be a great deal of asking for an
+                  // answer that is already known. A new game, a cold start or
+                  // a minute passing each earn one.
+                  if (newest > known || known == 0
+                      || (DateTime.UtcNow - lastDeep).TotalSeconds > 60) {
+                    lastDeep = DateTime.UtcNow;
+                    bool lostClient = false;
+                    for (int p = 1; p < HistoryPagesMax; p++) {
+                      string more = HistoryPage(port, pw, p);
+                      if (more == null) { lostClient = true; break; }
+                      pages.Add(more);
+                      if (!MayHoldMoreOfToday(more, since)) { complete = true; break; }
+                    }
+                    // Running out of pages is not a failure - two hundred games
+                    // is not one day, and a tally that stops updating would be
+                    // a worse bug than a deep one that is bounded. Losing the
+                    // client mid-walk is a failure, and leaves it incomplete.
+                    if (!lostClient) complete = true;
+                  }
+                }
+
                 string todayJson; int[] tw, tl;
-                if (!ParseToday(hist, LocalMidnightEpochMs(), out todayJson, out tw, out tl)) {
+                if (!ParseTodayPages(pages, since, out todayJson, out tw, out tl)) {
                   todayJson = "[]"; tw = new int[4]; tl = new int[4];
+                  complete = false;
                 }
                 bool caughtUp, behind;
                 lock (_resultLock) {
@@ -1043,8 +1171,14 @@ namespace NowPlaying {
                     _record = record; _lastLine = lastLine;
                     if (newest != 0) _newestGameId = newest;
                     _newestAt = at;
-                    _todayJson = todayJson;
-                    _todayWinsB = tw; _todayLossesB = tl;
+                    // A tally known to be short is worse than one a minute old:
+                    // the old one was right when it was written. Only a read
+                    // that actually reached the start of the day replaces it.
+                    if (complete) {
+                      _todayJson = todayJson;
+                      _todayWinsB = tw; _todayLossesB = tl;
+                      _todayPages = pages.Count;
+                    }
                   }
                 }
                 _status = "live"; _detail = "";
@@ -1100,8 +1234,14 @@ namespace NowPlaying {
     }
 
     public static string StatusJson() {
-      string record, last;
-      lock (_resultLock) { record = _record; last = _lastLine; }
+      string record, last; int pages, played = 0;
+      lock (_resultLock) {
+        record = _record; last = _lastLine; pages = _todayPages;
+        // The tally, not the drawn list: the list is capped at twenty because
+        // past that the form row is a barcode, and reporting its length here
+        // would under-count exactly the long day this is meant to expose.
+        for (int i = 0; i < 4; i++) played += _todayWinsB[i] + _todayLossesB[i];
+      }
       var sb = new StringBuilder();
       sb.Append('{');
       sb.Append("\"enabled\":").Append(_enabled ? "true" : "false").Append(',');
@@ -1116,6 +1256,11 @@ namespace NowPlaying {
       // Discovery, for the bot tab: is a League process visible at all, which
       // tier reached it, and what folder the user has typed in (empty = none).
       // seen/via only refresh while the tracker is on and looking.
+      // How deep the last complete read of today had to go. A day quietly
+      // outgrowing one page is the condition that used to fail in silence, so
+      // it is now something you can look at.
+      sb.Append("\"todayPages\":").Append(pages).Append(',');
+      sb.Append("\"todayGames\":").Append(played).Append(',');
       sb.Append("\"seen\":").Append(_clientSeen ? "true" : "false").Append(',');
       sb.Append("\"via\":").Append(TwitchChat.Qs(_foundVia)).Append(',');
       sb.Append("\"pathSet\":").Append(TwitchChat.Qs((Program.GetPref("leaguePath") ?? "").Trim()));
@@ -1144,6 +1289,25 @@ namespace NowPlaying {
       bool ok = ParseHistory(fixture, out record, out lastLine, out newest, out at);
       string todayJson; int[] tw, tl;
       bool tok = ParseToday(fixture, 1700000000000, out todayJson, out tw, out tl);
+
+      // A day longer than one page. Three pages of twenty, ids counting down,
+      // creation derived from the id so a game repeated across a seam really
+      // is the same game. Page three reaches back past midnight, which is what
+      // ends the walk. The single-page number is reported beside the walked
+      // one because the gap between them IS the bug: twenty is what the
+      // tracker used to see of a forty-one game day, with nothing to say so.
+      const long since = 1700000000000L;
+      string pg1 = FixPage(240, 20, since);     // ids 240..221, all today
+      string pg2 = FixPage(221, 20, since);     // ids 221..202, 221 is the seam
+      string pg3 = FixPage(201, 20, since);     // ids 201..182, crosses midnight
+      var walk = new List<string>();
+      walk.Add(pg1); walk.Add(pg2); walk.Add(pg3);
+
+      string onePageJson, allPagesJson; int[] w1, l1, wA, lA;
+      ParseToday(pg1, since, out onePageJson, out w1, out l1);
+      ParseTodayPages(walk, since, out allPagesJson, out wA, out lA);
+      int onePage = 0, allPages = 0;
+      for (int i = 0; i < 4; i++) { onePage += w1[i] + l1[i]; allPages += wA[i] + lA[i]; }
 
       string rankFixture = "{\"queueMap\":{\"RANKED_SOLO_5x5\":{\"tier\":\"EMERALD\","
         + "\"division\":\"II\",\"leaguePoints\":45,\"wins\":210,\"losses\":198}}}";
@@ -1195,6 +1359,15 @@ namespace NowPlaying {
            // puuid is not. The last one must stay "x" or every seat goes blank.
            + ",\"hiddenSeats\":" + TwitchChat.Qs(LobbyRanks.HiddenFixtures())
            + ",\"hiddenSeatsExpected\":\"_ _ _ x\""
+           // Walking a day that outgrew one page: 20 seen before, 41 now, and
+           // 41 rather than 42 is the seam duplicate being counted once.
+           + ",\"todayOnePage\":" + onePage
+           + ",\"todayAllPages\":" + allPages
+           + ",\"todayPagesExpected\":\"one 20, all 41\""
+           + ",\"walkStops\":\"" + (MayHoldMoreOfToday(pg1, since) ? "go" : "stop")
+           + " " + (MayHoldMoreOfToday(pg2, since) ? "go" : "stop")
+           + " " + (MayHoldMoreOfToday(pg3, since) ? "go" : "stop") + "\""
+           + ",\"walkStopsExpected\":\"go go stop\""
            + ",\"expected\":\"record W W (ranked only), newest 105, today ranked W/ranked W/normals W/aram L, abs 2245"
            + "; eog Victory (11/1/5) ranked, aram not ranked, no-WIN-key won\"}";
     }
@@ -1202,6 +1375,21 @@ namespace NowPlaying {
     // The end-of-game payload, reduced to the fields ParseEog reads.
     // winningTeam is given separately from the WIN stat on purpose: that is
     // what lets a fixture leave WIN out and check the teams fallback.
+    // One page of match history, newest first, ids counting down from firstId.
+    // gameCreation is derived from the id - (id - 200) seconds after midnight -
+    // so the same id is the same game on both sides of a page seam, and the
+    // ids below 200 fall before it, which is what stops the walk.
+    static string FixPage(int firstId, int count, long midnightMs) {
+      var sb = new StringBuilder("{\"games\":{\"games\":[");
+      for (int i = 0; i < count; i++) {
+        int id = firstId - i;
+        if (i > 0) sb.Append(',');
+        sb.Append(FixGame(id.ToString(), (midnightMs + (id - 200) * 1000L).ToString(),
+                          "true", "1", "2", "3", "420", "CLASSIC"));
+      }
+      return sb.Append("]}}").ToString();
+    }
+
     static string EogFix(string id, string queue, string winStat, string k, string d, string a,
                          string myTeam, string winningTeam) {
       return "{\"gameId\":" + id + ",\"queueType\":\"" + queue + "\","
