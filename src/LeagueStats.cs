@@ -573,6 +573,11 @@ namespace NowPlaying {
     static void FetchRank() {
       int port; string pw;
       if (!FindLockfile(out port, out pw)) return;
+      // Who before how much. This is reachable from !rank with the tracker
+      // switched off, and then the poll loop has never run and nobody has
+      // asked the client who is playing - which is the identity the day's LP
+      // baseline is filed under.
+      if (_puuid.Length == 0) RefreshIdentity(port, pw, false);
       string body = LcuGet(port, pw, "/lol-ranked/v1/current-ranked-stats");
       if (body == null) return;
       string tier, div, queue; int lp, wins, losses;
@@ -625,9 +630,54 @@ namespace NowPlaying {
     // memory has to survive an app restart mid-session - so it lives in a
     // file, keyed by local date and summoner. A new day or a different
     // account starts a fresh baseline.
-    static string _dayKey = "";      // "2026-08-02|SummonerName"
+    static string _dayKey = "";      // "2026-08-02|<puuid>"
     static int _dayAbs = -1;
     static bool _dayLoaded;
+
+    // The player half of that key is the puuid, not the display name. A Riot
+    // ID change would otherwise read as a different person and restart the
+    // day - which became reachable the moment the name started being re-read
+    // after every game instead of once at startup.
+    static volatile string _puuid = "";
+
+    // Name and puuid together, from the one endpoint that has both, so the
+    // puuid can never lag the name the day used to be keyed on.
+    static void RefreshIdentity(int port, string pw, bool announce) {
+      string me = LcuGet(port, pw, "/lol-summoner/v1/current-summoner");
+      if (me == null) return;
+      object root = TwitchEvents.NavPublic(me);
+      string name = TwitchEvents.SNavPublic(root, "displayName");
+      if (name.Length == 0) name = TwitchEvents.SNavPublic(root, "gameName");
+      string id = TwitchEvents.SNavPublic(root, "puuid");
+      if (id.Length > 0) _puuid = id;
+      if (name.Length > 0 && name != _summoner) {
+        if (announce && _summoner.Length > 0)
+          AppLog.Write("league: account is now " + name + " (was " + _summoner + ")");
+        _summoner = name;
+      }
+    }
+
+    // Does a stored key belong to this player, today? The name is accepted as
+    // well as the puuid so a baseline written by an older build is inherited
+    // rather than thrown away the first time this one runs.
+    static bool DayKeyMatches(string stored, string today, string puuid, string name) {
+      if (stored == null) return false;
+      int bar = stored.IndexOf('|');
+      if (bar < 0 || stored.Substring(0, bar) != today) return false;
+      string who = stored.Substring(bar + 1);
+      return (puuid.Length > 0 && who == puuid) || (name.Length > 0 && who == name);
+    }
+
+    // Start a fresh baseline, keep the stored one, re-file it under a better
+    // name, or refuse to touch it because we do not know who is playing.
+    // Pure, so the sequence that used to zero the day can be replayed with no
+    // client and no file.
+    internal static string DayVerdict(string storedKey, int storedAbs, string today,
+                                      string puuid, string name) {
+      if (puuid.Length == 0 && name.Length == 0) return "anonymous";
+      if (storedAbs < 0 || !DayKeyMatches(storedKey, today, puuid, name)) return "start";
+      return storedKey == today + "|" + (puuid.Length > 0 ? puuid : name) ? "keep" : "refile";
+    }
 
     static string DayPath() {
       string dir = Path.Combine(
@@ -639,7 +689,8 @@ namespace NowPlaying {
 
     static void RollDaySnapshot(int absNow) {
       if (absNow < 0) return;                       // unranked: nothing to measure
-      string key = DateTime.Today.ToString("yyyy-MM-dd") + "|" + _summoner;
+      string today = DateTime.Today.ToString("yyyy-MM-dd");
+      string puuid = _puuid, name = _summoner;
       lock (_resultLock) {
         if (!_dayLoaded) {
           _dayLoaded = true;
@@ -656,10 +707,35 @@ namespace NowPlaying {
             }
           } catch { }
         }
-        if (_dayKey != key || _dayAbs < 0) {
-          _dayKey = key; _dayAbs = absNow;
+        string verdict = DayVerdict(_dayKey, _dayAbs, today, puuid, name);
+
+        // Never file a baseline under a player we cannot name. !rank reaches
+        // FetchRank directly and answers even with the tracker switched off -
+        // and with it off the poll loop never runs, so nobody has asked the
+        // client who this is. The key came out as "2026-08-08|", which matched
+        // nothing, so the day's starting LP was overwritten with wherever the
+        // ladder happened to be at that moment... and overwritten a second
+        // time when the real name turned up. That is the LP going wrong "sometimes":
+        // one !rank during a session with the tracker off was enough to zero
+        // the day, at a moment with no obvious connection to it.
+        if (verdict == "anonymous") {
+          if (_dayAbs >= 0 && _dayKey.StartsWith(today + "|", StringComparison.Ordinal)) {
+            _lpToday = absNow - _dayAbs;      // today's baseline still stands
+            _hasLpToday = true;
+          }
+          return;
+        }
+
+        string key = today + "|" + (puuid.Length > 0 ? puuid : name);
+        if (verdict != "keep") {
+          // "refile" is the same player under a better name - a rename, or the
+          // first read that knows the puuid. The key is rewritten; the baseline
+          // is emphatically not, or the rename would restart the day.
+          if (verdict == "start") _dayAbs = absNow;
+          _dayKey = key;
           try {
-            Files.WriteAtomic(DayPath(), "{\"key\":" + TwitchChat.Qs(key) + ",\"abs\":" + absNow + "}");
+            Files.WriteAtomic(DayPath(),
+              "{\"key\":" + TwitchChat.Qs(key) + ",\"abs\":" + _dayAbs + "}");
           } catch { }
         }
         _lpToday = absNow - _dayAbs;
@@ -949,21 +1025,10 @@ namespace NowPlaying {
     // once and then trusted forever, which is fine for an evening and wrong
     // by the end of a weekend.
     static void ResyncAfterGame(int port, string pw) {
-      // Only ever replaced by a real answer. Blanking the name and then
-      // failing the re-read would move the day key from "date|Name" to
-      // "date|" - a key that has never been seen, so the LP baseline would
-      // reset and the day's LP would silently start again from zero.
-      string me = LcuGet(port, pw, "/lol-summoner/v1/current-summoner");
-      if (me != null) {
-        object root = TwitchEvents.NavPublic(me);
-        string name = TwitchEvents.SNavPublic(root, "displayName");
-        if (name.Length == 0) name = TwitchEvents.SNavPublic(root, "gameName");
-        if (name.Length > 0 && name != _summoner) {
-          AppLog.Write("league: account is now " + name
-                     + " (was " + (_summoner.Length > 0 ? _summoner : "unknown") + ")");
-          _summoner = name;
-        }
-      }
+      // Only ever replaced by a real answer, never blanked first: a failed
+      // re-read would leave the identity empty, and an empty identity is what
+      // used to hand the day's LP baseline to whatever the ladder said next.
+      RefreshIdentity(port, pw, true);
       LobbyRanks.ForgetRanks();
       _lastHttpError = "";        // last game's transport trouble is not this game's
     }
@@ -1056,14 +1121,8 @@ namespace NowPlaying {
             if (TryEogAnnounce(port, pw)) eogTries = 0;
           }
 
-          if (_summoner.Length == 0) {
-            string me = LcuGet(port, pw, "/lol-summoner/v1/current-summoner");
-            if (me != null) {
-              _summoner = TwitchEvents.SNavPublic(TwitchEvents.NavPublic(me), "displayName");
-              if (_summoner.Length == 0)
-                _summoner = TwitchEvents.SNavPublic(TwitchEvents.NavPublic(me), "gameName");
-            }
-          }
+          if (_summoner.Length == 0 || _puuid.Length == 0)
+            RefreshIdentity(port, pw, false);
 
           bool wantHistory = freshPolls > 0
                           || (DateTime.UtcNow - lastHistory).TotalSeconds > 300
@@ -1309,6 +1368,20 @@ namespace NowPlaying {
       int onePage = 0, allPages = 0;
       for (int i = 0; i < 4; i++) { onePage += w1[i] + l1[i]; allPages += wA[i] + lA[i]; }
 
+      // The day-baseline decision, replayed without a client or a file. The
+      // fourth case is the bug: an identity-less reading must leave the
+      // baseline alone, not start a new one. The first is the upgrade path
+      // (a key written under the old name is adopted, not discarded), and the
+      // last is a genuine account switch, which SHOULD start over.
+      const string PU = "9f3c-puuid", NM = "92explorer", TD = "2026-08-08";
+      string dayVerdicts = string.Join(" ", new[] {
+        DayVerdict(TD + "|" + NM, 2245, TD, PU, NM),      // old-style key: re-file
+        DayVerdict(TD + "|" + PU, 2245, TD, PU, NM),      // already ours: keep
+        DayVerdict("2026-08-07|" + PU, 2245, TD, PU, NM), // yesterday: start
+        DayVerdict(TD + "|" + PU, 2245, TD, "", ""),      // nobody home: hands off
+        DayVerdict(TD + "|" + PU, 2245, TD, "other", "someoneelse")
+      });
+
       string rankFixture = "{\"queueMap\":{\"RANKED_SOLO_5x5\":{\"tier\":\"EMERALD\","
         + "\"division\":\"II\",\"leaguePoints\":45,\"wins\":210,\"losses\":198}}}";
       string tier, div, queue; int lp, wins, losses;
@@ -1368,6 +1441,8 @@ namespace NowPlaying {
            + " " + (MayHoldMoreOfToday(pg2, since) ? "go" : "stop")
            + " " + (MayHoldMoreOfToday(pg3, since) ? "go" : "stop") + "\""
            + ",\"walkStopsExpected\":\"go go stop\""
+           + ",\"dayVerdicts\":" + TwitchChat.Qs(dayVerdicts)
+           + ",\"dayVerdictsExpected\":\"refile keep start anonymous start\""
            + ",\"expected\":\"record W W (ranked only), newest 105, today ranked W/ranked W/normals W/aram L, abs 2245"
            + "; eog Victory (11/1/5) ranked, aram not ranked, no-WIN-key won\"}";
     }
