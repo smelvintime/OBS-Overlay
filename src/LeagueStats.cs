@@ -413,23 +413,55 @@ namespace NowPlaying {
     // ----------------------------------------------------------------- parse
     // Pure: JSON in, results out, no state touched - so /league/test can push
     // a canned payload through the exact code the live path uses.
+    // How many ranked games "past 5 ranked" means. Named because the walk
+    // below now pages until it has found this many.
+    const int RecordLength = 5;
+
+    // The games from one or more pages, one entry per match. Paging a list
+    // that is still growing hands back the same match on both sides of a
+    // seam, so the id is the identity: counting one twice would be a worse
+    // answer than the short count the walk exists to fix. Null means no page
+    // parsed at all, which is different from a page with nothing in it.
+    static List<object> MergeGames(List<string> pages) {
+      var list = new List<object>();
+      var seen = new HashSet<long>();
+      bool any = false;
+      foreach (string json in pages) {
+        var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
+        if (games == null) continue;
+        any = true;
+        foreach (var g in games) {
+          long id = LNav(g, "gameId");
+          if (id != 0 && !seen.Add(id)) continue;
+          list.Add(g);
+        }
+      }
+      return any ? list : null;
+    }
+
     internal static bool ParseHistory(string json, out string record, out string lastLine,
                                       out long newestId, out string newestAt) {
+      var one = new List<string>();
+      one.Add(json);
+      return ParseHistoryPages(one, out record, out lastLine, out newestId, out newestAt);
+    }
+
+    internal static bool ParseHistoryPages(List<string> pages, out string record, out string lastLine,
+                                           out long newestId, out string newestAt) {
       record = ""; lastLine = ""; newestId = 0; newestAt = "";
       try {
-        var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
-        if (games == null || games.Length == 0) return false;
+        var list = MergeGames(pages);
+        if (list == null || list.Count == 0) return false;
 
         // Sorted here rather than trusting the endpoint's order - the LCU has
         // returned this list both oldest-first and newest-first over the
         // years, and a flipped record reads as five wrong results.
-        var list = new List<object>(games);
         list.Sort(delegate(object a, object b) {
           return LNav(b, "gameCreation").CompareTo(LNav(a, "gameCreation"));
         });
 
         var letters = new List<string>();
-        for (int i = 0; i < list.Count && letters.Count < 5; i++) {
+        for (int i = 0; i < list.Count && letters.Count < RecordLength; i++) {
           // Ranked only. The record is the grind: an ARAM warm-up or a normal
           // with friends polluting "past 5" is how a 3-0 ranked evening reads
           // as 3-2 in chat. Everything else already has its own home - the
@@ -687,26 +719,57 @@ namespace NowPlaying {
       return Path.Combine(dir, "league-day.json");
     }
 
+    // The day file carries two things now: where the day's LP started, and any
+    // finished game still waiting for Riot to publish it to match history.
+    // Both are answers to "what did I already know before this restart", and
+    // both were being lost by living in different places - one in a file, one
+    // only in memory.
+    //
+    // Callers hold _resultLock.
+    static void EnsureDayLoaded() {
+      if (_dayLoaded) return;
+      _dayLoaded = true;
+      try {
+        string p = DayPath();
+        if (!File.Exists(p)) return;
+        var d = new System.Web.Script.Serialization.JavaScriptSerializer()
+                  .DeserializeObject(File.ReadAllText(p)) as Dictionary<string, object>;
+        if (d == null) return;
+        object v;
+        if (d.TryGetValue("key", out v) && v != null) _dayKey = Convert.ToString(v);
+        if (d.TryGetValue("abs", out v) && v != null) _dayAbs = Convert.ToInt32(v);
+        if (d.TryGetValue("holdId", out v) && v != null) _pendingTodayId = Convert.ToInt64(v);
+        if (d.TryGetValue("holdWin", out v) && v != null) _pendingTodayWin = Convert.ToBoolean(v);
+        if (d.TryGetValue("holdDay", out v) && v != null) _pendingTodayDay = Convert.ToString(v);
+        if (_pendingTodayId != 0)
+          AppLog.Write("league: picked up a held game from before the restart (id "
+                       + _pendingTodayId + ", " + (_pendingTodayWin ? "win" : "loss") + ")");
+      } catch { }
+    }
+
+    static void WriteDayFile() {
+      EnsureDayLoaded();       // never write a blank over a good stored baseline
+      try {
+        var sb = new StringBuilder();
+        sb.Append("{\"key\":").Append(TwitchChat.Qs(_dayKey))
+          .Append(",\"abs\":").Append(_dayAbs);
+        // Only while one is held. An absent hold is the normal state and does
+        // not need saying, and the file stays the shape older builds read.
+        if (_pendingTodayId != 0) {
+          sb.Append(",\"holdId\":").Append(_pendingTodayId)
+            .Append(",\"holdWin\":").Append(_pendingTodayWin ? "true" : "false")
+            .Append(",\"holdDay\":").Append(TwitchChat.Qs(_pendingTodayDay));
+        }
+        Files.WriteAtomic(DayPath(), sb.Append('}').ToString());
+      } catch { }
+    }
+
     static void RollDaySnapshot(int absNow) {
       if (absNow < 0) return;                       // unranked: nothing to measure
       string today = DateTime.Today.ToString("yyyy-MM-dd");
       string puuid = _puuid, name = _summoner;
       lock (_resultLock) {
-        if (!_dayLoaded) {
-          _dayLoaded = true;
-          try {
-            string p = DayPath();
-            if (File.Exists(p)) {
-              var d = new System.Web.Script.Serialization.JavaScriptSerializer()
-                        .DeserializeObject(File.ReadAllText(p)) as Dictionary<string, object>;
-              if (d != null) {
-                object k, a;
-                if (d.TryGetValue("key", out k) && k != null) _dayKey = Convert.ToString(k);
-                if (d.TryGetValue("abs", out a) && a != null) _dayAbs = Convert.ToInt32(a);
-              }
-            }
-          } catch { }
-        }
+        EnsureDayLoaded();
         string verdict = DayVerdict(_dayKey, _dayAbs, today, puuid, name);
 
         // Never file a baseline under a player we cannot name. !rank reaches
@@ -733,10 +796,7 @@ namespace NowPlaying {
           // is emphatically not, or the rename would restart the day.
           if (verdict == "start") _dayAbs = absNow;
           _dayKey = key;
-          try {
-            Files.WriteAtomic(DayPath(),
-              "{\"key\":" + TwitchChat.Qs(key) + ",\"abs\":" + _dayAbs + "}");
-          } catch { }
+          WriteDayFile();
         }
         _lpToday = absNow - _dayAbs;
         _hasLpToday = true;
@@ -822,6 +882,23 @@ namespace NowPlaying {
     // AND its oldest game is still on or after midnight - a short page is the
     // end of the account's history, and one that reaches back past midnight
     // has already covered the whole day.
+    // A short page is the end of the account's history: there is nothing
+    // further back to ask for, whatever else is still unsatisfied.
+    static bool PageIsFull(string json) {
+      try {
+        var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
+        return games != null && games.Length >= HistoryPageSize;
+      } catch { return false; }
+    }
+
+    static int RankedIn(List<string> pages) {
+      var list = MergeGames(pages);
+      if (list == null) return 0;
+      int n = 0;
+      foreach (var g in list) if (ModeBucket(g) == "ranked") n++;
+      return n;
+    }
+
     static bool MayHoldMoreOfToday(string json, long sinceMs) {
       try {
         var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
@@ -847,24 +924,8 @@ namespace NowPlaying {
       gamesJson = "[]";
       wins = new int[4]; losses = new int[4];
       try {
-        var list = new List<object>();
-        var seen = new HashSet<long>();
-        bool any = false;
-        foreach (string json in pages) {
-          var games = TwitchEvents.NavPublic(json, "games", "games") as object[];
-          if (games == null) continue;
-          any = true;
-          foreach (var g in games) {
-            // A game finishing between two page requests shifts everything
-            // older down a slot, so the same match can arrive on both sides of
-            // the seam. Counting it twice would be a worse answer than the
-            // short one this walk exists to fix.
-            long id = LNav(g, "gameId");
-            if (id != 0 && !seen.Add(id)) continue;
-            list.Add(g);
-          }
-        }
-        if (!any) return false;
+        var list = MergeGames(pages);
+        if (list == null) return false;
         list.Sort(delegate(object a, object b) {
           return LNav(b, "gameCreation").CompareTo(LNav(a, "gameCreation"));
         });
@@ -986,6 +1047,10 @@ namespace NowPlaying {
       // and re-announce the ranked game before it.
       if (!ranked) return false;
       lock (_resultLock) {
+        // Before the hold is set, not after. WriteDayFile loads first so it can
+        // never blank a stored baseline, and a load AFTER assignment would read
+        // the old hold straight back over the new one.
+        EnsureDayLoaded();
         // Equal means already announced; smaller means the screen is still
         // showing the PREVIOUS game because this one's has not replaced it
         // yet. Both are "say nothing and look again in two seconds", and
@@ -1001,6 +1066,13 @@ namespace NowPlaying {
         _pendingTodayId = gid;
         _pendingTodayWin = win;
         _pendingTodayDay = DayStamp();
+        // To disk immediately. The hold used to live only in memory, so an
+        // update or a crash inside the publishing window - which is minutes
+        // long, and the update button restarts the app - dropped the game back
+        // out of today until Riot caught up. This is the write-on-every-game
+        // cost that was left on the table when the hold was added; it is one
+        // small file next to a match that took half an hour.
+        WriteDayFile();
         // The record reads newest-first, so this result goes on the front of
         // whatever the last history read established. History replaces the
         // whole string within the minute - starting with the same letter
@@ -1154,7 +1226,14 @@ namespace NowPlaying {
                 var pages = new List<string>();
                 pages.Add(hist);
                 bool complete = !MayHoldMoreOfToday(hist, since);
-                if (!complete) {
+                // The record has its own reason to keep asking. "Past 5 ranked"
+                // read one page too, so an evening of ARAMs pushed the ranked
+                // games off the end and the line came back with three results
+                // and no sign that it had been cut short. Unlike the day this
+                // is not bounded by midnight - it walks until five ranked games
+                // exist or the account runs out of history.
+                bool recordShort = RankedIn(pages) < RecordLength && PageIsFull(hist);
+                if (!complete || recordShort) {
                   long known;
                   lock (_resultLock) known = _newestGameId;
                   // Deep walks are rationed. Today's tally cannot move until a
@@ -1170,13 +1249,29 @@ namespace NowPlaying {
                       string more = HistoryPage(port, pw, p);
                       if (more == null) { lostClient = true; break; }
                       pages.Add(more);
-                      if (!MayHoldMoreOfToday(more, since)) { complete = true; break; }
+                      if (!MayHoldMoreOfToday(more, since)) complete = true;
+                      // Nothing older to ask for, so both questions are as
+                      // answered as they are going to get.
+                      if (!PageIsFull(more)) { complete = true; break; }
+                      if (complete && RankedIn(pages) >= RecordLength) break;
                     }
                     // Running out of pages is not a failure - two hundred games
                     // is not one day, and a tally that stops updating would be
                     // a worse bug than a deep one that is bounded. Losing the
                     // client mid-walk is a failure, and leaves it incomplete.
                     if (!lostClient) complete = true;
+                  }
+                }
+
+                // Re-read the record off everything the walk gathered. On a day
+                // that fitted in one page this is the same payload and the same
+                // answer; on a long one it is the difference between five
+                // ranked games and however few page one happened to hold.
+                if (pages.Count > 1) {
+                  string r2, l2, a2; long n2;
+                  if (ParseHistoryPages(pages, out r2, out l2, out n2, out a2)) {
+                    record = r2; lastLine = l2; at = a2;
+                    if (n2 != 0) newest = n2;
                   }
                 }
 
@@ -1187,6 +1282,9 @@ namespace NowPlaying {
                 }
                 bool caughtUp, behind;
                 lock (_resultLock) {
+                  // A hold written before a restart has to be in hand before
+                  // the release check below decides whether to let it go.
+                  EnsureDayLoaded();
                   // Is this history payload OLDER than what is already known?
                   // It can be, now that the end-of-game screen gets there
                   // first: for up to a minute afterwards every history read
@@ -1218,14 +1316,18 @@ namespace NowPlaying {
                     // "newest is at least ours" means it has landed and the
                     // hold can go, leaving it counted exactly once.
                     if (_pendingTodayId != 0) {
+                      bool released = false;
                       if (newest >= _pendingTodayId) {
-                        _pendingTodayId = 0;
+                        _pendingTodayId = 0; released = true;
                       } else if (_pendingTodayDay == DayStamp()) {
                         todayJson = SpliceToday(todayJson, _pendingTodayWin);
                         if (_pendingTodayWin) tw[0]++; else tl[0]++;
                       } else {
-                        _pendingTodayId = 0;    // last night's game, not today's
+                        _pendingTodayId = 0; released = true;   // last night's game
                       }
+                      // Let go on disk as well, or the next start would splice
+                      // in a game history has been carrying for hours.
+                      if (released) WriteDayFile();
                     }
                     _record = record; _lastLine = lastLine;
                     if (newest != 0) _newestGameId = newest;
@@ -1293,8 +1395,15 @@ namespace NowPlaying {
     }
 
     public static string StatusJson() {
-      string record, last; int pages, played = 0;
+      string record, last, held = ""; int pages, played = 0;
       lock (_resultLock) {
+        // Also the one read that happens with no client running, which makes a
+        // hold written before a restart visible instead of a thing you have to
+        // take on trust until Riot publishes.
+        EnsureDayLoaded();
+        if (_pendingTodayId != 0)
+          held = (_pendingTodayWin ? "win" : "loss") + " #" + _pendingTodayId
+               + " (" + _pendingTodayDay + ")";
         record = _record; last = _lastLine; pages = _todayPages;
         // The tally, not the drawn list: the list is capped at twenty because
         // past that the form row is a barcode, and reporting its length here
@@ -1320,6 +1429,9 @@ namespace NowPlaying {
       // it is now something you can look at.
       sb.Append("\"todayPages\":").Append(pages).Append(',');
       sb.Append("\"todayGames\":").Append(played).Append(',');
+      // A finished game counted in today but not yet published by Riot. Empty
+      // is the normal state; anything here clears itself within the minute.
+      sb.Append("\"heldGame\":").Append(TwitchChat.Qs(held)).Append(',');
       sb.Append("\"seen\":").Append(_clientSeen ? "true" : "false").Append(',');
       sb.Append("\"via\":").Append(TwitchChat.Qs(_foundVia)).Append(',');
       sb.Append("\"pathSet\":").Append(TwitchChat.Qs((Program.GetPref("leaguePath") ?? "").Trim()));
@@ -1382,6 +1494,17 @@ namespace NowPlaying {
         DayVerdict(TD + "|" + PU, 2245, TD, "other", "someoneelse")
       });
 
+      // An ARAM evening in front of the ranked games. Page one is twenty
+      // queue-450 games, so "past 5 ranked" off one page is nothing at all -
+      // and nothing was exactly what it used to say, with no hint it had been
+      // cut off. The walk reaches page two and finds the five.
+      string aramPage = FixPageMode(340, 20, since, "450", "ARAM");
+      var recWalk = new List<string>();
+      recWalk.Add(aramPage); recWalk.Add(pg1);
+      string recOnePage, recWalked, rl1, rl2, ra1, ra2; long rn1, rn2;
+      ParseHistory(aramPage, out recOnePage, out rl1, out rn1, out ra1);
+      ParseHistoryPages(recWalk, out recWalked, out rl2, out rn2, out ra2);
+
       string rankFixture = "{\"queueMap\":{\"RANKED_SOLO_5x5\":{\"tier\":\"EMERALD\","
         + "\"division\":\"II\",\"leaguePoints\":45,\"wins\":210,\"losses\":198}}}";
       string tier, div, queue; int lp, wins, losses;
@@ -1443,6 +1566,12 @@ namespace NowPlaying {
            + ",\"walkStopsExpected\":\"go go stop\""
            + ",\"dayVerdicts\":" + TwitchChat.Qs(dayVerdicts)
            + ",\"dayVerdictsExpected\":\"refile keep start anonymous start\""
+           // The record reaching past one page: page one here is twenty
+           // ARAMs, so the old single-page read found no ranked games at all
+           // and the walk finds all five on page two.
+           + ",\"recordOnePage\":" + TwitchChat.Qs(recOnePage)
+           + ",\"recordWalked\":" + TwitchChat.Qs(recWalked)
+           + ",\"recordExpected\":\"one '', walked 'W W W W W'\""
            + ",\"expected\":\"record W W (ranked only), newest 105, today ranked W/ranked W/normals W/aram L, abs 2245"
            + "; eog Victory (11/1/5) ranked, aram not ranked, no-WIN-key won\"}";
     }
@@ -1455,12 +1584,16 @@ namespace NowPlaying {
     // so the same id is the same game on both sides of a page seam, and the
     // ids below 200 fall before it, which is what stops the walk.
     static string FixPage(int firstId, int count, long midnightMs) {
+      return FixPageMode(firstId, count, midnightMs, "420", "CLASSIC");
+    }
+
+    static string FixPageMode(int firstId, int count, long midnightMs, string queue, string mode) {
       var sb = new StringBuilder("{\"games\":{\"games\":[");
       for (int i = 0; i < count; i++) {
         int id = firstId - i;
         if (i > 0) sb.Append(',');
         sb.Append(FixGame(id.ToString(), (midnightMs + (id - 200) * 1000L).ToString(),
-                          "true", "1", "2", "3", "420", "CLASSIC"));
+                          "true", "1", "2", "3", queue, mode));
       }
       return sb.Append("]}}").ToString();
     }
