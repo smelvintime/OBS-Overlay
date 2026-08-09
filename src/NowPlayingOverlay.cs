@@ -730,6 +730,7 @@ namespace NowPlaying {
       LeagueStats.Start();     // idle unless the bot's Game stats switch is on
       LobbyRanks.Start();      // idle unless !ranks asks for it
       Updater.CleanupAfterSwap();   // sweep the previous build's ".old" leftover, if any
+      Updater.StartAuto();          // keeps itself current; installs only when nothing is on air
 
       var accept = new Thread(() => {
         // A SocketException out of Accept is not the end of the listener, and
@@ -1626,6 +1627,19 @@ namespace NowPlaying {
             if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(Updater.CheckJson(QueryParam(path, "force") == "1")));
+          } else if (route == "/update/auto") {
+            // Turning automatic updates off is a decision about this machine,
+            // so it is written down like every other one - and behind the same
+            // door, because a stranger's tab does not get to decide that a
+            // streaming PC stops receiving fixes.
+            if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
+            string on = QueryParam(path, "on");
+            if (on != null) {
+              SetPref("autoUpdate", on == "1" ? "1" : "0");
+              AppLog.Write("update: automatic updates " + (on == "1" ? "on" : "off"));
+            }
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(Updater.StatusJson()));
           } else if (route == "/update/run") {
             // Downloads code, rebuilds and replaces the program - the most
             // state-changing route in the app, so the same-origin door is

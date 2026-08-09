@@ -47,7 +47,7 @@ namespace NowPlaying {
     // asks, and GitHub's anonymous rate limit is per-network, not per-app.
     static DateTime _checkedUtc = DateTime.MinValue;
     static bool _available;
-    static string _latestWhen = "", _latestNote = "", _checkError = "";
+    static string _latestWhen = "", _latestNote = "", _checkError = "", _latestSha = "";
 
     static void Set(string state, string detail) {
       lock (_lock) { _state = state; _detail = detail; }
@@ -58,6 +58,8 @@ namespace NowPlaying {
       lock (_lock) {
         return "{\"state\":" + TwitchChat.Qs(_state)
              + ",\"detail\":" + TwitchChat.Qs(_detail)
+             + ",\"auto\":" + (AutoEnabled() ? "true" : "false")
+             + ",\"autoWhy\":" + TwitchChat.Qs(_autoWhy)
              + ",\"build\":" + TwitchChat.Qs(BuildInfo.Version)
              + ",\"builtUtc\":" + TwitchChat.Qs(BuildInfo.BuiltUtc) + "}";
       }
@@ -74,7 +76,7 @@ namespace NowPlaying {
           return ComposeCheck(_available, _latestWhen, _latestNote, _checkError);
       }
 
-      bool avail = false; string when = "", note = "", err = "";
+      bool avail = false; string when = "", note = "", err = "", sha = "";
       try {
         // A forced check exists for the minutes right after a push, which is
         // exactly when GitHub's edge is still serving its ~60s-cached copy of
@@ -85,6 +87,7 @@ namespace NowPlaying {
                    + (force ? "?fresh=" + DateTime.UtcNow.Ticks : "");
         string body = HttpGetString(url);
         object root = TwitchEvents.NavPublic(body);
+        sha = Str(Nav(root, "sha"));
         string dateStr = Str(Nav(root, "commit", "committer", "date"));
         note = Str(Nav(root, "commit", "message"));
         int nl = note.IndexOfAny(new[] { '\r', '\n' });   // first line is the headline
@@ -96,6 +99,14 @@ namespace NowPlaying {
                                out latest))
           throw new Exception("unexpected answer from GitHub");
         avail = latest > BuiltUtc();
+        // The date test alone is not safe to act on unattended. If this
+        // machine's clock runs behind GitHub's, every build stamp lands before
+        // every commit date and "newer" is permanently true - which for a
+        // button is a wasted click and for an automatic updater is a restart
+        // loop. The sha of the commit last installed ends that: whatever the
+        // clocks say, a commit already installed is not an update.
+        if (avail && sha.Length > 0
+            && sha == (Program.GetPref("updateSha") ?? "").Trim()) avail = false;
         when = latest.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
       } catch (Exception ex) {
         err = Friendly(ex);
@@ -104,6 +115,7 @@ namespace NowPlaying {
       lock (_lock) {
         _checkedUtc = DateTime.UtcNow;
         _available = avail; _latestWhen = when; _latestNote = note; _checkError = err;
+        _latestSha = sha;
       }
       return ComposeCheck(avail, when, note, err);
     }
@@ -127,6 +139,117 @@ namespace NowPlaying {
                                  out t))
         return t;
       return DateTime.UtcNow;   // unparseable stamp reads as "current", never as "update forever"
+    }
+
+    // ------------------------------------------------------------ automatic
+    // The point of this is that nobody ever has to press the button. The
+    // problem with it is that an update ends in a restart, and a restart while
+    // the overlay is on someone's stream is a browser source going blank in
+    // front of an audience. So the interesting question is never "how often" -
+    // it is "when is a three second restart free".
+    //
+    // Live on Twitch is the answer that matters, and it can be asked directly:
+    // Helix says whether the channel is broadcasting right now. A League game
+    // is the other, because the end-of-game result is read off a screen that
+    // is only up for about a minute and a restart through it loses that game's
+    // announcement. Neither of those is a guess.
+    //
+    // If it is never quiet, the update simply waits. A stale build is a much
+    // smaller problem than a black source mid-fight, and the wait ends by
+    // itself the moment the stream does.
+
+    static DateTime _autoNextUtc = DateTime.MinValue;
+    static string _autoWhy = "";
+
+    public static string AutoWhy { get { return _autoWhy; } }
+
+    // Default on. This is the whole feature; a client who has to switch it on
+    // is a client who never switches it on.
+    internal static bool AutoEnabled() {
+      string v = (Program.GetPref("autoUpdate") ?? "").Trim().ToLowerInvariant();
+      return v != "0" && v != "off" && v != "false" && v != "no";
+    }
+
+    public static void StartAuto() {
+      var t = new Thread(AutoLoop);
+      t.IsBackground = true;
+      t.Start();
+    }
+
+    static void AutoLoop() {
+      // Let the port bind, the tray icon appear and the first poll land before
+      // reaching for the network - and before deciding whether anything is
+      // attached, which takes OBS a few seconds to do after a start.
+      Thread.Sleep(40000);
+      while (true) {
+        try { AutoPass(); } catch { /* never let this thread be why the app dies */ }
+        Thread.Sleep(4 * 60 * 1000);
+      }
+    }
+
+    static void AutoPass() {
+      if (!AutoEnabled()) { _autoWhy = "automatic updates are switched off"; return; }
+      lock (_lock) { if (_busy) return; }
+      if (DateTime.UtcNow < _autoNextUtc) return;      // backing off after a failure
+
+      string why;
+      if (!QuietNow(out why)) { _autoWhy = "waiting: " + why; return; }
+
+      // The cached answer is fine here. This runs every four minutes and the
+      // check caches for thirty; forcing it each pass would be asking GitHub
+      // about a repository that changes a few times a week.
+      CheckJson(false);
+      bool avail; string note;
+      lock (_lock) { avail = _available; note = _latestNote; }
+      if (!avail) { _autoWhy = "up to date"; return; }
+
+      // Re-tested immediately before starting, because the check can take a
+      // few seconds over a slow line and "quiet" is a statement about now.
+      if (!QuietNow(out why)) { _autoWhy = "waiting: " + why; return; }
+
+      // An hour before another attempt. A build that fails - a compiler that
+      // is not there, a half-pushed commit - would otherwise be retried every
+      // four minutes for as long as the machine is on.
+      _autoNextUtc = DateTime.UtcNow.AddHours(1);
+      _autoWhy = "installing";
+      AppLog.Write("update: installing automatically - " + note);
+      string err;
+      if (!Begin(out err)) _autoWhy = "could not start: " + err;
+    }
+
+    static bool QuietNow(out string why) {
+      if (LeagueStats.BusyWithGame()) { why = "a League game is in progress"; return false; }
+
+      bool known;
+      if (StreamLive(out known)) { why = "the channel is live"; return false; }
+
+      // Twitch could not be asked - not configured, or the API is down. Fall
+      // back to the weaker signal: an attached OBS browser source means
+      // something of ours is on a canvas somewhere, and without knowing
+      // whether that canvas is being broadcast the safe reading is that it is.
+      if (!known && (Program.SpectrumClients > 0 || Program.TwitchClients > 0)) {
+        why = "OBS sources are attached and Twitch can't be asked if the channel is live";
+        return false;
+      }
+      why = "";
+      return true;
+    }
+
+    // known=false means the question could not be put, which is different from
+    // an answer of "offline" and must not be read as one.
+    static bool StreamLive(out bool known) {
+      known = false;
+      try {
+        if (!TwitchEvents.ApiReady) return false;
+        int status;
+        string body = TwitchEvents.Helix(
+          "https://api.twitch.tv/helix/streams?user_id=" + TwitchEvents.BroadcasterId, out status);
+        if (status != 200 || body == null) return false;
+        var data = Nav(TwitchEvents.NavPublic(body), "data") as object[];
+        if (data == null) return false;
+        known = true;
+        return data.Length > 0;          // one entry = broadcasting right now
+      } catch { return false; }
     }
 
     // -------------------------------------------------------------------- run
@@ -180,6 +303,11 @@ namespace NowPlaying {
           try { File.Move(old, cur); } catch { }
           throw;
         }
+
+        // Recorded BEFORE the handover, because after it there is no more of
+        // this process to record anything. This is what stops a machine whose
+        // clock lags GitHub from updating to the same commit forever.
+        lock (_lock) { if (_latestSha.Length > 0) Program.SetPref("updateSha", _latestSha); }
 
         AppLog.Write("update: new build in place, handing over");
         Program.Restart(800, "updater");

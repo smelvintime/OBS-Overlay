@@ -126,12 +126,26 @@ No compiled executable is ever published or committed here, on purpose: everyone
 builds the same few-second way, and a binary you compiled yourself never came from
 the internet, so antivirus reputation checks have nothing to object to.
 
-The dashboard's **Update available — install** button keeps that rule: it
-downloads the newest *source* ZIP from GitHub, runs the same build on your
-machine, then swaps the new exe in over the old one and restarts. If any step
-fails, the running app is left untouched and the reason appears in the header
-and the log. The old exe is kept beside the new one as `NowPlayingOverlay.exe.old`
-until the next successful start, as a just-in-case copy.
+Updating keeps that rule, whether you press the button or it happens by itself:
+the newest *source* ZIP is downloaded from GitHub, the same build runs on your
+machine, then the new exe is swapped in over the old one and the app restarts.
+If any step fails, the running app is left untouched and the reason appears in
+the header and the log. The old exe is kept beside the new one as
+`NowPlayingOverlay.exe.old` until the next successful start, as a just-in-case
+copy.
+
+Automatic updates check every four minutes and install at the first quiet
+moment. Quiet means two things, both asked rather than assumed: Twitch says the
+channel is not broadcasting, and the League client is not in champ select or a
+game. If Twitch cannot be asked — not connected, API down — an attached OBS
+browser source counts as "something is on a canvas somewhere" and it waits.
+A failed attempt backs off for an hour rather than retrying every four minutes.
+
+The commit installed is written to `prefs.txt` as `updateSha`. That is what
+stops a machine whose clock runs behind GitHub's from reinstalling the same
+commit forever: the date test alone would read every build stamp as older than
+every commit, which for a button is a wasted click and for something unattended
+is a restart loop.
 
 ## Notes and limits
 

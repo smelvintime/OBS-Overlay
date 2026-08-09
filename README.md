@@ -46,14 +46,24 @@ the music side at all.
    settings are saved in a file next to the exe, so running it from a new folder
    looks like a first run.
 
-> **Updating later:** the easy way is built in — when something newer has been
-> published, a gold **Update available — install** button appears at the top of
-> the dashboard. One click and the app downloads the new source, rebuilds
-> itself on your PC (source only, same as ever — no exe travels the internet),
-> and restarts. Settings, Twitch connection and OBS sources all carry over;
-> the overlays blink once and come back on their own. The same spot holds a
-> quiet **Check for updates** link for when you know a fix landed moments ago —
-> the automatic check only asks GitHub once per half hour.
+> **Updating later: it does it itself.** The app checks every few minutes and
+> installs anything new on its own — downloads the source, rebuilds it on your
+> PC (source only, same as ever — no exe travels the internet), and restarts.
+> Settings, Twitch connection and OBS sources all carry over; the overlays
+> blink once and come back on their own.
+>
+> **It will not do that while you are on air.** An update ends in a restart,
+> and a restart mid-stream is a browser source going blank in front of an
+> audience — so it waits until the channel is offline *and* no League game is
+> running, then takes its moment. If that moment never comes it simply keeps
+> waiting; a build a day old is a far smaller problem than a black source
+> mid-fight. The dashboard says what it is waiting for.
+>
+> A gold **Update ready — install now** button still appears when something is
+> waiting, for when you would rather have it immediately, and a quiet **Check
+> for updates** link is there for the minutes right after a fix lands — the
+> background check only asks GitHub once per half hour. The **Auto** tickbox
+> beside them turns the whole thing off if you would rather decide yourself.
 >
 > The manual way still works too: download the new source, run `Build.bat`
 > **in the folder the exe already lives in**, and it handles the rest — it

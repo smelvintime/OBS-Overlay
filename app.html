@@ -37,6 +37,11 @@
     color:var(--dim);cursor:pointer;text-decoration:none}
   .upd .updcheck:hover:not(:disabled){color:var(--fg)}
   .upd .updcheck:disabled{cursor:default}
+  /* The off switch for automatic updates. Small and to the side: it is not a
+     decision anyone should have to make, only one they must be able to. */
+  .upd .updauto{display:inline-flex;align-items:center;gap:4px;margin-left:10px;
+    color:var(--dim);cursor:pointer;user-select:none}
+  .upd .updauto input{margin:0;cursor:pointer}
   .themes{display:flex;gap:5px;align-items:center}
   .themes button{width:22px;height:22px;padding:0;border-radius:50%;cursor:pointer;
     border:2px solid transparent}
@@ -314,16 +319,47 @@
       .catch(function(){ updSay('Could not start the update.'); });
   }
 
+  // Automatic updates are the normal state, so the switch is small and off to
+  // the side - not a decision anyone should have to make, only one they have
+  // to be able to make. The wording carries the rule, because "Auto" on its
+  // own does not tell you it waits for the stream to be over.
+  var updAuto = true;
+
+  function updAutoToggle(){
+    var w = document.createElement('label');
+    w.className = 'updauto';
+    w.title = 'Installs new versions on its own - but only while the channel is '
+            + 'offline and no League game is running, never mid-stream.';
+    var c = document.createElement('input');
+    c.type = 'checkbox';
+    c.checked = updAuto;
+    c.addEventListener('change', function(){
+      var want = c.checked;
+      c.disabled = true;
+      fetch('/update/auto?on=' + (want ? '1' : '0'), {cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){ updAuto = !!(j && j.auto); })
+        .catch(function(){ updAuto = !want; })        // it did not take; say so
+        .then(function(){ c.checked = updAuto; c.disabled = false; });
+    });
+    w.appendChild(c);
+    w.appendChild(document.createTextNode('Auto'));
+    return w;
+  }
+
   function updShowGo(j){
     updEl.innerHTML = '';
     var b = document.createElement('button');
     b.type = 'button'; b.className = 'updgo';
-    b.textContent = 'Update available - install';
+    b.textContent = updAuto ? 'Update ready - install now' : 'Update available - install';
     b.title = (j && j.latestNote ? 'Latest change: ' + j.latestNote + '\n' : '')
             + 'Downloads the newest source and rebuilds it on this PC, then restarts.\n'
-            + 'Takes under a minute; overlays in OBS blink once and come back on their own.';
+            + 'Takes under a minute; overlays in OBS blink once and come back on their own.'
+            + (updAuto ? '\nIt will do this on its own once the channel is offline - '
+                       + 'this button is only for having it now.' : '');
     b.addEventListener('click', function(){ b.disabled = true; updRun(); });
     updEl.appendChild(b);
+    updEl.appendChild(updAutoToggle());
   }
 
   // The resting state: a quiet manual check. The automatic check caches for
@@ -354,16 +390,24 @@
         });
     });
     updEl.appendChild(a);
+    updEl.appendChild(updAutoToggle());
   }
 
-  // On open: one cached check (at most one GitHub call per half hour across
+  // On open: read the auto switch first - it changes what the other states
+  // say - then one cached check (at most one GitHub call per half hour across
   // dashboard loads), then settle on whichever state is true.
-  fetch('/update/check', {cache:'no-store'})
+  fetch('/update/status', {cache:'no-store'})
     .then(function(r){ return r.json(); })
-    .then(function(j){
-      if(j && j.build) updBuild = j.build;
-      if(j && j.update) updShowGo(j);
-      else updShowCheck();
+    .then(function(j){ if(j && typeof j.auto === 'boolean') updAuto = j.auto; })
+    .catch(function(){})
+    .then(function(){
+      return fetch('/update/check', {cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if(j && j.build) updBuild = j.build;
+          if(j && j.update) updShowGo(j);
+          else updShowCheck();
+        });
     })
     .catch(function(){ updShowCheck(); });   // no answer now doesn't mean no door later
 })();

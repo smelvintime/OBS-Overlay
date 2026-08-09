@@ -84,6 +84,22 @@ namespace NowPlaying {
 
     public static bool ClientSeen { get { return _clientSeen; } }
 
+    // The gameflow phase, and when it was last actually read. The loop only
+    // polls while something wants it, so a phase with no timestamp behind it
+    // is a memory, not a fact - and "InProgress" remembered from this morning
+    // would block the auto-updater forever.
+    static volatile string _phaseNow = "";
+    static long _phaseAtTicks;
+
+    public static bool BusyWithGame() {
+      if (DateTime.UtcNow.Ticks - Interlocked.Read(ref _phaseAtTicks) > 60 * 10000000L)
+        return false;                      // nobody has looked in a minute
+      string p = _phaseNow;
+      return p == "InProgress" || p == "ChampSelect" || p == "GameStart"
+          || p == "Reconnect" || p == "WaitingForStats" || p == "PreEndOfGame"
+          || p == "EndOfGame";
+    }
+
     internal static bool FindLockfile(out int port, out string password) {
       port = 0; password = "";
       bool seen = false;
@@ -1164,6 +1180,8 @@ namespace NowPlaying {
             continue;
           }
           ph = ph.Trim().Trim('"');
+          _phaseNow = ph;
+          Interlocked.Exchange(ref _phaseAtTicks, DateTime.UtcNow.Ticks);
           bool gameJustEnded = phase == "InProgress" && ph != "InProgress";
           phase = ph;
           if (gameJustEnded) {
