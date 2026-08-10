@@ -396,11 +396,21 @@ In chat:
   name tags.
   - Tiers are the first letter plus the division — `E3` is Emerald III, `G1`
     Gold I, `P4` Platinum IV, `UR` unranked.
-  - `_` is **hidden** and `?` is **unknown**, and they are worth telling
-    apart. `_` means the client never said who the player was, so there was
-    nobody to look up — every enemy in a ranked draft, by design. `?` means
-    the rank *was* asked for and no answer came back. One is the client
-    keeping a secret; the other is something going wrong.
+  - **Always five per team**, because the position in the line is the lane and
+    a team that printed four made the other four unreadable — *"Them: M565
+    M634"* cannot be answered, since nobody can tell whether that is top and
+    jungle or ADC and support. A lane with nothing to say now shows `_`, so
+    *"Them: \_ M565 \_ M634 \_"* says plainly: their jungler and ADC, and
+    three we could not read.
+  - `_` is **nothing to show for that lane** — the client withheld the player
+    (every enemy in a ranked draft, by design) or never listed them at all.
+    `?` is different and worth telling apart: the rank *was* asked for and no
+    answer came back. One is the client keeping quiet; the other is something
+    going wrong.
+  - A player the client gives no position for is seated in a lane nobody
+    claimed, in the order they were listed. With four lanes stated that is
+    elimination; with none stated it is the listing order and no more than
+    that.
   - **Master and above show LP instead of a division** — `M342` is Master on
     342 LP, `GM721` Grandmaster on 721, `C1204` Challenger on 1204. Apex is one
     pool with no divisions, so a bare `M` would file a freshly promoted Master

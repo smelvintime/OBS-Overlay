@@ -1573,6 +1573,13 @@ namespace NowPlaying {
            // puuid is not. The last one must stay "x" or every seat goes blank.
            + ",\"hiddenSeats\":" + TwitchChat.Qs(LobbyRanks.HiddenFixtures())
            + ",\"hiddenSeatsExpected\":\"_ _ _ x\""
+           // Five lanes whatever arrives, in top/jg/mid/adc/sup order.
+           + ",\"laneLayout\":" + TwitchChat.Qs(LobbyRanks.LayoutFixtures())
+           // The last one is the contradictory case, and it reads oddly on
+           // purpose: two players both stating MID, so the first keeps it and
+           // the second is seated in the earliest lane nobody claimed.
+           + ",\"laneLayoutExpected\":\"G2 D4 P1 M675 E1 | _ M565 _ M634 _"
+           + " | S3 B1 UR _ _ | GM858 _ C1204 _ _\""
            // Walking a day that outgrew one page: 20 seen before, 41 now, and
            // 41 rather than 42 is the seam duplicate being counted once.
            + ",\"todayOnePage\":" + onePage

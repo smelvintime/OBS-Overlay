@@ -97,6 +97,7 @@ namespace NowPlaying {
       lock (_lock) {
         _rankTag.Clear();
         _draftLine = ""; _gameLine = ""; _gameId = 0; _myPuuid = "";
+        _gameFull = false; _gameTries = 0;
       }
     }
 
@@ -187,25 +188,45 @@ namespace NowPlaying {
 
     class Seat { public string Role = ""; public string Tag = "?"; }
 
-    // A player the client gave no position for takes whichever lane is left
-    // over. In a five-man team with exactly one hole that is deduction, not a
-    // guess - and it matters, because the teammate recovered from the
-    // incomplete team list below arrives carrying no role at all.
+    // Five lanes, always, in the order the line promises: top, jungle, mid,
+    // ADC, support. The position in the line IS the lane - that is the entire
+    // reason there are no names - so a team that prints four ranks does not
+    // just lose a player, it makes the other four unreadable. "Them: M565
+    // M634" cannot be answered: is that top and jungle, or ADC and support?
+    // Nobody can tell, and two ranks nobody can place are worth less than
+    // nothing because they look like information.
+    //
+    // So the shape is fixed and the gaps are marked. A lane with nothing to
+    // say gets "_", which is what it already meant for a player the client
+    // would not name - from a viewer's seat "hidden" and "not in the payload"
+    // are the same fact: no rank for that lane.
+    //
+    // Seats carrying a position are placed by it. Seats without one fill the
+    // lanes left over, in the order the client listed them - a guess, and the
+    // same guess the old one-hole deduction made, but now it can never push
+    // a known lane out of place because known lanes are seated first.
     static string Format(List<Seat> seats) {
-      var missing = new List<string>(RoleOrder);
-      foreach (var s in seats) missing.Remove(s.Role);
+      var slots = new Seat[RoleOrder.Length];
+      var loose = new List<Seat>();
+
       foreach (var s in seats) {
-        if (s.Role.Length != 0) continue;
-        if (missing.Count == 1) { s.Role = missing[0]; missing.Clear(); }
+        int ix = Array.IndexOf(RoleOrder, s.Role);
+        // Two players claiming one lane happens (a swap the client reports
+        // mid-change). First one keeps it; the other becomes loose rather
+        // than overwriting a lane that was actually stated.
+        if (ix >= 0 && slots[ix] == null) slots[ix] = s;
+        else loose.Add(s);
       }
-      seats.Sort(delegate(Seat a, Seat b) {
-        int ia = Array.IndexOf(RoleOrder, a.Role), ib = Array.IndexOf(RoleOrder, b.Role);
-        if (ia < 0) ia = 99;
-        if (ib < 0) ib = 99;
-        return ia.CompareTo(ib);
-      });
+      int next = 0;
+      foreach (var s in loose) {
+        while (next < slots.Length && slots[next] != null) next++;
+        if (next >= slots.Length) break;      // more players than lanes; nothing to do
+        slots[next] = s;
+      }
+
       var bits = new List<string>();
-      foreach (var s in seats) bits.Add(s.Tag);
+      for (int i = 0; i < slots.Length; i++)
+        bits.Add(slots[i] == null ? HiddenTag : slots[i].Tag);
       return string.Join(" ", bits.ToArray());
     }
 
@@ -294,15 +315,35 @@ namespace NowPlaying {
     // is not something to repeat every few seconds.
     static string _gameLine = "";
     static long _gameId;
+    static bool _gameFull;        // both sides identified; nothing left to improve
+    static int _gameTries;
     static string _myPuuid = "";
 
+    // How many times one game is worth re-reading before settling for what the
+    // client is willing to say. At the loop's three-second cadence that is
+    // about a minute of the match, which is far longer than the payload takes
+    // to fill in and short enough that a mode which never fields ten players
+    // stops asking.
+    const int RosterTries = 20;
+
     static void EnsureGameRoster(int port, string pw) {
+      // Built once per game, but only once it is worth keeping. The old rule
+      // was "once it produced any line at all", and the payload does not
+      // arrive complete: read three seconds into a match, teamOne and teamTwo
+      // are still filling in. That first thin answer was cached for the rest
+      // of the game, which is how a lobby came back as four players against
+      // two - not a parse failure, a snapshot taken too early and then
+      // defended against every later read that would have corrected it.
       string sj = LeagueStats.LcuGet(port, pw, "/lol-gameflow/v1/session");
       if (sj == null) return;
       object data = Nav(TwitchEvents.NavPublic(sj), "gameData");
       long gid = LNum(data, "gameId");
       if (gid == 0) return;
-      lock (_lock) { if (gid == _gameId && _gameLine.Length > 0) return; }
+      lock (_lock) {
+        if (gid != _gameId) { _gameTries = 0; _gameFull = false; }
+        if (gid == _gameId && (_gameFull || _gameTries >= RosterTries)) return;
+        _gameTries++;
+      }
 
       if (_myPuuid.Length == 0) {
         string me = LeagueStats.LcuGet(port, pw, "/lol-summoner/v1/current-summoner");
@@ -325,29 +366,52 @@ namespace NowPlaying {
         string id = TwitchEvents.SNavPublic(p, "puuid");
         if (id.Length > 0) enemyIds.Add(id);
       }
+      var allyIds = new HashSet<string>();
       var allies = new List<object>();
-      var seen = new HashSet<string>();
       foreach (var p in mine) {
         string id = TwitchEvents.SNavPublic(p, "puuid");
-        if (id.Length > 0 && seen.Add(id)) allies.Add(p);
+        if (id.Length > 0 && allyIds.Add(id)) allies.Add(p);
       }
+      var enemies = new List<object>();
+      var enemySeen = new HashSet<string>();
+      foreach (var p in theirs) {
+        string id = TwitchEvents.SNavPublic(p, "puuid");
+        if (id.Length > 0 && enemySeen.Add(id)) enemies.Add(p);
+      }
+
       // That list covers BOTH teams, so "not an enemy" only means "an ally"
       // when the enemy side is known complete. Filing an enemy under Us would
       // be a confidently wrong answer, and a short list beats a wrong one.
+      //
+      // The same reasoning runs the other way and was simply never written:
+      // once the ally side is known complete, "not an ally" means "an enemy".
+      // Without it a short teamTwo stayed short no matter what the rest of the
+      // payload knew - which is how "Them" came back with two players in it.
       var picks = Nav(data, "playerChampionSelections") as object[];
       if (picks != null && enemyIds.Count >= 5) {
         foreach (var p in picks) {
           if (allies.Count >= 5) break;
           string id = TwitchEvents.SNavPublic(p, "puuid");
-          if (id.Length > 0 && !enemyIds.Contains(id) && seen.Add(id)) allies.Add(p);
+          if (id.Length > 0 && !enemyIds.Contains(id) && allyIds.Add(id)) allies.Add(p);
+        }
+      }
+      if (picks != null && allyIds.Count >= 5) {
+        foreach (var p in picks) {
+          if (enemies.Count >= 5) break;
+          string id = TwitchEvents.SNavPublic(p, "puuid");
+          if (id.Length > 0 && !allyIds.Contains(id) && enemySeen.Add(id)) enemies.Add(p);
         }
       }
 
       string us = SideLine(port, pw, allies);
-      string them = SideLine(port, pw, theirs);
+      string them = SideLine(port, pw, enemies);
       if (us.Length == 0 && them.Length == 0) return;
       lock (_lock) {
         _gameId = gid;
+        // Complete means both sides named. Anything less stays open to being
+        // read again on the next pass, because the next pass is very likely to
+        // know more than this one did.
+        _gameFull = allies.Count >= 5 && enemies.Count >= 5;
         _gameLine = "Us: " + us + "  |  Them: " + them;
         // The draft that fed this game is consumed by it: the in-game line
         // supersedes it, and left alive it could surface later as if it
@@ -381,8 +445,9 @@ namespace NowPlaying {
         _phase = ph.Trim().Trim('"');
 
         if (InGame()) {
-          // Early-outs on a matching gameId, so repeats in the same match
-          // cost one gameflow read, not ten rank lookups.
+          // Early-outs on a complete roster, so repeats in the same match
+          // cost one gameflow read, not ten rank lookups - but an incomplete
+          // one is retried, because asking again is how it gets completed.
           EnsureGameRoster(port, pw);
           string built;
           lock (_lock) built = _gameLine;
@@ -435,6 +500,32 @@ namespace NowPlaying {
     // Which identities count as withheld. The all-zero puuid is the one that
     // matters and the one that cannot be checked by playing: it only appears
     // on the enemy side of a ranked draft.
+    // Five lanes whatever arrives. The cases that matter are the ones a real
+    // lobby produced: a short team, and a team the client gave no positions
+    // for at all.
+    internal static string LayoutFixtures() {
+      var full = new List<Seat> {
+        new Seat { Role = "SUP", Tag = "E1" }, new Seat { Role = "TOP", Tag = "G2" },
+        new Seat { Role = "ADC", Tag = "M675" }, new Seat { Role = "JG", Tag = "D4" },
+        new Seat { Role = "MID", Tag = "P1" }
+      };
+      // The reported line: two players, no way to tell which lanes they held.
+      var short2 = new List<Seat> {
+        new Seat { Role = "JG", Tag = "M565" }, new Seat { Role = "ADC", Tag = "M634" }
+      };
+      // No positions at all - they fill lanes in the order the client listed.
+      var noPos = new List<Seat> {
+        new Seat { Tag = "S3" }, new Seat { Tag = "B1" }, new Seat { Tag = "UR" }
+      };
+      // Two players claiming one lane: the first keeps it, the second is
+      // seated in a leftover rather than overwriting a stated position.
+      var clash = new List<Seat> {
+        new Seat { Role = "MID", Tag = "C1204" }, new Seat { Role = "MID", Tag = "GM858" }
+      };
+      return Format(full) + " | " + Format(short2) + " | "
+           + Format(noPos) + " | " + Format(clash);
+    }
+
     internal static string HiddenFixtures() {
       return string.Join(" ", new[] {
         IsAnonymous(null) ? HiddenTag : "x",
