@@ -440,15 +440,22 @@ namespace NowPlaying {
     internal static void SetupSkip() {
       try {
         if (FindConfig() != null) return;
-        var cfg = new Dictionary<string, object>();
-        cfg["channel"] = "";
-        cfg["followerGoal"] = 0;
-        cfg["subGoal"] = 0;
-        Files.WriteAtomic(ConfigPathOrDefault(), WriteConfig(cfg));
+        Files.WriteAtomic(ConfigPathOrDefault(), WriteConfig(MinimalConfig()));
         AppLog.Write("setup: skipped - minimal config written");
       } catch (Exception ex) {
         AppLog.Write("setup: skip failed: " + ex.Message);
       }
+    }
+
+    // The file a machine that wants none of Twitch still ends up with. Shared
+    // by the wizard's Skip and by SaveGameStats, which also has to be able to
+    // create one - two callers writing "an empty config" by hand would drift.
+    static Dictionary<string, object> MinimalConfig() {
+      var cfg = new Dictionary<string, object>();
+      cfg["channel"] = "";
+      cfg["followerGoal"] = 0;
+      cfg["subGoal"] = 0;
+      return cfg;
     }
 
     static string SNav2(Dictionary<string, object> d, string key) {
@@ -842,17 +849,32 @@ namespace NowPlaying {
 
     // The game-stats switches, written by the bot dashboard. Same ownership
     // rule as SaveBotFollowThanks below.
+    //
+    // Unlike every other saver here, this one CREATES the file when it is
+    // missing. The League tracker is the one thing on the bot tab that works
+    // with no Twitch at all, so "no config file" is an ordinary state for it
+    // rather than a sign the user has not set up yet - and the old bare
+    // `if (p == null) return;` meant the switch flipped, took effect for that
+    // session, and was silently forgotten at the next restart. Toggling it
+    // fixed the tracker until reboot, every time, which reads as the setting
+    // not sticking rather than as never being written.
     internal static void SaveGameStats(bool on, bool announce, int timerMin) {
       string p = _configPath;
       if (p == null) p = FindConfigPath();
-      if (p == null) return;
+      bool creating = p == null;
+      if (creating) p = ConfigPathOrDefault();
       try {
-        var cfg = ReadConfig(p);
+        // A file that does not exist yet starts from the same minimal shape
+        // SetupSkip writes, so the two paths cannot drift into producing
+        // different files for the same "no Twitch, thanks" machine.
+        var cfg = creating ? MinimalConfig() : ReadConfig(p);
         if (cfg == null) return;
         cfg["gameStats"] = on;
         cfg["gameStatsAnnounce"] = announce;
         cfg["gameStatsTimerMinutes"] = timerMin;
         Files.WriteAtomic(p, WriteConfig(cfg));
+        if (creating) AppLog.Write("chat: wrote a minimal twitch-config.json to remember the "
+                                 + "game-stats switch (no Twitch setup needed for it)");
       } catch (Exception ex) {
         AppLog.Write("chat: could not save game-stats settings: " + ex.Message);
       }

@@ -275,6 +275,22 @@ namespace NowPlaying {
 
     // ------------------------------------------------------------ config load
     public static void LoadConfig() {
+      ReadConfigFile();
+      // The League tracker's switch is a decision about this PC that merely
+      // happens to be stored in the Twitch config, so it must not depend on
+      // that file existing. It used to be applied halfway down the reader,
+      // past three early returns - so a machine with no twitch-config.json
+      // (anyone who closed the first-run wizard because they only wanted the
+      // music overlay) came up with the engine off while _gameStats, and so
+      // the dashboard's switch, still read on. The switch said yes, nothing
+      // was tracking, !record answered "Game stats are switched off", and the
+      // status line had no case for it and sat on "Starting up..." for the
+      // whole stream. Applied out here instead: whatever the file did or did
+      // not say, the engine and the switch agree by the time this returns.
+      LeagueStats.SetEnabled(_gameStats);
+    }
+
+    static void ReadConfigFile() {
       string p = TwitchEvents.FindConfigPath();
       if (p == null) { _status = "off"; _detail = "no twitch-config.json found"; return; }
       try {
@@ -303,7 +319,6 @@ namespace NowPlaying {
         int tm;
         if (!int.TryParse(Cfg(cfg, "gameStatsTimerMinutes").Trim(), out tm)) tm = 0;
         _gameTimerMin = (tm == 5 || tm == 10 || tm == 15) ? tm : 0;
-        LeagueStats.SetEnabled(_gameStats);
 
         // Chat wants the oauth: prefix; the Helix token must not have it. Accept
         // either spelling here and normalise, because the two tokens sit next to

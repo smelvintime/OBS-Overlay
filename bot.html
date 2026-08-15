@@ -527,6 +527,16 @@
           + 'It connects by itself the moment it is.';
     } else if(lg.status === 'error'){
       line = 'Problem reading the League client: ' + esc(lg.detail || 'unknown') + '.';
+    } else if(lg.enabled === false){
+      // The switch above says on and the engine says nobody ever told it. That
+      // is not a wait, it is a disagreement, and it had no branch here at all:
+      // it fell through to "Starting up…" and stayed there for the whole
+      // stream while !record answered "Game stats are switched off". The cause
+      // is fixed (the engine is switched on now whether or not there is a
+      // twitch-config.json), so this should never paint - which is exactly why
+      // it says so plainly instead of going back to looking like progress.
+      line = 'This switch is on but the tracker is not running. '
+           + 'Turn it off and on again to start it.';
     } else {
       line = 'Starting up…';
     }
