@@ -86,11 +86,12 @@
 <div class="grid" id="grid"></div>
 
 <div class="sectionhead">
-  <h2>Twitch sources</h2>
+  <h2>Other sources</h2>
   <p>Separate browser sources, so they can be positioned independently of the now-playing card.
-     Both previews below use sample data &mdash; on stream they follow your real channel.</p>
+     Every preview below uses sample data &mdash; on stream they follow your real channel and
+     the League client on this PC.</p>
 </div>
-<div class="grid" id="twitchgrid"></div>
+<div class="grid" id="othergrid"></div>
 
 <footer>
   Want to change the colour, position, size, equalizer or anything else?
@@ -247,11 +248,16 @@ LAYOUTS.forEach(function(L){
   reload();
 });
 
-// ---- Twitch sources --------------------------------------------------------
+// ---- Other sources ---------------------------------------------------------
 // These take no per-card options: the alert look and the box cycle are picked
 // in the customizer, and duplicating that here would mean two places to keep
 // in step. What the cards are for is seeing them move.
-var TWITCH = [
+//
+// Being listed here is how a source gets found at all. The League tracker was
+// built, documented and customizable, and was missing from this list - so the
+// only way to its URL was a customizer tab you had to already know about, and
+// "the win/loss and LP never showed up" was the entirely reasonable result.
+var SOURCES = [
   { id:'alerts', name:'Alerts', w:1920, h:1080, src:'/alerts?preview=1',
     desc:'Fires when someone follows, subscribes, resubscribes or gifts. Invisible the rest of the time, so it can cover the whole canvas.',
     tests:[
@@ -262,11 +268,14 @@ var TWITCH = [
     ]},
   { id:'stats', name:'Followers & subs', w:360, h:240, src:'/stats?demo=1',
     desc:'Two boxes stacked on top of each other. Each alternates between who was most recent and how close the count is to the next goal.',
+    tests:[] },
+  { id:'session', name:'League tracker', w:560, h:130, src:'/session?demo=1',
+    desc:'Today’s record, form marks and the live rank, read straight from the League client on this PC. Invisible until there is something to show, and adding it is all the setup there is — the app starts watching the client the moment this source is open.',
     tests:[] }
 ];
 
-var tgrid = document.getElementById('twitchgrid');
-TWITCH.forEach(function(S){
+var ogrid = document.getElementById('othergrid');
+SOURCES.forEach(function(S){
   var el = document.createElement('div');
   el.className = 'card';
   el.innerHTML =
@@ -298,7 +307,7 @@ TWITCH.forEach(function(S){
     copyTo(b, el.querySelector('code'), location.origin + '/' + S.id);
   });
 
-  tgrid.appendChild(el);
+  ogrid.appendChild(el);
   var doFit = function(){ fitFrame(box, frame, S.w, S.h); };
   fitters.push(doFit);
   doFit();

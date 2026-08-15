@@ -727,7 +727,7 @@ namespace NowPlaying {
       else AppLog.Write("equaliser: not started - switched off on the Features page");
       TwitchEvents.Start();    // loads config always (bot shares it); network only if the feature is on
       TwitchChat.Start();      // no-op unless configured AND switched on
-      LeagueStats.Start();     // idle unless the bot's Game stats switch is on
+      LeagueStats.Start();     // idle unless the Game stats switch is on or /session is open
       LobbyRanks.Start();      // idle unless !ranks asks for it
       Updater.CleanupAfterSwap();   // sweep the previous build's ".old" leftover, if any
       Updater.StartAuto();          // keeps itself current; installs only when nothing is on air
