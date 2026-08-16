@@ -15,7 +15,10 @@
      ?w=0                          a set plate width px (40-1600), 0 = hug the
                                    content. Never squeezes below what the
                                    content needs - like the music card, the
-                                   bar clamps up rather than clipping
+                                   bar clamps up rather than clipping. Hugging
+                                   is still a constant length: see the reserved
+                                   widths below, which is why a promotion into
+                                   Grandmaster no longer widens the bar
      ?h=0                          a set plate height px (30-400), 0 = hug;
                                    extra room is shared above and below
                                                                 (default 0/0)
@@ -131,7 +134,11 @@
   /* Label-over-value blocks in the stat boxes' typography, but the label sits
      in the dim ink rather than the accent: on a bar this dense the accent is
      rationed to the two things worth a glance - the tier and the mark. */
-  .blk{display:flex;flex-direction:column;gap:2px}
+  /* Centred, because these blocks are held at the width of the longest text
+     they can ever hold (see the reserve pass in the script): the slack a short
+     tier name leaves reads as a fixed column when it sits either side of the
+     words, and as a layout bug when it all piles up against the divider. */
+  .blk{display:flex;flex-direction:column;gap:2px;text-align:center}
   .lbl{font-size:10.5px;font-weight:700;letter-spacing:.09em;
     text-transform:uppercase;color:var(--subtext)}
   .big{font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
@@ -147,7 +154,7 @@
      the same hues written out at low alpha - deriving them from the vars
      needs color-mix, which alerts.html already ruled out for Chrome < 111. */
   .chip{border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:700;
-    line-height:1}
+    line-height:1;text-align:center}
   .chip.up{color:var(--up);background:rgba(99,214,143,.12);
     border:1px solid rgba(99,214,143,.35)}
   .chip.down{color:var(--down);background:rgba(242,92,92,.12);
@@ -262,6 +269,124 @@ if(window.NPO) NPO.themeBoot('source');
     var nw = card.offsetWidth, nh = card.offsetHeight;
     if(fxW) card.style.width  = Math.max(fxW, nw) + 'px';
     if(fxH) card.style.height = Math.max(fxH, nh) + 'px';
+  }
+
+  // ---- reserved widths ----------------------------------------------------
+  // "Grandmaster" is five glyphs longer than "Master", and a bar that hugs its
+  // content grows by exactly that much the moment someone climbs: a promotion
+  // mid-stream shoves the whole overlay wider, a demotion snaps it back, and
+  // anything the streamer had placed beside it now sits wrong. Same story in
+  // miniature every time the LP crosses a digit or the tally ticks past 9.
+  //
+  // So every block whose text can change width is held at the width of the
+  // longest string it will ever hold - measured once, here, in the font that
+  // is actually painting rather than guessed at with a CSS em count. The
+  // numbers and the tier name then move inside a plate whose edges do not.
+  // Nothing is clamped down: min-width only ever reserves, so a string nobody
+  // anticipated still gets its room instead of being clipped.
+  var TIERS  = ['Iron','Bronze','Silver','Gold','Platinum','Emerald','Diamond'];
+  var DIVS   = ['I','II','III','IV'];
+  var APEX   = ['Master','Grandmaster','Challenger'];   // no divisions up here
+  var QUEUES = ['Solo/Duo','Flex'];
+
+  function reserveWidths(){
+    // Off-screen but laid out - display:none has no width to read. Inside the
+    // card so every inherited font property is the real one, and absolutely
+    // positioned so it is out of flow and cannot pad the card it measures in.
+    var probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;' +
+                          'pointer-events:none;white-space:nowrap';
+    card.appendChild(probe);
+
+    // Exactly one candidate is ever in the probe at a time. The probe shrinks
+    // to fit, and a block-level child fills whatever that comes to - so a wide
+    // sibling left behind would hand every block after it the wide one's
+    // width, and every block would reserve the same too-generous number.
+
+    // Digits are not all one width in every face Windows may fall back to, so
+    // the widest is found rather than assumed. A glyph's advance scales with
+    // the font size, so whichever digit wins at 13px wins at every size here.
+    var probeD = document.createElement('span');
+    probeD.className = 'lp';
+    probe.appendChild(probeD);
+    var wide = '0', wideW = -1, d;
+    for(d = 0; d <= 9; d++){
+      probeD.textContent = String(d) + String(d);
+      if(probeD.offsetWidth > wideW){ wideW = probeD.offsetWidth; wide = String(d); }
+    }
+    probe.removeChild(probeD);
+    function digits(n){ var s = ''; while(n-- > 0) s += wide; return s; }
+
+    var i, j;
+
+    // Rank: the block is as wide as its widest line, so the queue label and
+    // the tier line are both tried. Below Master the LP is a division's worth
+    // and never passes three digits; Challenger runs into four.
+    var rankP = document.createElement('div');
+    rankP.className = 'blk';
+    rankP.innerHTML = '<div class="lbl"></div>' +
+                      '<div class="big"><span class="tier"></span><span class="lp"></span></div>';
+    probe.appendChild(rankP);
+    var pQueue = rankP.querySelector('.lbl'), pTier = rankP.querySelector('.tier'),
+        pLp    = rankP.querySelector('.lp');
+    var wRank = 0, bestQ = QUEUES[0];
+    for(i = 0; i < QUEUES.length; i++){
+      pQueue.textContent = QUEUES[i];
+      if(rankP.offsetWidth > wRank){ wRank = rankP.offsetWidth; bestQ = QUEUES[i]; }
+    }
+    pQueue.textContent = bestQ;      // held there, so the label is never the loser
+    function tryRank(tier, lpDigits){
+      pTier.textContent = tier;
+      pLp.textContent   = digits(lpDigits) + ' LP';
+      if(rankP.offsetWidth > wRank) wRank = rankP.offsetWidth;
+    }
+    for(i = 0; i < TIERS.length; i++)
+      for(j = 0; j < DIVS.length; j++) tryRank(TIERS[i] + ' ' + DIVS[j], 3);
+    for(i = 0; i < APEX.length; i++) tryRank(APEX[i], 4);
+    probe.removeChild(rankP);
+
+    // The LP pill: sign, up to four digits, and the same trailing words. Which
+    // sign is widest is a font question too, so all three are tried.
+    var chipP = document.createElement('div');
+    chipP.className = 'chip up';
+    probe.appendChild(chipP);
+    var SIGNS = ['+','-','±'], wChip = 0;
+    for(i = 0; i < SIGNS.length; i++){
+      chipP.textContent = SIGNS[i] + digits(4) + ' LP today';
+      if(chipP.offsetWidth > wChip) wChip = chipP.offsetWidth;
+    }
+    probe.removeChild(chipP);
+
+    // Today: two digits a side covers any day anyone actually plays, and the
+    // "no games yet" line before the first game is measured against it.
+    var todayP = document.createElement('div');
+    todayP.className = 'blk';
+    todayP.innerHTML = '<div class="lbl">Today</div><div class="big"></div>';
+    probe.appendChild(todayP);
+    var pToday = todayP.querySelector('.big');
+    pToday.textContent = digits(2) + 'W – ' + digits(2) + 'L';
+    var wToday = todayP.offsetWidth;
+    pToday.className = 'none';
+    pToday.textContent = 'no games yet';
+    if(todayP.offsetWidth > wToday) wToday = todayP.offsetWidth;
+    probe.removeChild(todayP);
+
+    card.removeChild(probe);
+
+    // border-box so the pill's padding and border are inside the number that
+    // was measured off a pill carrying both.
+    function hold(el, w){ el.style.boxSizing = 'border-box'; el.style.minWidth = w + 'px'; }
+    hold(rankBlk, wRank);
+    hold(chipEl,  wChip);
+    hold(todayBlk, wToday);
+  }
+  reserveWidths();
+  // Every face in the stack is a system one, so the measurements above are
+  // already final - but if a machine somehow swaps a face in late, the reserve
+  // is redone against it rather than left holding widths from a font that is
+  // no longer painting. Re-running is idempotent, and applySize re-clamps.
+  if(document.fonts && document.fonts.ready && document.fonts.ready.then){
+    document.fonts.ready.then(function(){ reserveWidths(); applySize(); }).catch(function(){});
   }
 
   var showRank  = qs.get('showrank')  !== '0';
