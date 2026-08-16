@@ -452,6 +452,10 @@ dressed from the **League tracker** tab in the customizer:
   history, so it survives app restarts.
 - **Current rank and LP**, plus **LP gained or lost today**, measured across
   promotions and demotions without lying at the border.
+- **The bar is one length, whatever the rank is called.** Each block holds
+  room for the longest text it could ever carry — "Grandmaster" and a
+  four-digit LP included — so bouncing between Master and Grandmaster moves
+  the words inside the plate and never the plate's own edges.
 - **Which games count is yours to choose**: ranked, normals, ARAM and
   everything-else each have a switch. Practice tool and tutorials never
   count, whatever is ticked.
