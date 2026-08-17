@@ -16,8 +16,8 @@
                                    content. Never squeezes below what the
                                    content needs - like the music card, the
                                    bar clamps up rather than clipping. Hugging
-                                   is still a constant length: see the reserved
-                                   widths below, which is why a promotion into
+                                   is still a constant length: see the set
+                                   columns below, which is why a promotion into
                                    Grandmaster no longer widens the bar
      ?h=0                          a set plate height px (30-400), 0 = hug;
                                    extra room is shared above and below
@@ -134,11 +134,13 @@
   /* Label-over-value blocks in the stat boxes' typography, but the label sits
      in the dim ink rather than the accent: on a bar this dense the accent is
      rationed to the two things worth a glance - the tier and the mark. */
-  /* Centred, because these blocks are held at the width of the longest text
-     they can ever hold (see the reserve pass in the script): the slack a short
-     tier name leaves reads as a fixed column when it sits either side of the
-     words, and as a layout bug when it all piles up against the divider. */
-  .blk{display:flex;flex-direction:column;gap:2px;text-align:center}
+  /* Centred, because these blocks are held at a set width by the reserve pass
+     in the script: the slack a short tier name leaves reads as a fixed column
+     when it sits either side of the words, and as a layout bug when it all
+     piles up against the divider. align-items keeps each line shrink-wrapped
+     inside that column, which is what lets fit() measure and scale it. */
+  .blk{display:flex;flex-direction:column;gap:2px;align-items:center;
+    text-align:center}
   .lbl{font-size:10.5px;font-weight:700;letter-spacing:.09em;
     text-transform:uppercase;color:var(--subtext)}
   .big{font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
@@ -155,6 +157,9 @@
      needs color-mix, which alerts.html already ruled out for Chrome < 111. */
   .chip{border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:700;
     line-height:1;text-align:center}
+  /* inline-block because a transform is ignored on a plain inline box, and
+     fit() below scales this one when the number runs long. */
+  .chip>span{display:inline-block}
   .chip.up{color:var(--up);background:rgba(99,214,143,.12);
     border:1px solid rgba(99,214,143,.35)}
   .chip.down{color:var(--down);background:rgba(242,92,92,.12);
@@ -195,9 +200,9 @@ if(window.NPO) NPO.themeBoot('source');
     </div>
     <div class="blk off" id="rankBlk">
       <div class="lbl" id="queueEl"></div>
-      <div class="big"><span class="tier" id="tierEl"></span><span class="lp" id="lpEl"></span></div>
+      <div class="big" id="rankLine"><span class="tier" id="tierEl"></span><span class="lp" id="lpEl"></span></div>
     </div>
-    <div class="chip off" id="chipEl"></div>
+    <div class="chip off" id="chipEl"><span id="chipTxt"></span></div>
     <div class="vdiv off" id="vdivEl"></div>
     <div class="blk off" id="todayBlk">
       <div class="lbl">Today</div>
@@ -214,6 +219,7 @@ if(window.NPO) NPO.themeBoot('source');
   var whoEl = document.getElementById('who'), rankBlk = document.getElementById('rankBlk');
   var queueEl = document.getElementById('queueEl'), tierEl = document.getElementById('tierEl');
   var lpEl = document.getElementById('lpEl'), chipEl = document.getElementById('chipEl');
+  var rankLine = document.getElementById('rankLine'), chipTxt = document.getElementById('chipTxt');
   var vdivEl = document.getElementById('vdivEl'), todayBlk = document.getElementById('todayBlk');
   var todayEl = document.getElementById('todayEl'), formEl = document.getElementById('formEl');
 
@@ -271,23 +277,37 @@ if(window.NPO) NPO.themeBoot('source');
     if(fxH) card.style.height = Math.max(fxH, nh) + 'px';
   }
 
-  // ---- reserved widths ----------------------------------------------------
+  var showRank  = qs.get('showrank')  !== '0';
+  var showLp    = qs.get('showlp')    !== '0';
+  var showToday = qs.get('showtoday') !== '0';
+  var showForm  = qs.get('showform')  !== '0';
+  var showName  = qs.get('showname') === '1';   // opt-in: most bars are anonymous
+
+  // ---- set columns --------------------------------------------------------
   // "Grandmaster" is five glyphs longer than "Master", and a bar that hugs its
   // content grows by exactly that much the moment someone climbs: a promotion
   // mid-stream shoves the whole overlay wider, a demotion snaps it back, and
   // anything the streamer had placed beside it now sits wrong. Same story in
   // miniature every time the LP crosses a digit or the tally ticks past 9.
   //
-  // So every block whose text can change width is held at the width of the
-  // longest string it will ever hold - measured once, here, in the font that
-  // is actually painting rather than guessed at with a CSS em count. The
-  // numbers and the tier name then move inside a plate whose edges do not.
-  // Nothing is clamped down: min-width only ever reserves, so a string nobody
-  // anticipated still gets its room instead of being clipped.
+  // So each block that carries changing text is given a set column, measured
+  // once here in the font that is actually painting rather than guessed at
+  // with a CSS em count. The plate is then one length for everybody.
+  //
+  // The column is sized off the ordinary case, not the longest string in the
+  // game: every divisional tier at three digits of LP, which "Platinum IV"
+  // wins. The apex tiers are deliberately left out of the measurement -
+  // sizing every bar in every rank around "Grandmaster 1204 LP" spends 25px
+  // of stream on a string that is three names out of thirty-one, and fit()
+  // below rides the long ones down a few per cent instead. A tier name a
+  // whisker smaller reads as nothing; a bar that changes length does not.
   var TIERS  = ['Iron','Bronze','Silver','Gold','Platinum','Emerald','Diamond'];
   var DIVS   = ['I','II','III','IV'];
-  var APEX   = ['Master','Grandmaster','Challenger'];   // no divisions up here
   var QUEUES = ['Solo/Duo','Flex'];
+  // The pill drops the word when the tally is beside it already saying TODAY -
+  // 41px of "today" twice over, for a bar whose whole subject is today. With
+  // the tally switched off the pill is on its own and keeps the word.
+  var CHIP_TAIL = showToday ? ' LP' : ' LP today';
 
   function reserveWidths(){
     // Off-screen but laid out - display:none has no width to read. Inside the
@@ -321,7 +341,7 @@ if(window.NPO) NPO.themeBoot('source');
 
     // Rank: the block is as wide as its widest line, so the queue label and
     // the tier line are both tried. Below Master the LP is a division's worth
-    // and never passes three digits; Challenger runs into four.
+    // and never passes three digits.
     var rankP = document.createElement('div');
     rankP.className = 'blk';
     rankP.innerHTML = '<div class="lbl"></div>' +
@@ -342,17 +362,16 @@ if(window.NPO) NPO.themeBoot('source');
     }
     for(i = 0; i < TIERS.length; i++)
       for(j = 0; j < DIVS.length; j++) tryRank(TIERS[i] + ' ' + DIVS[j], 3);
-    for(i = 0; i < APEX.length; i++) tryRank(APEX[i], 4);
     probe.removeChild(rankP);
 
-    // The LP pill: sign, up to four digits, and the same trailing words. Which
-    // sign is widest is a font question too, so all three are tried.
+    // The LP pill: sign, up to four digits, and the tail. Which sign is widest
+    // is a font question too, so all three are tried.
     var chipP = document.createElement('div');
     chipP.className = 'chip up';
     probe.appendChild(chipP);
     var SIGNS = ['+','-','±'], wChip = 0;
     for(i = 0; i < SIGNS.length; i++){
-      chipP.textContent = SIGNS[i] + digits(4) + ' LP today';
+      chipP.textContent = SIGNS[i] + digits(4) + CHIP_TAIL;
       if(chipP.offsetWidth > wChip) wChip = chipP.offsetWidth;
     }
     probe.removeChild(chipP);
@@ -373,27 +392,55 @@ if(window.NPO) NPO.themeBoot('source');
 
     card.removeChild(probe);
 
-    // border-box so the pill's padding and border are inside the number that
-    // was measured off a pill carrying both.
-    function hold(el, w){ el.style.boxSizing = 'border-box'; el.style.minWidth = w + 'px'; }
+    // A set width, not a floor: a string longer than its column is scaled to
+    // fit by fit() rather than allowed to push the column open, which is the
+    // whole point - one number decides the block's width and nothing the
+    // League client says can move it. border-box so the pill's padding and
+    // border are inside the number measured off a pill carrying both.
+    function hold(el, w){
+      el.style.boxSizing = 'border-box';
+      el.style.flex  = '0 0 auto';
+      el.style.width = w + 'px';
+    }
     hold(rankBlk, wRank);
     hold(chipEl,  wChip);
     hold(todayBlk, wToday);
   }
-  reserveWidths();
-  // Every face in the stack is a system one, so the measurements above are
-  // already final - but if a machine somehow swaps a face in late, the reserve
-  // is redone against it rather than left holding widths from a font that is
-  // no longer painting. Re-running is idempotent, and applySize re-clamps.
-  if(document.fonts && document.fonts.ready && document.fonts.ready.then){
-    document.fonts.ready.then(function(){ reserveWidths(); applySize(); }).catch(function(){});
+
+  // Ride a line down until it sits inside its column. A transform rather than
+  // a smaller font-size: only the transform leaves the layout box alone, so
+  // the bar's height cannot twitch when the tier name changes, and only the
+  // transform scales the whole line - tier, LP and all - by one factor.
+  // "Grandmaster 245 LP" lands around 91%, which reads as nothing next to the
+  // bar changing length. The floor is a backstop for a string this page has
+  // never imagined; nothing real gets near it.
+  function fit(box, inner){
+    if(!box || !inner) return;
+    inner.style.transform = '';
+    var cs = window.getComputedStyle(box);
+    var avail = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    var natural = inner.offsetWidth;   // offsetWidth ignores transforms - the
+                                       // un-scaled width, every time
+    if(!(natural > 0) || !(avail > 0) || natural <= avail + 0.5) return;
+    inner.style.transform = 'scale(' + Math.max(0.55, avail / natural).toFixed(4) + ')';
+  }
+  function refit(){
+    fit(rankBlk, rankLine);
+    fit(chipEl, chipTxt);
+    fit(todayBlk, todayEl);
   }
 
-  var showRank  = qs.get('showrank')  !== '0';
-  var showLp    = qs.get('showlp')    !== '0';
-  var showToday = qs.get('showtoday') !== '0';
-  var showForm  = qs.get('showform')  !== '0';
-  var showName  = qs.get('showname') === '1';   // opt-in: most bars are anonymous
+  reserveWidths();
+  // Every face in the stack is a system one, so the measurements above are
+  // already final - but if a machine somehow swaps a face in late, the columns
+  // are measured again against it rather than left holding widths from a font
+  // that is no longer painting. Re-running is idempotent, and applySize
+  // re-clamps against whatever the new columns come to.
+  if(document.fonts && document.fonts.ready && document.fonts.ready.then){
+    document.fonts.ready.then(function(){
+      reserveWidths(); refit(); applySize();
+    }).catch(function(){});
+  }
 
   // Which buckets count toward the tally and the form squares. Filtered in one
   // place so the two can never disagree about what today looked like.
@@ -460,8 +507,8 @@ if(window.NPO) NPO.themeBoot('source');
     rankBlk.className = vm.rank ? 'blk' : 'blk off';
 
     if(vm.chip !== null){
-      chipEl.textContent = (vm.chip > 0 ? '+' + vm.chip
-                          : vm.chip < 0 ? String(vm.chip) : '±0') + ' LP today';
+      chipTxt.textContent = (vm.chip > 0 ? '+' + vm.chip
+                          : vm.chip < 0 ? String(vm.chip) : '±0') + CHIP_TAIL;
       chipEl.className = 'chip ' + (vm.chip > 0 ? 'up' : vm.chip < 0 ? 'down' : 'flat');
     } else {
       chipEl.className = 'chip off';
@@ -496,8 +543,11 @@ if(window.NPO) NPO.themeBoot('source');
     var right = vm.today !== null || vm.form !== null;
     vdivEl.className = (left && right) ? 'vdiv' : 'vdiv off';
 
-    // After the DOM settles: the natural size this clamps against just moved
-    // with the content, and only render's snapshot gate lets that happen.
+    // After the DOM settles: the lines that just changed are ridden back
+    // inside their columns, and only then is the plate measured - the natural
+    // size this clamps against moved with the content, and only render's
+    // snapshot gate lets that happen.
+    refit();
     applySize();
   }
 
