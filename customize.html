@@ -752,11 +752,11 @@
         showrank:1, showlp:1, showtoday:1, showform:1, showname:0,
         mranked:1, mnormals:1, maram:1, mother:1
       },
-      // The bar reserves room for the longest rank name and the longest
-      // numbers it could ever show, so this nominal canvas is the same for
-      // every account rather than a guess that fits Emerald and clips
-      // Grandmaster. The live measurement below still has the last word.
-      size:function(){ return {w:700, h:130}; },
+      // The bar holds set columns whatever the rank is called, so this nominal
+      // canvas is the same for every account rather than a guess that fits
+      // Emerald and clips Grandmaster. The live measurement below still has
+      // the last word.
+      size:function(){ return {w:640, h:130}; },
       groups:[
         { title:'Show', controls:[
           { key:'showrank', label:'', type:'toggle', text:'Current rank and LP' },
@@ -778,10 +778,12 @@
           { key:'scale', label:'Size', type:'range', min:0.6, max:2, step:0.05, unit:'x' },
           { key:'w', label:'Width', type:'range', min:0, max:1200, step:20, unit:'px',
             zeroText:'Auto',
-            note:'Auto hugs the content &mdash; and holds one length whatever the rank is '
-               + 'called, so climbing into Grandmaster no longer stretches the bar. A set '
-               + 'width holds the plate at that size instead; it never squeezes below what '
-               + 'the content needs, so too small simply sits at the content&rsquo;s own edge.' },
+            note:'Auto holds one length whatever the rank is called &mdash; climbing into '
+               + 'Grandmaster no longer stretches the bar; the long apex names ride a few '
+               + 'per cent smaller so they sit in the same column every other rank uses. A '
+               + 'set width holds the plate at that size instead; it never squeezes below '
+               + 'what the content needs, so too small simply sits at the content&rsquo;s '
+               + 'own edge.' },
           { key:'h', label:'Height', type:'range', min:0, max:240, step:2, unit:'px',
             zeroText:'Auto',
             note:'Extra height is shared above and below &mdash; the line stays centred. '
