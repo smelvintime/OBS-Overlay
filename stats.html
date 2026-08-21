@@ -742,14 +742,21 @@ if(window.NPO) NPO.themeBoot('source');
       var settle = (handback || tr === 'slash') ? 760 : 340;
       setTimeout(function(){ prev.classList.remove('leaving'); }, settle);
     }
-    function on(){ next.classList.add('on'); }
+    // Deferred, so it must re-check that this face is still the one wanted.
+    // The handback timer below outlives its moment whenever a new event lands
+    // inside its 560ms: playTakeover has already put the alert face back up,
+    // and the stale timer then lit the standby face UNDERNEATH it - two texts
+    // stacked for the whole announcement, which on stream read as the alert
+    // being glued over the goal box. Nothing cancels these reliably (only the
+    // takeover paths clear toTimers, and clearing them all here would kill the
+    // OTHER box's pending entry), so the closure carries its own test: light
+    // the face only if no later showFace has changed the box's mind.
+    function on(){ if(box.current === which) next.classList.add('on'); }
     next.classList.remove('leaving');
     // A takeover hands back in sequence, not in a pile: the announcement
     // slashes out the way it came, and the standby face walks in only once
     // it has all but left. Entering together stacked two texts mid-flight,
-    // which is exactly what "doesn't return smoothly" looked like. On
-    // toTimers so a new event mid-handback cancels the entry cleanly -
-    // playTakeover restages whatever it needs.
+    // which is exactly what "doesn't return smoothly" looked like.
     if(handback){
       toTimers.push(setTimeout(on, 560));
       return;
