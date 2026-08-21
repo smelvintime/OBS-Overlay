@@ -134,12 +134,15 @@ the header and the log. The old exe is kept beside the new one as
 `NowPlayingOverlay.exe.old` until the next successful start, as a just-in-case
 copy.
 
-Automatic updates check every four minutes and install at the first quiet
-moment. Quiet means two things, both asked rather than assumed: Twitch says the
-channel is not broadcasting, and the League client is not in champ select or a
-game. If Twitch cannot be asked — not connected, API down — an attached OBS
-browser source counts as "something is on a canvas somewhere" and it waits.
-A failed attempt backs off for an hour rather than retrying every four minutes.
+Automatic updates ask GitHub every four minutes — a fresh question each time,
+not a cached answer — and install the moment something new is found, on air or
+not. The restart takes two or three seconds and every OBS source reconnects by
+itself; if the freshly built exe can't be spawned right away (an antivirus
+scanning a seconds-old unsigned file will briefly hold it), the handover is
+retried several times before the app ever asks you to restart it by hand.
+A failed build backs off for an hour rather than retrying every four minutes.
+If a two-second blink mid-stream is ever not worth it, the **Auto** tickbox on
+the dashboard is the off switch.
 
 The commit installed is written to `prefs.txt` as `updateSha`. That is what
 stops a machine whose clock runs behind GitHub's from reinstalling the same

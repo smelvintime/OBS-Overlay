@@ -322,14 +322,17 @@
   // Automatic updates are the normal state, so the switch is small and off to
   // the side - not a decision anyone should have to make, only one they have
   // to be able to make. The wording carries the rule, because "Auto" on its
-  // own does not tell you it waits for the stream to be over.
+  // own does not tell you it installs the moment it finds one, stream or no
+  // stream - and whoever that blink is not worth it to needs to know this
+  // tickbox is where that choice lives.
   var updAuto = true;
 
   function updAutoToggle(){
     var w = document.createElement('label');
     w.className = 'updauto';
-    w.title = 'Installs new versions on its own - but only while the channel is '
-            + 'offline and no League game is running, never mid-stream.';
+    w.title = 'Installs new versions on its own the moment one is found, checking '
+            + 'every four minutes. The restart takes a couple of seconds and OBS '
+            + 'sources reconnect by themselves - untick this to update by hand instead.';
     var c = document.createElement('input');
     c.type = 'checkbox';
     c.checked = updAuto;
@@ -355,8 +358,8 @@
     b.title = (j && j.latestNote ? 'Latest change: ' + j.latestNote + '\n' : '')
             + 'Downloads the newest source and rebuilds it on this PC, then restarts.\n'
             + 'Takes under a minute; overlays in OBS blink once and come back on their own.'
-            + (updAuto ? '\nIt will do this on its own once the channel is offline - '
-                       + 'this button is only for having it now.' : '');
+            + (updAuto ? '\nIt will do this on its own within a few minutes - '
+                       + 'this button is only for not waiting even that long.' : '');
     b.addEventListener('click', function(){ b.disabled = true; updRun(); });
     updEl.appendChild(b);
     updEl.appendChild(updAutoToggle());

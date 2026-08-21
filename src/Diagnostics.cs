@@ -146,6 +146,34 @@ namespace NowPlaying {
         Note(sb, "ok", "iTunes is connected.");
       }
 
+      // ---- live equaliser ----------------------------------------------------
+      // The analyser has always known exactly why it is or is not capturing -
+      // AudioSpectrum.Status - but until this section the only place that
+      // string ever went was /spectrum.json, which nobody has open. "The bars
+      // show the correct song but never move with it" was undiagnosable from
+      // every page a person actually looks at.
+      bool eqOn = Program.EqFeatureOn;
+      bool eqActive = eqOn && AudioSpectrum.Active;
+      sb.Append("<h2>Live equaliser</h2><table>");
+      Row(sb, "Audio capture", eqOn ? AudioSpectrum.Status : "switched off on the Features page");
+      Row(sb, "Listening to", eqOn ? AudioSpectrum.Target : "-");
+      sb.Append("</table>");
+
+      if (!eqOn) {
+        Note(sb, "warn", "The equaliser engine is <strong>switched off</strong>, so overlay bars "
+          + "fall back to the looping animation - they will not follow the music. Turn it back on "
+          + "under <a href=\"/app#features\">Features</a> (takes the quick restart offered there).");
+      } else if (eqActive) {
+        Note(sb, "ok", "Audio capture is running. If the bars in OBS still loop on their own "
+          + "instead of following the music, the stream is not reaching that source - check the "
+          + "connection numbers below, and reload the browser source.");
+      } else {
+        Note(sb, "bad", "<strong>Audio capture is not running</strong> - the status row above "
+          + "says what stopped it. While it is down, overlay bars fall back to the looping "
+          + "animation rather than following the music. Capture retries on its own, so if the "
+          + "status mentions a device change it should recover within half a minute.");
+      }
+
       // ---- twitch / bot ------------------------------------------------------
       sb.Append("<h2>Twitch</h2><table>");
       Row(sb, "Config file", configPath ?? "(none found)");
@@ -249,6 +277,9 @@ namespace NowPlaying {
         : (now.Source + " | " + now.Title + " | " + now.Artist)).Append("\r\n");
       sb.Append("  itunes.exe   : ").Append(itunesRunning ? "running" : "not running").Append("\r\n");
       sb.Append("  itunes detail: ").Append(itunesDetail).Append("\r\n");
+      sb.Append("  equaliser    : ").Append(Program.EqFeatureOn
+        ? AudioSpectrum.Status + " | target " + AudioSpectrum.Target
+        : "switched off on the Features page").Append("\r\n");
       sb.Append("  config       : ").Append(configPath ?? "none").Append("\r\n");
       sb.Append("  twitch       : ").Append(TwitchEvents.Status).Append(" ").Append(TwitchEvents.Detail).Append("\r\n");
       sb.Append("  chat bot     : ").Append(TwitchChat.Status).Append(" ").Append(TwitchChat.Detail).Append("\r\n");

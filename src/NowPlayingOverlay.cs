@@ -83,6 +83,7 @@ namespace NowPlaying {
     static bool _bootEq = true, _bootTwitch = true;   // what this process started with
 
     internal static bool TwitchFeatureOn { get { return _featTwitch; } }
+    internal static bool EqFeatureOn { get { return _featEq; } }
 
     static bool FeatOn(string v) { return !(v == "0" || v == "off" || v == "false"); }
 
@@ -730,7 +731,7 @@ namespace NowPlaying {
       LeagueStats.Start();     // idle unless the Game stats switch is on or /session is open
       LobbyRanks.Start();      // idle unless !ranks asks for it
       Updater.CleanupAfterSwap();   // sweep the previous build's ".old" leftover, if any
-      Updater.StartAuto();          // keeps itself current; installs only when nothing is on air
+      Updater.StartAuto();          // keeps itself current; installs as soon as an update is found
 
       var accept = new Thread(() => {
         // A SocketException out of Accept is not the end of the listener, and
