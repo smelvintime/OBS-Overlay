@@ -83,6 +83,7 @@ namespace NowPlaying {
     static bool _bootEq = true, _bootTwitch = true;   // what this process started with
 
     internal static bool TwitchFeatureOn { get { return _featTwitch; } }
+    internal static bool EqFeatureOn { get { return _featEq; } }
 
     static bool FeatOn(string v) { return !(v == "0" || v == "off" || v == "false"); }
 

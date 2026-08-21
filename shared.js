@@ -17,9 +17,10 @@
    2. The stream connector. WebSocket first because OBS runs every browser
       source in one Chromium and a WebSocket stays out of the six-connection
       HTTP pool for this address (see overlay.html for the full story); SSE is
-      the fallback for anything old enough to lack WebSocket. A page with no
-      connection stays quiet rather than announce the problem over a live
-      stream, so reconnects are silent and endless.
+      the fallback - chosen by failure, not by feature detection, because the
+      machines that need it HAVE WebSocket. See NPO.stream for that story. A
+      page with no connection stays quiet rather than announce the problem
+      over a live stream, so reconnects are silent and endless.
 
    Pages served by an older exe cannot reference this file and pages served by
    this exe cannot miss it - both travel inside the same executable - so there
@@ -200,32 +201,90 @@
     host.style.borderRadius = r.join(' ');
   };
 
-  /* ---- live streams (spectrum, twitch events) ------------------------------ */
+  /* ---- live streams (spectrum, twitch events) ------------------------------
+
+     Which transport gets used is decided by what WORKS, not by what exists.
+     The first cut asked only "is there a WebSocket object?" - and every
+     browser this app will ever meet has one, so the SSE path was dead code
+     on precisely the machines that needed it. Antivirus web shields and
+     other local proxies sit on 127.0.0.1, wave ordinary GETs through and
+     quietly kill the Upgrade handshake: on such a machine every plain
+     request succeeds - the song card fills in, covers load - while every
+     stream dies before its first frame, so the live equaliser and the
+     alerts just never come on, with nothing anywhere saying why. The server
+     has always served an SSE twin of every stream (kept for pages from an
+     older exe); such machines just need it actually tried.
+
+     So: a connection that dies without ever delivering a message is treated
+     as "this transport may not work here", and the next attempt uses the
+     other one. Whichever transport actually delivers is kept - a WebSocket
+     that worked and then dropped reconnects as a WebSocket, preserving the
+     six-connection story above. If the server itself is down, the attempts
+     just alternate quietly at the usual retry pace until it returns, which
+     is no worse than retrying one transport forever and ends the same way. */
 
   NPO.stream = function (path, onJson, opts) {
     opts = opts || {};
     var retry = opts.retryMs || 3000;
+    var delivered;                  // did the CURRENT attempt produce a message?
+    var wsWorked = false;           // has ANY WebSocket attempt delivered, ever?
     function handle(ev) {
       var d;
       try { d = JSON.parse(ev.data); } catch (e) { return; }
-      if (d) onJson(d);
+      if (!d) return;
+      delivered = true;
+      onJson(d);
     }
-    if (window.WebSocket) {
-      (function connect() {
-        var ws = new WebSocket('ws://' + location.host + path);
-        ws.onmessage = handle;
-        // Unlike EventSource, a WebSocket does not retry on its own.
-        ws.onclose = function () {
-          if (opts.onDown) opts.onDown();
-          setTimeout(connect, retry);
-        };
-      })();
-    } else if (window.EventSource) {
-      var es = new EventSource(path);
+    function down() { if (opts.onDown) opts.onDown(); }
+
+    var hasWs = !!window.WebSocket, hasSse = !!window.EventSource;
+    if (!hasWs && !hasSse) return;
+
+    function connectWs() {
+      delivered = false;
+      var ws;
+      // The constructor itself can throw (a mangled host, a lying webview);
+      // uncaught it would end reconnection for good, which breaks the
+      // "silent and endless" promise every caller relies on.
+      try { ws = new WebSocket('ws://' + location.host + path); }
+      catch (e) { down(); setTimeout(hasSse ? connectSse : connectWs, retry); return; }
+      ws.onmessage = function (ev) { wsWorked = true; handle(ev); };
+      // Unlike EventSource, a WebSocket does not retry on its own.
+      ws.onclose = function () {
+        down();
+        // No frame ever arrived: a refused or stripped handshake looks
+        // exactly like a server that is restarting, and the close code
+        // cannot tell them apart (both are 1006) - so give SSE the next
+        // turn rather than this socket forever. But only on a machine
+        // WebSocket has never worked on: once it has delivered, a dead
+        // attempt means the server is away, not that the transport is
+        // broken, and falling back then would leak OBS sources into the
+        // six-connection pool after every self-update restart.
+        setTimeout(!delivered && !wsWorked && hasSse ? connectSse : connectWs, retry);
+      };
+    }
+
+    function connectSse() {
+      delivered = false;
+      var es;
+      try { es = new EventSource(path); }
+      catch (e) { down(); setTimeout(hasWs ? connectWs : connectSse, retry); return; }
       es.onmessage = handle;
-      // EventSource reconnects on its own; only report the gap.
-      es.onerror = function () { if (opts.onDown) opts.onDown(); };
+      es.onerror = function () {
+        down();
+        // Once SSE has delivered, its own reconnection is left alone - it
+        // is the transport that provably works here. Failing before the
+        // first message may equally be the transport's fault (a proxy that
+        // buffers the response into never arriving), so close it and give
+        // WebSocket its turn back.
+        if (!delivered) {
+          es.close();
+          setTimeout(hasWs ? connectWs : connectSse, retry);
+        }
+      };
     }
+
+    if (hasWs) connectWs(); else connectSse();
   };
 
   /* ---- theme engine --------------------------------------------------------- */
