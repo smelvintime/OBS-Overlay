@@ -731,7 +731,7 @@ namespace NowPlaying {
       LeagueStats.Start();     // idle unless the Game stats switch is on or /session is open
       LobbyRanks.Start();      // idle unless !ranks asks for it
       Updater.CleanupAfterSwap();   // sweep the previous build's ".old" leftover, if any
-      Updater.StartAuto();          // keeps itself current; installs only when nothing is on air
+      Updater.StartAuto();          // keeps itself current; installs as soon as an update is found
 
       var accept = new Thread(() => {
         // A SocketException out of Accept is not the end of the listener, and

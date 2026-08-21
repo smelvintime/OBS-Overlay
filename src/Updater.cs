@@ -142,21 +142,18 @@ namespace NowPlaying {
     }
 
     // ------------------------------------------------------------ automatic
-    // The point of this is that nobody ever has to press the button. The
-    // problem with it is that an update ends in a restart, and a restart while
-    // the overlay is on someone's stream is a browser source going blank in
-    // front of an audience. So the interesting question is never "how often" -
-    // it is "when is a three second restart free".
+    // The point of this is that nobody ever has to press the button, and that
+    // a fix pushed to the repo is running here minutes later - not tonight.
     //
-    // Live on Twitch is the answer that matters, and it can be asked directly:
-    // Helix says whether the channel is broadcasting right now. A League game
-    // is the other, because the end-of-game result is read off a screen that
-    // is only up for about a minute and a restart through it loses that game's
-    // announcement. Neither of those is a guess.
-    //
-    // If it is never quiet, the update simply waits. A stale build is a much
-    // smaller problem than a black source mid-fight, and the wait ends by
-    // itself the moment the stream does.
+    // This used to wait for a quiet moment: never while the channel was live,
+    // never during a League game. That was deliberate, and it was reversed
+    // deliberately too - waiting meant a machine could sit a whole stream on
+    // a build with a known bug in the very overlay being broadcast, and the
+    // owner chose the other trade: install the moment an update is found,
+    // on air or not. The cost is bounded and known - the restart takes two
+    // or three seconds and every OBS source reconnects by itself - where the
+    // cost of waiting was open-ended. The Auto tickbox on the dashboard
+    // remains the way to keep updates manual.
 
     static DateTime _autoNextUtc = DateTime.MinValue;
     static string _autoWhy = "";
@@ -178,8 +175,7 @@ namespace NowPlaying {
 
     static void AutoLoop() {
       // Let the port bind, the tray icon appear and the first poll land before
-      // reaching for the network - and before deciding whether anything is
-      // attached, which takes OBS a few seconds to do after a start.
+      // reaching for the network - a machine logging in has enough going on.
       Thread.Sleep(40000);
       while (true) {
         try { AutoPass(); } catch { /* never let this thread be why the app dies */ }
@@ -192,20 +188,16 @@ namespace NowPlaying {
       lock (_lock) { if (_busy) return; }
       if (DateTime.UtcNow < _autoNextUtc) return;      // backing off after a failure
 
-      string why;
-      if (!QuietNow(out why)) { _autoWhy = "waiting: " + why; return; }
-
-      // The cached answer is fine here. This runs every four minutes and the
-      // check caches for thirty; forcing it each pass would be asking GitHub
-      // about a repository that changes a few times a week.
-      CheckJson(false);
+      // Forced, not cached: "as soon as possible" is the whole contract now,
+      // and the 30-minute cache would turn a push into a half-hour wait. This
+      // pass runs every four minutes, so forcing it costs GitHub fifteen
+      // anonymous requests an hour against a per-network limit of sixty -
+      // room to spare for the dashboard's own checks. A rate-limited or
+      // failed check simply reads as "no update" until the next pass.
+      CheckJson(true);
       bool avail; string note;
       lock (_lock) { avail = _available; note = _latestNote; }
       if (!avail) { _autoWhy = "up to date"; return; }
-
-      // Re-tested immediately before starting, because the check can take a
-      // few seconds over a slow line and "quiet" is a statement about now.
-      if (!QuietNow(out why)) { _autoWhy = "waiting: " + why; return; }
 
       // An hour before another attempt. A build that fails - a compiler that
       // is not there, a half-pushed commit - would otherwise be retried every
@@ -215,41 +207,6 @@ namespace NowPlaying {
       AppLog.Write("update: installing automatically - " + note);
       string err;
       if (!Begin(out err)) _autoWhy = "could not start: " + err;
-    }
-
-    static bool QuietNow(out string why) {
-      if (LeagueStats.BusyWithGame()) { why = "a League game is in progress"; return false; }
-
-      bool known;
-      if (StreamLive(out known)) { why = "the channel is live"; return false; }
-
-      // Twitch could not be asked - not configured, or the API is down. Fall
-      // back to the weaker signal: an attached OBS browser source means
-      // something of ours is on a canvas somewhere, and without knowing
-      // whether that canvas is being broadcast the safe reading is that it is.
-      if (!known && (Program.SpectrumClients > 0 || Program.TwitchClients > 0)) {
-        why = "OBS sources are attached and Twitch can't be asked if the channel is live";
-        return false;
-      }
-      why = "";
-      return true;
-    }
-
-    // known=false means the question could not be put, which is different from
-    // an answer of "offline" and must not be read as one.
-    static bool StreamLive(out bool known) {
-      known = false;
-      try {
-        if (!TwitchEvents.ApiReady) return false;
-        int status;
-        string body = TwitchEvents.Helix(
-          "https://api.twitch.tv/helix/streams?user_id=" + TwitchEvents.BroadcasterId, out status);
-        if (status != 200 || body == null) return false;
-        var data = Nav(TwitchEvents.NavPublic(body), "data") as object[];
-        if (data == null) return false;
-        known = true;
-        return data.Length > 0;          // one entry = broadcasting right now
-      } catch { return false; }
     }
 
     // -------------------------------------------------------------------- run
@@ -310,13 +267,20 @@ namespace NowPlaying {
         lock (_lock) { if (_latestSha.Length > 0) Program.SetPref("updateSha", _latestSha); }
 
         AppLog.Write("update: new build in place, handing over");
-        Program.Restart(800, "updater");
 
-        // Restart exits this process; still being here after a grace period
-        // means the spawn failed and it chose to stay up (its own rule). The
-        // new exe IS in place, so the next manual start runs it - say so
-        // instead of showing "restarting" forever.
-        Thread.Sleep(15000);
+        // Restart exits this process; still being here after the grace period
+        // means the spawn failed and it chose to stay up (its own rule). One
+        // very ordinary reason: the exe was written seconds ago and unsigned,
+        // so an antivirus can hold it locked mid-scan exactly when the spawn
+        // reaches for it. That clears in moments - an installed update must
+        // not be left not-running over it, so the handover is retried before
+        // anyone is asked to go find the tray icon.
+        for (int attempt = 1; attempt <= 4; attempt++) {
+          if (attempt > 1)
+            AppLog.Write("update: restart attempt " + (attempt - 1) + " didn't take, trying again");
+          Program.Restart(800, "updater attempt " + attempt);
+          Thread.Sleep(15000);
+        }
         Set("error", "The new build is installed but the restart didn't take - "
                    + "close the app from the tray and start it once by hand.");
         lock (_lock) _busy = false;

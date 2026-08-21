@@ -46,24 +46,21 @@ the music side at all.
    settings are saved in a file next to the exe, so running it from a new folder
    looks like a first run.
 
-> **Updating later: it does it itself.** The app checks every few minutes and
-> installs anything new on its own — downloads the source, rebuilds it on your
-> PC (source only, same as ever — no exe travels the internet), and restarts.
-> Settings, Twitch connection and OBS sources all carry over; the overlays
-> blink once and come back on their own.
+> **Updating later: it does it itself.** The app asks GitHub every four
+> minutes and installs anything new the moment it finds it — downloads the
+> source, rebuilds it on your PC (source only, same as ever — no exe travels
+> the internet), and restarts. A fix pushed to the repo is running on your
+> machine within a few minutes, not the next time you remember to update.
+> Settings, Twitch connection and OBS sources all carry over; the restart
+> takes two or three seconds, the overlays blink once — on air included —
+> and come back on their own.
 >
-> **It will not do that while you are on air.** An update ends in a restart,
-> and a restart mid-stream is a browser source going blank in front of an
-> audience — so it waits until the channel is offline *and* no League game is
-> running, then takes its moment. If that moment never comes it simply keeps
-> waiting; a build a day old is a far smaller problem than a black source
-> mid-fight. The dashboard says what it is waiting for.
->
-> A gold **Update ready — install now** button still appears when something is
-> waiting, for when you would rather have it immediately, and a quiet **Check
-> for updates** link is there for the minutes right after a fix lands — the
-> background check only asks GitHub once per half hour. The **Auto** tickbox
-> beside them turns the whole thing off if you would rather decide yourself.
+> A gold **Update ready — install now** button still appears if you catch
+> one before the automatic pass does, and a quiet **Check for updates** link
+> is there for the impatient seconds right after a fix lands. The **Auto**
+> tickbox beside them turns the whole thing off if you would rather decide
+> yourself — that is the switch to use if a mid-stream blink is ever not
+> worth it to you.
 >
 > The manual way still works too: download the new source, run `Build.bat`
 > **in the folder the exe already lives in**, and it handles the rest — it
