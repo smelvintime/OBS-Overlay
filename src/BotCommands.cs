@@ -69,6 +69,13 @@ namespace NowPlaying {
         // cooldown: it is one long line and the answer only changes once a
         // draft.
         new Cmd { Name = "ranks",     Builtin = "ranks",     Aliases = "lobby,team", Cooldown = 30 },
+        // Is anyone from the enemy team watching the stream? Answers from
+        // GhostWatch, which only does the looking while its switch on the
+        // bot tab is on - with it off the command says so honestly. Longer
+        // cooldown for the same reason as !ranks: the answer moves slowly.
+        // (Older installs get it from EnsureGhostsCommand the moment the
+        // Ghost watch switch goes on.)
+        new Cmd { Name = "ghosts",    Builtin = "ghosts",    Aliases = "ghosters,snipers", Cooldown = 30 },
 
         // League. Links and text beat a Riot API key that expires every 24 hours
         // and takes an approved application to make permanent.
@@ -212,6 +219,23 @@ namespace NowPlaying {
       }
     }
 
+    // Switching Ghost watch on brings its command with it. Installs that
+    // predate the feature have a bot-commands.json with no !ghosts in it, and
+    // "the panel says viewers can ask, viewers ask, nothing answers" is a
+    // miserable way to find that out. Tied to the switch rather than to Load
+    // so a deliberate delete sticks: the command only ever comes back when
+    // the feature is turned on again, which is the one moment it is clearly
+    // wanted.
+    internal static void EnsureGhostsCommand() {
+      lock (_lock) {
+        if (Find("ghosts") != null) return;
+        _cmds.Add(new Cmd { Name = "ghosts", Builtin = "ghosts",
+                            Aliases = "ghosters,snipers", Cooldown = 30 });
+        SaveLocked();
+        AppLog.Write("chat: added the !ghosts command (ghost watch switched on)");
+      }
+    }
+
     // Deleting a built-in is allowed, but its behaviour can't be recreated by
     // typing the name back in - this is the way back. Re-adds any default
     // (built-in or starter text command) whose name is gone, leaving everything
@@ -280,6 +304,7 @@ namespace NowPlaying {
         case "record":    text = RecordLine(cmd.Response); break;
         case "rank":      text = RankLine(cmd.Response); break;
         case "ranks":     text = RanksLine(cmd.Response); break;
+        case "ghosts":    text = GhostWatch.CommandLine(); break;
         case "commands":  text = CommandsLine(); break;
         default:
           text = cmd.Response.Replace("{channel}", "");

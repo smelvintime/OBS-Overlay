@@ -238,7 +238,14 @@ namespace NowPlaying {
         + "?response_type=code"
         + "&client_id=" + Uri.EscapeDataString(_clientId)
         + "&redirect_uri=" + Uri.EscapeDataString(RedirectUri(port))
-        + "&scope=" + Uri.EscapeDataString("moderator:read:followers channel:read:subscriptions")
+        // moderator:read:chatters is the ghost watch's viewer list. Asked for
+        // up front like the others: consent screens are cheap at setup time
+        // and expensive as a mid-stream "reconnect first". Connections made
+        // before it was in this list simply lack it - the chatters call
+        // answers 401 on an otherwise healthy token, and GhostWatch turns
+        // that into a "reconnect once" message instead of a mystery.
+        + "&scope=" + Uri.EscapeDataString(
+            "moderator:read:followers channel:read:subscriptions moderator:read:chatters")
         + "&state=" + _oauthState;
     }
 
@@ -793,7 +800,7 @@ namespace NowPlaying {
       "_comment_chat", "botUsername", "oauthToken", "botRefreshToken", "command", "cooldownSeconds", "npUrl",
       "responseTemplate", "pausedTemplate", "notPlayingMessage",
       "followThanks", "followThanksTemplate",
-      "gameStats", "gameStatsAnnounce", "gameStatsTimerMinutes",
+      "gameStats", "gameStatsAnnounce", "gameStatsTimerMinutes", "ghostWatch",
       "_comment_api", "clientId", "clientSecret", "apiToken", "refreshToken",
       "_comment_goals", "followerGoal", "subGoal"
     };
@@ -877,6 +884,24 @@ namespace NowPlaying {
                                  + "game-stats switch (no Twitch setup needed for it)");
       } catch (Exception ex) {
         AppLog.Write("chat: could not save game-stats settings: " + ex.Message);
+      }
+    }
+
+    // Ghost watch's switch, written by the bot dashboard. Same ownership rule
+    // as the savers around it - and unlike SaveGameStats it never creates the
+    // file: without a Twitch connection there is no viewer list, so a
+    // config-less machine has nothing this switch could turn on.
+    internal static void SaveGhostWatch(bool on) {
+      string p = _configPath;
+      if (p == null) p = FindConfigPath();
+      if (p == null) return;
+      try {
+        var cfg = ReadConfig(p);
+        if (cfg == null) return;
+        cfg["ghostWatch"] = on;
+        Files.WriteAtomic(p, WriteConfig(cfg));
+      } catch (Exception ex) {
+        AppLog.Write("chat: could not save the ghost-watch switch: " + ex.Message);
       }
     }
 

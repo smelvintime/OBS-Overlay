@@ -29,6 +29,10 @@ the music side at all.
 - 🗡️ **Lobby ranks in chat** — `!ranks` posts everyone's rank by lane, both
   teams once a game starts, with LP from Master up where LP is the rank. Read
   from the League client on this PC. No Riot API key, read-only always
+- 👻 **Ghost watch** — catches stream snipers: the enemy team's names checked
+  against your viewer list mid-game, called out in chat as *"Ghosters here:
+  ..."* once per player, with `!ghosts` on demand. Exact matches only —
+  missing a sniper beats accusing the wrong viewer
 - 🎥 **A webcam frame** — a themed border that sits over the camera so the
   whole scene speaks one language
 - 💬 **A chat bot** — `!song` for the current track, `!record` and `!rank`

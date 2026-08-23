@@ -96,8 +96,10 @@ namespace NowPlaying {
     static void Forget() {
       lock (_lock) {
         _rankTag.Clear();
+        _nameOf.Clear();
         _draftLine = ""; _gameLine = ""; _gameId = 0; _myPuuid = "";
         _gameFull = false; _gameTries = 0;
+        _enemyNames = null;
       }
     }
 
@@ -105,14 +107,41 @@ namespace NowPlaying {
     // a duo you keep queueing with would wear their breakfast rank all night -
     // and the map otherwise grows by nine every game for as long as the client
     // stays up. The cost is ten lookups on the next !ranks, which is what a
-    // new lobby needs from scratch anyway.
+    // new lobby needs from scratch anyway. Names ride along: they go stale
+    // slower than ranks, but they grow at the same nine a game.
     internal static void ForgetRanks() {
-      lock (_lock) _rankTag.Clear();
+      lock (_lock) { _rankTag.Clear(); _nameOf.Clear(); }
     }
 
     static string TagOf(string puuid) {
       if (string.IsNullOrEmpty(puuid)) return "";
       lock (_lock) { string s; return _rankTag.TryGetValue(puuid, out s) ? s : ""; }
+    }
+
+    // ---------------------------------------------------------- player names
+    // Who a seat actually is, for GhostWatch. The gameflow teams carry the
+    // name in one field or another depending on client era - gameName (the
+    // Riot ID) now, summonerName before that - and a player who only ever
+    // arrived via playerChampionSelections carries no name at all, just a
+    // puuid, so those are asked about directly. One lookup per player per
+    // game, remembered like the rank tags; a failed lookup is not cached, so
+    // the roster retry that is already happening fills it in.
+    static readonly Dictionary<string, string> _nameOf = new Dictionary<string, string>();
+
+    static string NameFor(int port, string pw, object p) {
+      string n = TwitchEvents.SNavPublic(p, "gameName").Trim();
+      if (n.Length == 0) n = TwitchEvents.SNavPublic(p, "summonerName").Trim();
+      if (n.Length > 0) return n;
+      string puuid = TwitchEvents.SNavPublic(p, "puuid");
+      if (IsAnonymous(puuid)) return "";
+      lock (_lock) { string have; if (_nameOf.TryGetValue(puuid, out have)) return have; }
+      string sj = LeagueStats.LcuGet(port, pw, "/lol-summoner/v2/summoners/puuid/" + puuid);
+      if (sj == null) return "";
+      object root = TwitchEvents.NavPublic(sj);
+      n = TwitchEvents.SNavPublic(root, "gameName").Trim();
+      if (n.Length == 0) n = TwitchEvents.SNavPublic(root, "displayName").Trim();
+      if (n.Length > 0) lock (_lock) _nameOf[puuid] = n;
+      return n;
     }
 
     // Returns "" only when the client could not be asked at all; an account
@@ -318,6 +347,10 @@ namespace NowPlaying {
     static bool _gameFull;        // both sides identified; nothing left to improve
     static int _gameTries;
     static string _myPuuid = "";
+    // The enemy team by NAME, for GhostWatch. Null until a roster this game
+    // was captured from a payload that also said which side the streamer is
+    // on - see the sideSure note below.
+    static string[] _enemyNames;
 
     // How many times one game is worth re-reading before settling for what the
     // client is willing to say. At the loop's three-second cadence that is
@@ -340,7 +373,11 @@ namespace NowPlaying {
       long gid = LNum(data, "gameId");
       if (gid == 0) return;
       lock (_lock) {
-        if (gid != _gameId) { _gameTries = 0; _gameFull = false; }
+        // A new game's names must not be read against the OLD game's roster
+        // in the window before its first snapshot lands, so the list dies
+        // with the game it described rather than with the arrival of the
+        // next one.
+        if (gid != _gameId) { _gameTries = 0; _gameFull = false; _enemyNames = null; }
         if (gid == _gameId && (_gameFull || _gameTries >= RosterTries)) return;
         _gameTries++;
       }
@@ -406,6 +443,26 @@ namespace NowPlaying {
       string us = SideLine(port, pw, allies);
       string them = SideLine(port, pw, enemies);
       if (us.Length == 0 && them.Length == 0) return;
+
+      // GhostWatch wants the enemy NAMES, but only when "enemy" is a fact
+      // rather than a guess. mineIsOne above defaults to teamOne whenever the
+      // client would not say who the streamer is - fine for a line that
+      // merely swaps Us and Them, disqualifying for a feature that publicly
+      // calls people stream snipers: guessed wrong, it would read the
+      // streamer's OWN team against chat, and a duo partner lurking in chat
+      // is Tuesday, not a ghost. So names are captured only when the
+      // streamer's puuid was found on one of the two teams; until then the
+      // ghost roster stays empty and GhostWatch keeps saying it is reading.
+      string[] ghostNames = null;
+      if (_myPuuid.Length > 0 && (HasPuuid(one, _myPuuid) || HasPuuid(two, _myPuuid))) {
+        var gn = new List<string>();
+        foreach (var p in enemies) {
+          string n = NameFor(port, pw, p);
+          if (n.Length > 0) gn.Add(n);
+        }
+        ghostNames = gn.ToArray();
+      }
+
       lock (_lock) {
         _gameId = gid;
         // Complete means both sides named. Anything less stays open to being
@@ -413,6 +470,7 @@ namespace NowPlaying {
         // know more than this one did.
         _gameFull = allies.Count >= 5 && enemies.Count >= 5;
         _gameLine = "Us: " + us + "  |  Them: " + them;
+        if (ghostNames != null) _enemyNames = ghostNames;
         // The draft that fed this game is consumed by it: the in-game line
         // supersedes it, and left alive it could surface later as if it
         // described a champ select that is long over.
@@ -475,6 +533,36 @@ namespace NowPlaying {
       } catch {
         return "Can't read the lobby right now.";
       }
+    }
+
+    // ------------------------------------------------------------ ghost roster
+    // The enemy team's names for GhostWatch, behind the same fresh-phase
+    // discipline as RanksLine: every ask re-reads the gameflow phase, so a
+    // finished game can never serve its roster as the current one. It does
+    // NOT stamp NoteInterest - GhostWatch calls on its own clock and each
+    // call already does its own reads, so waking the poll loop as well would
+    // just double the traffic to the client.
+    //
+    // why comes back as no-client, no-phase, not-in-game or not-ready. Names
+    // only while the game is actually on; InGame covers the post-game tail on
+    // purpose, because a ghost caught at the death screen is still caught.
+    internal static bool EnemyNamesNow(out long gameId, out string[] names, out string why) {
+      gameId = 0; names = null; why = "";
+      try {
+        int port; string pw;
+        if (!LeagueStats.FindLockfile(out port, out pw)) { why = "no-client"; return false; }
+        string ph = LeagueStats.LcuGet(port, pw, "/lol-gameflow/v1/gameflow-phase");
+        if (ph == null) { why = "no-phase"; return false; }
+        _phase = ph.Trim().Trim('"');
+        if (!InGame()) { why = "not-in-game"; return false; }
+        EnsureGameRoster(port, pw);
+        lock (_lock) {
+          if (_enemyNames == null || _enemyNames.Length == 0) { why = "not-ready"; return false; }
+          gameId = _gameId;
+          names = _enemyNames;
+        }
+        return true;
+      } catch { why = "no-client"; return false; }
     }
 
     // ------------------------------------------------------------------ test

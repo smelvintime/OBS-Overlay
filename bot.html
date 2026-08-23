@@ -240,6 +240,23 @@
   </div>
 
   <div class="panel">
+    <div class="phead">
+      <h2>Ghost watch (League)</h2>
+      <span class="sub">Watches for stream snipers: while a match is on, the <b>enemy team&rsquo;s</b>
+        names from the League client are checked against who is in your chat, and a match gets
+        called out &mdash; <code>Ghosters here: &hellip;</code> &mdash; once per player per game.
+        Viewers can ask with <code>!ghosts</code>. Names must match exactly (a <code>TTV</code> tag
+        aside) &mdash; missing a sniper beats accusing the wrong person. Your own team is never
+        checked, so a duo lurking in chat stays uneventful.</span>
+      <span class="spacer"></span>
+      <label class="toggle" title="Call out enemy players who are watching the stream">
+        <input type="checkbox" id="gwOn" /><span class="track"></span>
+      </label>
+    </div>
+    <div class="tryout" id="gwStatus"></div>
+  </div>
+
+  <div class="panel">
     <div class="phead"><h2>Recently answered</h2>
       <span class="sub">The last few things it actually said in chat.</span></div>
     <div class="feed" id="feed"></div>
@@ -333,6 +350,7 @@
     if(!editing) renderRows();
     renderThanks();
     renderGameStats();
+    renderGhostWatch();
     renderFeed();
   }
 
@@ -567,6 +585,54 @@
   gsOn.addEventListener('change', saveGameStats);
   gsAnnounce.addEventListener('change', saveGameStats);
   gsTimer.addEventListener('change', saveGameStats);
+
+  // ---- ghost watch -----------------------------------------------------------
+  var gwOn = document.getElementById('gwOn'), gwStatus = document.getElementById('gwStatus');
+
+  function renderGhostWatch(){
+    gwOn.checked = !!data.ghostWatch;
+    var g = data.ghosts || {};
+    var line = '';
+    var spotted = (g.found || []).length
+      ? '<span class="said">' + esc(g.found.join(', ')) + '</span>' : '';
+    if(!data.ghostWatch){
+      line = 'Switched off.';
+    } else if(g.status === 'no-twitch'){
+      line = 'Needs the main Twitch connection &mdash; the viewer list is read through it. '
+           + '<a href="/setup" target="_top">Open the Twitch setup</a>.';
+    } else if(g.status === 'no-scope'){
+      line = 'Twitch refused the viewer list. This connection was made before ghost watch existed, '
+           + 'so it never asked for that permission &mdash; '
+           + '<a href="/setup" target="_top">reconnect Twitch</a> once and it sticks.';
+    } else if(g.status === 'watching'){
+      line = g.detail ? esc(g.detail) + '.'
+        : 'In a game &mdash; checking ' + (g.enemies || 0) + ' enemy name'
+          + (g.enemies === 1 ? '' : 's') + ' against '
+          + (g.chatters >= 0 ? g.chatters : '?') + ' in chat'
+          + (g.scanAt ? ' (last check ' + esc(g.scanAt) + ')' : '') + '.';
+      if(spotted) line += '<br><b style="color:var(--warn)">Ghosters spotted:</b> ' + spotted;
+    } else if(g.status === 'idle'){
+      line = esc(g.detail || 'Waiting for a game') + '.';
+      if(spotted) line += '<br>Last game: ' + spotted;
+    } else if(g.status === 'error'){
+      line = 'Problem: ' + esc(g.detail || 'unknown') + '.';
+    } else {
+      line = 'Starting up…';
+    }
+    // The eyes work without the mouth: detection runs even with the bot off,
+    // but nothing is said in chat - worth stating before someone waits for a
+    // call-out that cannot come.
+    if(data.ghostWatch && data.status !== 'live'
+       && (g.status === 'watching' || g.status === 'idle')){
+      line += '<br><span style="color:var(--dim)">The bot itself is not connected, so nothing '
+            + 'is said in chat &mdash; findings just show here.</span>';
+    }
+    gwStatus.innerHTML = line;
+  }
+
+  gwOn.addEventListener('change', function(){
+    set('what=ghostwatch&value=' + (gwOn.checked ? '1' : '0'));
+  });
 
   document.getElementById('restoreBtn').addEventListener('click', function(){
     set('what=restore');

@@ -730,6 +730,7 @@ namespace NowPlaying {
       TwitchChat.Start();      // no-op unless configured AND switched on
       LeagueStats.Start();     // idle unless the Game stats switch is on or /session is open
       LobbyRanks.Start();      // idle unless !ranks asks for it
+      GhostWatch.Start();      // idle unless the Ghost watch switch is on
       Updater.CleanupAfterSwap();   // sweep the previous build's ".old" leftover, if any
       Updater.StartAuto();          // keeps itself current; installs as soon as an update is found
 
@@ -1451,6 +1452,8 @@ namespace NowPlaying {
             } else if (what == "followthanks") {
               // value flips it; template (optional) rewrites the message.
               TwitchChat.SetFollowThanks(on, QueryParam(path, "template"));
+            } else if (what == "ghostwatch") {
+              TwitchChat.SetGhostWatch(on);
             } else if (what == "gamestats") {
               int gtm; if (!int.TryParse(QueryParam(path, "timer") ?? "", out gtm)) gtm = 0;
               TwitchChat.SetGameStats(on, (QueryParam(path, "announce") ?? "1") == "1", gtm);
@@ -1667,6 +1670,12 @@ namespace NowPlaying {
             // no state - so the formatting is provable with no League installed.
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(LeagueStats.TestParse()));
+          } else if (route == "/ghosts/test") {
+            // Pure like /league/test: canned names through the real matcher.
+            // The rules that keep an innocent viewer out of a public call-out
+            // are provable here without a game or a viewer list.
+            SendPrivate(ns, 200, "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(GhostWatch.TestMatch()));
           } else if (route == "/media-list") {
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(MediaListJson()));
