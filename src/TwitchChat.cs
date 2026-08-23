@@ -142,6 +142,7 @@ namespace NowPlaying {
           }
           FlushThanks();
           FlushGameLine();
+          FlushGhostLine();
         } catch {
           // a socket dying mid-write is the reconnect loop's problem, not ours
         }
@@ -244,6 +245,49 @@ namespace NowPlaying {
                  + " announce=" + (announce ? "on" : "off") + " timer=" + _gameTimerMin + "m");
     }
 
+    // ---------------------------------------------------------- ghost watch
+    // The stream-sniper call-out, fed by GhostWatch. Same split as the game
+    // results above: GhostWatch is the eyes and runs its own loop; this is
+    // only the mouth. The line is queued and the side-channel loop speaks it,
+    // so a detection can never write to a socket mid-reconnect.
+    static volatile bool _ghostWatch;
+    static volatile string _pendingGhostLine;
+    static DateTime _pendingGhostAt;
+
+    // GhostWatch needs to know who could never be a ghost: the channel and
+    // the bot are in their own chatter list every minute of every stream.
+    internal static string ChannelName { get { return _channel; } }
+    internal static string BotName { get { return _botUser; } }
+
+    public static void OnGhostsFound(string line) {
+      if (!_enabled || !_ghostWatch || string.IsNullOrEmpty(line)) return;
+      _pendingGhostAt = DateTime.UtcNow;
+      _pendingGhostLine = line;
+    }
+
+    static void FlushGhostLine() {
+      string line = _pendingGhostLine;
+      if (line == null) return;
+      _pendingGhostLine = null;
+      // Same staleness rule as the other side-channel lines, and it matters
+      // more here: a "caught them" surfacing half an hour after a disconnect
+      // does not just read as a glitch, it names a person over a game that
+      // is long over.
+      if ((DateTime.UtcNow - _pendingGhostAt).TotalMinutes > 3) return;
+      SendSide(line, "(ghost watch)", "ghosts");
+    }
+
+    public static void SetGhostWatch(bool on) {
+      _ghostWatch = on;
+      GhostWatch.SetEnabled(on);
+      // The feature brings its command: installs that predate ghost watch
+      // have no !ghosts in bot-commands.json, and the switch going on is the
+      // one moment it is unambiguously wanted.
+      if (on) BotCommands.EnsureGhostsCommand();
+      TwitchEvents.SaveGhostWatch(on);
+      AppLog.Write("chat: ghost watch " + (on ? "on" : "off"));
+    }
+
     public static void SetFollowThanks(bool on, string template) {
       _followThanks = on;
       if (template != null) {
@@ -288,6 +332,9 @@ namespace NowPlaying {
       // whole stream. Applied out here instead: whatever the file did or did
       // not say, the engine and the switch agree by the time this returns.
       LeagueStats.SetEnabled(_gameStats);
+      // Ghost watch's engine gets the same treatment for the same reason: out
+      // here, past every early return, so switch and engine cannot disagree.
+      GhostWatch.SetEnabled(_ghostWatch);
     }
 
     static void ReadConfigFile() {
@@ -319,6 +366,13 @@ namespace NowPlaying {
         int tm;
         if (!int.TryParse(Cfg(cfg, "gameStatsTimerMinutes").Trim(), out tm)) tm = 0;
         _gameTimerMin = (tm == 5 || tm == 10 || tm == 15) ? tm : 0;
+
+        // Ghost watch: OFF unless asked for, unlike the trackers above. It
+        // calls real people out by name in a public chat, and it needs a
+        // Twitch permission an existing connection may not carry - a default
+        // that produces either surprise is the wrong default.
+        string gw = Cfg(cfg, "ghostWatch").Trim().ToLowerInvariant();
+        _ghostWatch = (gw == "1" || gw == "true" || gw == "on");
 
         // Chat wants the oauth: prefix; the Helix token must not have it. Accept
         // either spelling here and normalise, because the two tokens sit next to
@@ -924,6 +978,8 @@ namespace NowPlaying {
       sb.Append("\"gameStats\":").Append(_gameStats ? "true" : "false").Append(',');
       sb.Append("\"gameAnnounce\":").Append(_gameAnnounce ? "true" : "false").Append(',');
       sb.Append("\"gameTimerMin\":").Append(_gameTimerMin).Append(',');
+      sb.Append("\"ghostWatch\":").Append(_ghostWatch ? "true" : "false").Append(',');
+      sb.Append("\"ghosts\":").Append(GhostWatch.StatusJson()).Append(',');
       sb.Append("\"league\":").Append(LeagueStats.StatusJson()).Append(',');
       sb.Append("\"configured\":").Append(Configured ? "true" : "false").Append(',');
       sb.Append("\"channel\":").Append(Qs(_channel)).Append(',');

@@ -444,6 +444,48 @@ In chat:
   new ranked game has finished since it last spoke, so it never spams an
   unchanged record.
 
+### Ghost watch: is the enemy team in your chat?
+
+"Ghosting" (stream sniping) is an opponent opening your stream mid-game to
+see your side of the map. Ghost watch automates the check streamers do by
+hand — alt-tab, viewer list, squint at ten Riot names: while a match is on,
+the **enemy team's names** from the League client are compared against
+**who is in your chat** (Twitch's own chatter list, read with your channel's
+connection), and a match gets called out:
+
+> *Ghosters here: Dark Slayer (in chat as dark_slayer)*
+
+- **Off until you switch it on** (the Ghost watch panel on the bot tab). It
+  names real people in a public chat — that is a decision, not a default.
+- **Each ghost is announced once per game**, the moment they are spotted. A
+  sniper who closes the tab after being called out did not un-snipe, so the
+  finding sticks for the rest of the game.
+- **`!ghosts`** (also `!ghosters`, `!snipers`) answers on demand: the current
+  findings, *"No ghosters spotted - 5 enemy names checked against 213 people
+  in chat"*, or — between games — the last match's findings, honestly
+  labelled as past. Updating from an older build? Switching Ghost watch on
+  adds the command by itself.
+- **The match has to be exact** — case, spaces and underscores aside — short
+  names never count, and there is no "close enough": the one allowance is
+  the `TTV`/`twitch` tag people staple onto their own names (`TTV BigGhost`
+  in game, `bigghost` in chat, and the reverse), because that tag's entire
+  meaning is "the rest of this is my Twitch name". A viewer merely *named
+  like* an enemy stays unaccused; missing a sniper is cheaper than calling
+  out the wrong person in front of everyone.
+- **Your own team is never checked.** A duo partner lurking in chat is
+  Tuesday, not a ghost.
+- **In-game only.** Ranked hides the enemy team for the whole draft, so
+  there is genuinely nothing to compare until the match starts; the check
+  runs from first blood to the post-game screen.
+- **Needs one extra Twitch permission** (`moderator:read:chatters`, the
+  viewer list). New connections ask for it automatically; a connection made
+  before ghost watch existed doesn't carry it, and the panel will say so —
+  reconnect once on the Setup page and it sticks. A sniper who watches
+  logged out (or never opens chat) is invisible to Twitch's list, and
+  therefore to this — no tool sees a lurker on an incognito tab.
+- The **bot speaks the call-out**, so the bot has to be on; with the bot off,
+  ghost watch still looks and the findings show on the bot tab only.
+
 On screen — the **session tracker** (`/session`), its own OBS Browser Source,
 dressed from the **League tracker** tab in the customizer:
 
@@ -511,10 +553,11 @@ If you'd rather not use the wizard, everything it does can be done manually.
    |---|---|---|
    | `moderator:read:followers` | Follower alerts, count and latest follower | **Yes** |
    | `channel:read:subscriptions` | Subscriber alerts and count | Optional |
+   | `moderator:read:chatters` | Ghost watch (reading your own viewer list) | Optional |
 
    Via the [Twitch CLI](https://dev.twitch.tv/docs/cli/):
    ```
-   twitch token -u -s "moderator:read:followers channel:read:subscriptions"
+   twitch token -u -s "moderator:read:followers channel:read:subscriptions moderator:read:chatters"
    ```
 
    A followers-only token is a fully supported setup, not a degraded one. The
