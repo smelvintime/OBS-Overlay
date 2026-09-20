@@ -87,9 +87,9 @@ namespace NowPlaying {
                    + (force ? "?fresh=" + DateTime.UtcNow.Ticks : "");
         string body = HttpGetString(url);
         object root = TwitchEvents.NavPublic(body);
-        sha = Str(Nav(root, "sha"));
-        string dateStr = Str(Nav(root, "commit", "committer", "date"));
-        note = Str(Nav(root, "commit", "message"));
+        sha = Str(TwitchEvents.Nav(root, "sha"));
+        string dateStr = Str(TwitchEvents.Nav(root, "commit", "committer", "date"));
+        note = Str(TwitchEvents.Nav(root, "commit", "message"));
         int nl = note.IndexOfAny(new[] { '\r', '\n' });   // first line is the headline
         if (nl >= 0) note = note.Substring(0, nl);
 
@@ -198,6 +198,7 @@ namespace NowPlaying {
       bool avail; string note;
       lock (_lock) { avail = _available; note = _latestNote; }
       if (!avail) { _autoWhy = "up to date"; return; }
+      if (LeagueStats.BusyWithGame()) { _autoWhy = "waiting for League to finish"; return; }
 
       // An hour before another attempt. A build that fails - a compiler that
       // is not there, a half-pushed commit - would otherwise be retried every
@@ -403,14 +404,6 @@ namespace NowPlaying {
     }
 
     // ------------------------------------------------------------------- json
-    static object Nav(object o, params string[] path) {
-      foreach (var key in path) {
-        var d = o as Dictionary<string, object>;
-        if (d == null) return null;
-        if (!d.TryGetValue(key, out o)) return null;
-      }
-      return o;
-    }
     static string Str(object o) { return o == null ? "" : Convert.ToString(o); }
 
     static string Tail(string s, int n) {

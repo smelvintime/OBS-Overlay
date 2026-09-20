@@ -135,8 +135,11 @@ the header and the log. The old exe is kept beside the new one as
 copy.
 
 Automatic updates ask GitHub every four minutes — a fresh question each time,
-not a cached answer — and install the moment something new is found, on air or
-not. The restart takes two or three seconds and every OBS source reconnects by
+not a cached answer — and install when something new is found, on air or
+not, unless a recent League phase read reports champ select, a match, or the
+post-game screen. This defers automatic installation until a later check; it
+does not start League polling when the integration is unused.
+The restart takes two or three seconds and every OBS source reconnects by
 itself; if the freshly built exe can't be spawned right away (an antivirus
 scanning a seconds-old unsigned file will briefly hold it), the handover is
 retried several times before the app ever asks you to restart it by hand.
@@ -149,6 +152,36 @@ stops a machine whose clock runs behind GitHub's from reinstalling the same
 commit forever: the date test alone would read every build stamp as older than
 every commit, which for a button is a wasted click and for something unattended
 is a restart loop.
+
+## League traffic and troubleshooting
+
+Game stats alone is not a master switch: a loaded session-tracker source also
+requests League data. A hidden OBS source may remain loaded. Demo previews do
+not request League data.
+
+After a match, the app reads the end screen for the announcement and checks
+history at approximately 5, 10, 20, 40, and 80 seconds, stopping early when the
+finished match appears. Slow requests can move those checks later. Other history
+refreshes happen every five minutes, including empty or non-ranked-only accounts.
+History pagination still supports long days and older ranked games; unchanged
+first pages reuse cached older pages. Requests are serialized, nearby phase reads
+are shared, and Ghost watch does not fetch ranks just to read enemy names.
+
+To investigate delayed client history, compare several similar games with the
+overlay fully exited and several with it running. Keep the build, OBS sources,
+other companion apps, and automatic-update setting consistent. Record game-end
+time and when the match appears in the League UI. Code inspection alone does
+not establish whether the overlay caused a delay in Riot's client.
+
+Run the offline regression check from the repository:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Check
+```
+
+This builds `dist\OverlayChecks.exe` and runs parser, history orchestration,
+schedule, loopback TLS, concurrent roster, and HTTP-header checks.
+It does not start the app, contact League/Twitch, or change saved user settings.
 
 ## Notes and limits
 

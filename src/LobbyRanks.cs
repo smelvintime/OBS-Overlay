@@ -23,13 +23,14 @@ namespace NowPlaying {
   static class LobbyRanks {
 
     // ------------------------------------------------------------------ state
-    static readonly object _lock = new object();
+    static readonly object _lock = new object(), _refreshLock = new object();
     static volatile string _phase = "None";
 
     // Demand: !ranks stamps this when it is asked, and the loop stays awake
     // for 30 seconds afterwards so a second question is instant. Nobody
     // asking means the League client is left completely alone.
     static long _wantedUntilTicks;
+    static bool Wanted { get { return DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks); } }
 
     public static void NoteInterest() {
       Interlocked.Exchange(ref _wantedUntilTicks, DateTime.UtcNow.AddSeconds(30).Ticks);
@@ -54,7 +55,7 @@ namespace NowPlaying {
     static void Loop() {
       while (true) {
         try {
-          if (DateTime.UtcNow.Ticks >= Interlocked.Read(ref _wantedUntilTicks)) {
+          if (!Wanted) {
             Thread.Sleep(2000);
             continue;
           }
@@ -98,19 +99,10 @@ namespace NowPlaying {
         _rankTag.Clear();
         _nameOf.Clear();
         _draftLine = ""; _gameLine = ""; _gameId = 0; _myPuuid = "";
-        _gameFull = false; _gameTries = 0;
+        _gameFull = false; _gameTries = 0; _rankAttempted = _namesFull = false;
         _enemyNames = null;
+        _allies = _enemies = null;
       }
-    }
-
-    // Dropped after every game. A rank read this morning is not the rank now -
-    // a duo you keep queueing with would wear their breakfast rank all night -
-    // and the map otherwise grows by nine every game for as long as the client
-    // stays up. The cost is ten lookups on the next !ranks, which is what a
-    // new lobby needs from scratch anyway. Names ride along: they go stale
-    // slower than ranks, but they grow at the same nine a game.
-    internal static void ForgetRanks() {
-      lock (_lock) { _rankTag.Clear(); _nameOf.Clear(); }
     }
 
     static string TagOf(string puuid) {
@@ -331,8 +323,10 @@ namespace NowPlaying {
     // the command read it identically.
     static void SnapshotDraftFrom(int port, string pw, string session) {
       if (session == null) return;
-      object root = TwitchEvents.NavPublic(session);
-      SnapshotDraft(port, pw, Nav(root, "myTeam") as object[], Nav(root, "theirTeam") as object[]);
+      lock (_refreshLock) {
+        object root = TwitchEvents.NavPublic(session);
+        SnapshotDraft(port, pw, TwitchEvents.Nav(root, "myTeam") as object[], TwitchEvents.Nav(root, "theirTeam") as object[]);
+      }
     }
 
     // ---------------------------------------------------------------- in game
@@ -351,6 +345,10 @@ namespace NowPlaying {
     // was captured from a payload that also said which side the streamer is
     // on - see the sideSure note below.
     static string[] _enemyNames;
+    static long _rosterGeneration = -1;
+    static DateTime _rosterAt = DateTime.MinValue;
+    static bool _rankAttempted, _namesFull;
+    static List<object> _allies, _enemies;
 
     // How many times one game is worth re-reading before settling for what the
     // client is willing to say. At the loop's three-second cadence that is
@@ -359,7 +357,33 @@ namespace NowPlaying {
     // stops asking.
     const int RosterTries = 20;
 
-    static void EnsureGameRoster(int port, string pw) {
+    static void EnsureGameRoster(int port, string pw) { EnsureGameRoster(port, pw, true); }
+
+    static void EnsureGameRoster(int port, string pw, bool ranks) {
+      lock (_refreshLock) {
+        long generation = LeagueStats.PhaseGeneration;
+        bool valid = _rosterGeneration == generation && (LeagueStats.PostGame(_phase)
+          || (DateTime.UtcNow - _rosterAt).TotalSeconds < 60);
+        // Phase changes and observation gaps invalidate the snapshot. A minute
+        // ceiling also catches a whole match missed between observations.
+        if (valid && (_gameFull && _namesFull || _gameTries >= RosterTries)) {
+          if (ranks && !_rankAttempted && _allies != null && _enemies != null)
+            BuildRankLines(port, pw);
+          return;
+        }
+        if (_rosterGeneration != generation) {
+          Forget(); _rosterGeneration = generation;
+        }
+        ReadGameRoster(port, pw, ranks);
+      }
+    }
+
+    static void BuildRankLines(int port, string pw) {
+      string line = "Us: " + SideLine(port, pw, _allies) + "  |  Them: " + SideLine(port, pw, _enemies);
+      lock (_lock) { _gameLine = line; _rankAttempted = true; }
+    }
+
+    static void ReadGameRoster(int port, string pw, bool ranks) {
       // Built once per game, but only once it is worth keeping. The old rule
       // was "once it produced any line at all", and the payload does not
       // arrive complete: read three seconds into a match, teamOne and teamTwo
@@ -369,7 +393,7 @@ namespace NowPlaying {
       // defended against every later read that would have corrected it.
       string sj = LeagueStats.LcuGet(port, pw, "/lol-gameflow/v1/session");
       if (sj == null) return;
-      object data = Nav(TwitchEvents.NavPublic(sj), "gameData");
+      object data = TwitchEvents.Nav(TwitchEvents.NavPublic(sj), "gameData");
       long gid = LNum(data, "gameId");
       if (gid == 0) return;
       lock (_lock) {
@@ -377,8 +401,16 @@ namespace NowPlaying {
         // in the window before its first snapshot lands, so the list dies
         // with the game it described rather than with the arrival of the
         // next one.
-        if (gid != _gameId) { _gameTries = 0; _gameFull = false; _enemyNames = null; }
-        if (gid == _gameId && (_gameFull || _gameTries >= RosterTries)) return;
+        _rosterAt = DateTime.UtcNow;
+        if (gid != _gameId) {
+          _gameTries = 0; _gameFull = false; _enemyNames = null;
+          _gameLine = ""; _rankAttempted = _namesFull = false;
+          _rankTag.Clear(); _nameOf.Clear(); _myPuuid = "";
+        }
+        if (gid == _gameId && (_gameFull && _namesFull || _gameTries >= RosterTries)) {
+          if (ranks && !_rankAttempted) BuildRankLines(port, pw);
+          return;
+        }
         _gameTries++;
       }
 
@@ -387,8 +419,8 @@ namespace NowPlaying {
         if (me != null) _myPuuid = TwitchEvents.SNavPublic(TwitchEvents.NavPublic(me), "puuid");
       }
 
-      var one = Nav(data, "teamOne") as object[];
-      var two = Nav(data, "teamTwo") as object[];
+      var one = TwitchEvents.Nav(data, "teamOne") as object[];
+      var two = TwitchEvents.Nav(data, "teamTwo") as object[];
       if (one == null || two == null) return;
       bool mineIsOne = _myPuuid.Length == 0 || !HasPuuid(two, _myPuuid);
       object[] mine = mineIsOne ? one : two;
@@ -424,7 +456,7 @@ namespace NowPlaying {
       // once the ally side is known complete, "not an ally" means "an enemy".
       // Without it a short teamTwo stayed short no matter what the rest of the
       // payload knew - which is how "Them" came back with two players in it.
-      var picks = Nav(data, "playerChampionSelections") as object[];
+      var picks = TwitchEvents.Nav(data, "playerChampionSelections") as object[];
       if (picks != null && enemyIds.Count >= 5) {
         foreach (var p in picks) {
           if (allies.Count >= 5) break;
@@ -439,11 +471,6 @@ namespace NowPlaying {
           if (id.Length > 0 && !allyIds.Contains(id) && enemySeen.Add(id)) enemies.Add(p);
         }
       }
-
-      string us = SideLine(port, pw, allies);
-      string them = SideLine(port, pw, enemies);
-      if (us.Length == 0 && them.Length == 0) return;
-
       // GhostWatch wants the enemy NAMES, but only when "enemy" is a fact
       // rather than a guess. mineIsOne above defaults to teamOne whenever the
       // client would not say who the streamer is - fine for a line that
@@ -469,13 +496,16 @@ namespace NowPlaying {
         // read again on the next pass, because the next pass is very likely to
         // know more than this one did.
         _gameFull = allies.Count >= 5 && enemies.Count >= 5;
-        _gameLine = "Us: " + us + "  |  Them: " + them;
+        _allies = allies; _enemies = enemies;
+        _rankAttempted = false;
+        _namesFull = ghostNames != null && ghostNames.Length == enemies.Count && enemies.Count > 0;
         if (ghostNames != null) _enemyNames = ghostNames;
         // The draft that fed this game is consumed by it: the in-game line
         // supersedes it, and left alive it could surface later as if it
         // described a champ select that is long over.
         _draftLine = "";
       }
+      if (ranks) BuildRankLines(port, pw);
     }
 
     static bool HasPuuid(object[] team, string puuid) {
@@ -555,7 +585,7 @@ namespace NowPlaying {
         if (ph == null) { why = "no-phase"; return false; }
         _phase = ph.Trim().Trim('"');
         if (!InGame()) { why = "not-in-game"; return false; }
-        EnsureGameRoster(port, pw);
+        EnsureGameRoster(port, pw, false);
         lock (_lock) {
           if (_enemyNames == null || _enemyNames.Length == 0) { why = "not-ready"; return false; }
           gameId = _gameId;
@@ -626,16 +656,8 @@ namespace NowPlaying {
     // ------------------------------------------------------------------ json
     // Object-walking helpers: NavPublic parses a string, these walk what it
     // returned.
-    static object Nav(object o, params string[] path) {
-      foreach (var key in path) {
-        var d = o as Dictionary<string, object>;
-        if (d == null) return null;
-        if (!d.TryGetValue(key, out o)) return null;
-      }
-      return o;
-    }
     static long LNum(object o, string key) {
-      var v = Nav(o, key);
+      var v = TwitchEvents.Nav(o, key);
       if (v == null) return 0;
       try { return Convert.ToInt64(v); } catch { return 0; }
     }

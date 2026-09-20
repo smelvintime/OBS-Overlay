@@ -596,7 +596,7 @@ namespace NowPlaying {
     // ------------------------------------------------------------------ JSON
     static readonly JavaScriptSerializer _ser = new JavaScriptSerializer();
 
-    static object Nav(object o, params string[] path) {
+    internal static object Nav(object o, params string[] path) {
       foreach (var key in path) {
         var d = o as Dictionary<string, object>;
         if (d == null) return null;

@@ -58,6 +58,8 @@ the music side at all.
 > Settings, Twitch connection and OBS sources all carry over; the restart
 > takes two or three seconds, the overlays blink once — on air included —
 > and come back on their own.
+> Automatic installation waits when a recent League status read reports an active
+> match, champ select, or post-game screen. Manual installation remains available.
 >
 > A gold **Update ready — install now** button still appears if you catch
 > one before the automatic pass does, and a quiet **Check for updates** link
