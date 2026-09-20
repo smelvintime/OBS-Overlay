@@ -30,7 +30,7 @@ namespace NowPlaying {
     // for 30 seconds afterwards so a second question is instant. Nobody
     // asking means the League client is left completely alone.
     static long _wantedUntilTicks;
-    internal static bool Wanted { get { return DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks); } }
+    static bool Wanted { get { return DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks); } }
 
     public static void NoteInterest() {
       Interlocked.Exchange(ref _wantedUntilTicks, DateTime.UtcNow.AddSeconds(30).Ticks);
@@ -55,7 +55,7 @@ namespace NowPlaying {
     static void Loop() {
       while (true) {
         try {
-          if (!Program.LeagueFeatureOn || !Wanted) {
+          if (!Wanted) {
             Thread.Sleep(2000);
             continue;
           }
@@ -523,7 +523,6 @@ namespace NowPlaying {
     // GET per ask is cheap (the command has a 30s cooldown), and the caches
     // below still make repeats fast - they just can no longer make them wrong.
     public static string RanksLine() {
-      if (!Program.LeagueFeatureOn) return "League integration is paused on the Features page.";
       NoteInterest();
       try {
         int port; string pw;

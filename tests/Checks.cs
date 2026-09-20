@@ -155,8 +155,6 @@ namespace NowPlaying {
       internal volatile string Phase = "InProgress";
       internal volatile int Game = 10, Requests, Sessions, Ranks;
       internal string Identity = "self";
-      internal volatile bool HoldNext;
-      internal readonly AutoResetEvent Started = new AutoResetEvent(false), Release = new AutoResetEvent(false);
       readonly X509Certificate2 _certificate;
       readonly Thread _thread;
       internal readonly List<string> Errors = new List<string>();
@@ -180,7 +178,6 @@ namespace NowPlaying {
               var request = new StringBuilder();
               while (!request.ToString().EndsWith("\r\n\r\n")) { int b = ssl.ReadByte(); if (b < 0) break; request.Append((char)b); }
               string path = request.ToString().Split(' ')[1]; Requests++;
-              if (HoldNext) { HoldNext = false; Started.Set(); Release.WaitOne(5000); }
               string body = "{}";
               if (path.EndsWith("gameflow-phase")) body = TwitchChat.Qs(Phase);
               if (path == "/lol-gameflow/v1/session") { Sessions++; body = Roster(); }
@@ -205,7 +202,7 @@ namespace NowPlaying {
         }
         return "{\"gameData\":{\"gameId\":" + Game + ",\"teamOne\":" + sides[0] + ",\"teamTwo\":" + sides[1] + "}}";
       }
-      public void Dispose() { Listener.Stop(); _thread.Join(6000); _certificate.Dispose(); Started.Dispose(); Release.Dispose(); }
+      public void Dispose() { Listener.Stop(); _thread.Join(6000); _certificate.Dispose(); }
     }
 
     static void TransportAndRosterChecks() {
@@ -245,38 +242,12 @@ namespace NowPlaying {
         LeagueStats.LcuGet(client.Port, "test", "/lol-gameflow/v1/gameflow-phase");
         Call(typeof(LobbyRanks), "EnsureGameRoster", client.Port, "test", false);
         Equal(Get(typeof(LobbyRanks), "_gameId"), 11L, "next game invalidates roster");
-        int before = client.Requests;
-        Set(typeof(Program), "_featLeague", false);
-        Equal(LeagueStats.LcuGet(client.Port, "test", "/lol-gameflow/v1/session"), null, "pause blocks transport");
-        Equal(client.Requests, before, "paused transport sends zero requests");
-        Equal(LeagueStats.RankCommandLine(), "League integration is paused on the Features page.", "paused rank command");
-        Equal(LobbyRanks.RanksLine(), "League integration is paused on the Features page.", "paused roster command");
-        Equal(Field(Json(LeagueStats.TrafficJson()), "paused"), true, "pause diagnostics");
-        Set(typeof(Program), "_featLeague", true);
-        LeagueStats.LcuGet(client.Port, "test", "/lol-gameflow/v1/session");
-        Equal(client.Requests, before + 1, "resume restores reads");
-        before = client.Requests;
-        client.HoldNext = true;
-        var inFlight = new Thread(delegate() { LeagueStats.LcuGet(client.Port, "test", "/lol-gameflow/v1/session"); });
-        inFlight.Start();
-        if (!client.Started.WaitOne(5000)) throw new Exception("Mock request did not start");
-        Equal(Field(Json(LeagueStats.TrafficJson()), "inFlight"), 1, "in-flight request visible");
-        Set(typeof(Program), "_featLeague", false);
-        var queued = new Thread(delegate() { LeagueStats.LcuGet(client.Port, "test", "/lol-gameflow/v1/session"); });
-        queued.Start(); client.Release.Set();
-        if (!inFlight.Join(10000) || !queued.Join(10000)) throw new Exception("Pause did not drain");
-        Equal(client.Requests, before + 1, "pause blocks queued request after in-flight drains");
-        Set(typeof(Program), "_featLeague", true);
         Call(typeof(LeagueStats), "RefreshIdentity", client.Port, "test", false);
         Set(typeof(LeagueStats), "_newestGameId", 999L);
         client.Identity = "other";
         Call(typeof(LeagueStats), "RefreshIdentity", client.Port, "test", false);
         Equal(Get(typeof(LeagueStats), "_newestGameId"), 0L, "account change clears ranked cursor");
         Equal(Get(typeof(LeagueStats), "_historyNewestAny"), 0L, "account change clears all-mode cursor");
-        Equal(Field(Json(LeagueStats.TrafficJson()), "inFlight"), 0, "requests drained");
-        Equal(Field(Json(LeagueStats.TrafficJson()), "endpoints", "session", "status"), 200, "HTTP status recorded");
-        Equal(Field(Json(LeagueStats.TrafficJson()), "endpoints", "session", "count"), client.Sessions, "request count recorded");
-        Equal(LeagueStats.TrafficJson().Contains("player"), false, "diagnostics omit player identities");
         Set(typeof(LeagueStats), "_phaseNow", "InProgress");
         Set(typeof(LeagueStats), "_phaseAtTicks", DateTime.UtcNow.Ticks);
         Equal(LeagueStats.BusyWithGame(), true, "fresh match defers automatic updates");

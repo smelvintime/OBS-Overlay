@@ -79,11 +79,10 @@ namespace NowPlaying {
     // other two start threads that run forever by design, so flipping them
     // takes the same clean self-restart the OAuth flow already uses - simpler
     // and better tested than teaching every loop to stop and start again.
-    static volatile bool _featOverlay = true, _featEq = true, _featTwitch = true, _featLeague = true;
+    static volatile bool _featOverlay = true, _featEq = true, _featTwitch = true;
     static bool _bootEq = true, _bootTwitch = true;   // what this process started with
 
     internal static bool TwitchFeatureOn { get { return _featTwitch; } }
-    internal static bool LeagueFeatureOn { get { return _featLeague; } }
     internal static bool EqFeatureOn { get { return _featEq; } }
 
     static bool FeatOn(string v) { return !(v == "0" || v == "off" || v == "false"); }
@@ -93,7 +92,6 @@ namespace NowPlaying {
       return "{\"overlay\":" + (_featOverlay ? "true" : "false")
            + ",\"eq\":" + (_featEq ? "true" : "false")
            + ",\"twitch\":" + (_featTwitch ? "true" : "false")
-           + ",\"league\":" + (_featLeague ? "true" : "false")
            + ",\"restartNeeded\":" + (restart ? "true" : "false") + "}";
     }
 
@@ -120,7 +118,6 @@ namespace NowPlaying {
           else if (k == "feat.overlay") _featOverlay = FeatOn(v);
           else if (k == "feat.eq") _featEq = FeatOn(v);
           else if (k == "feat.twitch") _featTwitch = FeatOn(v);
-          else if (k == "feat.league") _featLeague = FeatOn(v);
         }
         if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
       } catch { }
@@ -133,8 +130,7 @@ namespace NowPlaying {
           + "bot=" + (TwitchChat.Enabled ? "1" : "0") + "\r\n"
           + "feat.overlay=" + (_featOverlay ? "1" : "0") + "\r\n"
           + "feat.eq=" + (_featEq ? "1" : "0") + "\r\n"
-          + "feat.twitch=" + (_featTwitch ? "1" : "0") + "\r\n"
-          + "feat.league=" + (_featLeague ? "1" : "0") + "\r\n");
+          + "feat.twitch=" + (_featTwitch ? "1" : "0") + "\r\n");
       } catch { }
     }
 
@@ -1350,7 +1346,6 @@ namespace NowPlaying {
             if (fw == "overlay") _featOverlay = fon;
             else if (fw == "eq") _featEq = fon;
             else if (fw == "twitch") _featTwitch = fon;
-            else if (fw == "league") _featLeague = fon;
             SaveSettings();
             AppLog.Write("features: " + fw + " -> " + (fon ? "on" : "off"));
             SendPrivate(ns, 200, "application/json; charset=utf-8",

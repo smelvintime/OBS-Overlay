@@ -34,7 +34,6 @@ namespace NowPlaying {
   static class GhostWatch {
 
     // ------------------------------------------------------------------ state
-    internal static bool Enabled { get { return _enabled; } }
     static volatile bool _enabled;                 // the dashboard's Ghost watch switch
     // off | no-twitch | no-scope | idle | watching | error. no-scope gets its
     // own word because it has its own fix (reconnect Twitch) and would
@@ -84,10 +83,6 @@ namespace NowPlaying {
         int sleepMs = 12000;
         try {
           if (!_enabled) { Thread.Sleep(3000); continue; }
-          if (!Program.LeagueFeatureOn) {
-            _status = "paused"; _detail = "League integration is paused on the Features page";
-            Thread.Sleep(3000); continue;
-          }
 
           if (!TwitchEvents.ApiReady) {
             // The viewer list rides the broadcaster connection, not the
@@ -333,7 +328,6 @@ namespace NowPlaying {
     // on, the command cools down for thirty, and an answer up to one scan old
     // is a fair trade for never stacking a Helix fetch onto the chat thread.
     public static string CommandLine() {
-      if (!Program.LeagueFeatureOn) return "League integration is paused on the Features page.";
       if (!_enabled)
         return "Ghost watch is switched off.";
       string s = _status;

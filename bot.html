@@ -228,11 +228,6 @@
       </select>
     </div>
     <div class="tryout" id="gsStatus"></div>
-    <details class="tryout"><summary>League request diagnostics</summary>
-      <p>Pause all League requests on the <a href="/features">Features page</a>.
-        Counts reset when the app restarts; timestamps use UTC.</p>
-      <pre id="gsTraffic" style="white-space:pre-wrap"></pre>
-    </details>
     <!-- Only appears when the app can see a League process but cannot reach
          its files by itself (or a folder is already set and worth showing).
          The folder, the exe, even the Riot Games root all work. -->
@@ -530,9 +525,7 @@
     if(document.activeElement !== gsTimer) gsTimer.value = String(data.gameTimerMin || 0);
     var lg = data.league || {};
     var line = '';
-    if(lg.traffic && lg.traffic.paused){
-      line = 'League integration is paused on the Features page.';
-    } else if(!data.gameStats){
+    if(!data.gameStats){
       line = 'Switched off.';
     } else if(lg.status === 'live'){
       line = 'Watching the League client'
@@ -566,7 +559,6 @@
       line = 'Starting up…';
     }
     gsStatus.innerHTML = line;
-    document.getElementById('gsTraffic').textContent = JSON.stringify(lg.traffic || {}, null, 2);
 
     // The box shows itself only when it can help - or when a folder is
     // already set, so it can always be corrected or cleared.
@@ -605,8 +597,6 @@
       ? '<span class="said">' + esc(g.found.join(', ')) + '</span>' : '';
     if(!data.ghostWatch){
       line = 'Switched off.';
-    } else if(g.status === 'paused' || (data.league && data.league.traffic && data.league.traffic.paused)){
-      line = 'League integration is paused on the Features page.';
     } else if(g.status === 'no-twitch'){
       line = 'Needs the main Twitch connection &mdash; the viewer list is read through it. '
            + '<a href="/setup" target="_top">Open the Twitch setup</a>.';

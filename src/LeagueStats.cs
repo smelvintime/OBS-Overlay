@@ -102,7 +102,6 @@ namespace NowPlaying {
 
     internal static bool FindLockfile(out int port, out string password) {
       port = 0; password = "";
-      if (!Program.LeagueFeatureOn) return false;
       bool seen = false;
       string via = "";
 
@@ -285,41 +284,15 @@ namespace NowPlaying {
     // "starting up" and "the handshake failed" need different people to act.
     static volatile string _lastHttpError = "";
 
-    static readonly object _requestLock = new object(), _trafficLock = new object();
-    static int _requestPort, _inFlight;
+    static readonly object _requestLock = new object();
+    static int _requestPort;
     static string _requestPassword = "";
     static long _phaseGeneration;
     internal static long PhaseGeneration { get { return Interlocked.Read(ref _phaseGeneration); } }
-    static readonly Dictionary<string, RequestCount> _traffic = new Dictionary<string, RequestCount>();
-    class RequestCount {
-      public long count, totalMs, lastMs;
-      public int status;
-    }
-    static long _gameEndedTicks, _historyVisibleTicks;
-
-    internal static string TrafficJson() {
-      lock (_trafficLock) {
-        return new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new {
-          paused = !Program.LeagueFeatureOn, inFlight = _inFlight,
-          demand = new { bot = _enabled,
-            tracker = DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks),
-            ghosts = GhostWatch.Enabled, ranks = LobbyRanks.Wanted },
-          gameEndedUtc = UtcStamp(Interlocked.Read(ref _gameEndedTicks)),
-          historyVisibleUtc = UtcStamp(Interlocked.Read(ref _historyVisibleTicks)),
-          endpoints = _traffic
-        });
-      }
-    }
-
-    static string UtcStamp(long ticks) {
-      return ticks == 0 ? "" : new DateTime(ticks, DateTimeKind.Utc).ToString("o");
-    }
-
     internal static string LcuGet(int port, string password, string path) {
       // ponytail: one client, one in-flight request; use per-client locks only
       // if this application ever supports multiple League clients.
       lock (_requestLock) {
-        if (!Program.LeagueFeatureOn) return null;
         if (port != _requestPort || password != _requestPassword) {
           _requestPort = port; _requestPassword = password;
           Interlocked.Exchange(ref _phaseAtTicks, 0);
@@ -329,27 +302,8 @@ namespace NowPlaying {
         double age = (DateTime.UtcNow.Ticks - Interlocked.Read(ref _phaseAtTicks)) / 10000000.0;
         if (phase && age < 3) return TwitchChat.Qs(_phaseNow);
 
-        string family = path.StartsWith("/lol-match-history/", StringComparison.Ordinal) ? "history"
-          : path.StartsWith("/lol-ranked/", StringComparison.Ordinal) ? "rank"
-          : path.StartsWith("/lol-summoner/", StringComparison.Ordinal) ? "summoner"
-          : phase ? "phase" : path == "/lol-gameflow/v1/session" ? "session"
-          : path.StartsWith("/lol-end-of-game/", StringComparison.Ordinal) ? "endOfGame" : "other";
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        int status = 0;
-        Interlocked.Increment(ref _inFlight);
-        string result;
-        try {
-          byte[] body = LcuGetRaw(port, password, path, out status);
-          result = body == null ? null : Encoding.UTF8.GetString(body);
-        } finally {
-          Interlocked.Decrement(ref _inFlight);
-          lock (_trafficLock) {
-            RequestCount count;
-            if (!_traffic.TryGetValue(family, out count)) _traffic[family] = count = new RequestCount();
-            count.count++; count.lastMs = clock.ElapsedMilliseconds;
-            count.totalMs += count.lastMs; count.status = status;
-          }
-        }
+        byte[] body = LcuGetRaw(port, password, path);
+        string result = body == null ? null : Encoding.UTF8.GetString(body);
         if (phase && result != null) {
           string next = result.Trim().Trim('"');
           if (age > 30 || (next != _phaseNow && (next == "ChampSelect" || next == "GameStart" || next == "InProgress")))
@@ -361,8 +315,8 @@ namespace NowPlaying {
       }
     }
 
-    static byte[] LcuGetRaw(int port, string password, string path, out int status) {
-      status = 0;
+    static byte[] LcuGetRaw(int port, string password, string path) {
+      int status = 0;
       try {
         using (var tcp = new System.Net.Sockets.TcpClient("127.0.0.1", port)) {
           tcp.ReceiveTimeout = 5000;
@@ -721,7 +675,6 @@ namespace NowPlaying {
     // asks the client directly, right now, so the reply is never a stale rank
     // - the entire reason this replaced a hand-typed text command.
     public static string RankCommandLine() {
-      if (!Program.LeagueFeatureOn) return "League integration is paused on the Features page.";
       if ((DateTime.UtcNow - _rankFetchedUtc).TotalSeconds > 120) FetchRank();
       string line;
       lock (_resultLock) { line = _rankLine; }
@@ -787,8 +740,6 @@ namespace NowPlaying {
             _rankLp = _rankWins = _rankLosses = 0;
             _hasLpToday = false;
             _newestGameId = _eogAnnouncedId = _historyNewestAny = _cachedNewestAny = _endedGameId = 0;
-            Interlocked.Exchange(ref _gameEndedTicks, 0);
-            Interlocked.Exchange(ref _historyVisibleTicks, 0);
             Interlocked.Increment(ref _phaseGeneration);
             _historyPages.Clear(); _historyDay = ""; _deepAt = DateTime.MinValue;
             _rankFetchedUtc = DateTime.MinValue;
@@ -1323,15 +1274,16 @@ namespace NowPlaying {
     static void Loop() {
       var schedule = new PollSchedule();
       int eogTries = 0;
+      bool awaitingHistory = false;
       long playingId = 0, beforeGame = 0;
       string account = "";
       while (true) {
         try {
-          bool active = Program.LeagueFeatureOn && (_enabled
-            || DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks));
+          bool active = _enabled
+            || DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks);
           if (!active) {
-            _status = Program.LeagueFeatureOn ? "off" : "paused"; _detail = "";
-            schedule = new PollSchedule(); eogTries = 0; playingId = 0;
+            _status = "off"; _detail = "";
+            schedule = new PollSchedule(); eogTries = 0; playingId = 0; awaitingHistory = false;
             Thread.Sleep(2000); continue;
           }
           int port; string pw;
@@ -1339,7 +1291,7 @@ namespace NowPlaying {
             _status = "no-client";
             _detail = _clientSeen ? "Point the Chat bot tab at the League install folder"
                                   : "the League client is not running on this PC";
-            schedule = new PollSchedule(); eogTries = 0; playingId = 0;
+            schedule = new PollSchedule(); eogTries = 0; playingId = 0; awaitingHistory = false;
             Thread.Sleep(10000); continue;
           }
           string ph = LcuGet(port, pw, "/lol-gameflow/v1/gameflow-phase");
@@ -1352,7 +1304,7 @@ namespace NowPlaying {
           // without this process or its TCP listener restarting.
           if (_puuid.Length == 0 || schedule.Due(DateTime.UtcNow)) RefreshIdentity(port, pw, false);
           if (account != _puuid) {
-            account = _puuid; schedule = new PollSchedule(); eogTries = 0; playingId = 0;
+            account = _puuid; schedule = new PollSchedule(); eogTries = 0; playingId = 0; awaitingHistory = false;
           }
           if (ph == "InProgress" && schedule.Phase != "InProgress" && schedule.Phase != "Reconnect") {
             string session = LcuGet(port, pw, "/lol-gameflow/v1/session");
@@ -1361,8 +1313,7 @@ namespace NowPlaying {
           }
           bool ended = schedule.Observe(ph, DateTime.UtcNow);
           if (ended) {
-            Interlocked.Exchange(ref _gameEndedTicks, DateTime.UtcNow.Ticks);
-            Interlocked.Exchange(ref _historyVisibleTicks, 0);
+            awaitingHistory = true;
             _endedGameId = playingId; eogTries = 15;
             AppLog.Write("league: game ended (phase -> " + ph + ")");
           }
@@ -1375,11 +1326,10 @@ namespace NowPlaying {
             // None of those may turn the idle loop into a request chase.
             schedule.Read(DateTime.UtcNow);
             long newest = RefreshHistory(delegate(int page) { return HistoryPage(port, pw, page); }, DateTime.UtcNow);
-            if (Interlocked.Read(ref _gameEndedTicks) != 0 && Interlocked.Read(ref _historyVisibleTicks) == 0
+            if (awaitingHistory
                 && ((_endedGameId != 0 && newest >= _endedGameId)
                     || (_endedGameId == 0 && beforeGame != 0 && newest > beforeGame))) {
-              Interlocked.Exchange(ref _historyVisibleTicks, DateTime.UtcNow.Ticks);
-              AppLog.Write("league: finished match is visible in history");
+              awaitingHistory = false;
               schedule.Finish(DateTime.UtcNow);
               FetchRank();
             }
@@ -1407,7 +1357,6 @@ namespace NowPlaying {
 
     // What !record answers when there is nothing to say yet.
     public static string CommandLine() {
-      if (!Program.LeagueFeatureOn) return "League integration is paused on the Features page.";
       string line = ChatLine();
       if (line.Length > 0) return line;
       if (!_enabled) return "Game stats are switched off.";
@@ -1456,7 +1405,6 @@ namespace NowPlaying {
       sb.Append("\"heldGame\":").Append(TwitchChat.Qs(held)).Append(',');
       sb.Append("\"seen\":").Append(_clientSeen ? "true" : "false").Append(',');
       sb.Append("\"via\":").Append(TwitchChat.Qs(_foundVia)).Append(',');
-      sb.Append("\"traffic\":").Append(TrafficJson()).Append(',');
       sb.Append("\"pathSet\":").Append(TwitchChat.Qs((Program.GetPref("leaguePath") ?? "").Trim()));
       sb.Append('}');
       return sb.ToString();
