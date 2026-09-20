@@ -79,10 +79,11 @@ namespace NowPlaying {
     // other two start threads that run forever by design, so flipping them
     // takes the same clean self-restart the OAuth flow already uses - simpler
     // and better tested than teaching every loop to stop and start again.
-    static volatile bool _featOverlay = true, _featEq = true, _featTwitch = true;
+    static volatile bool _featOverlay = true, _featEq = true, _featTwitch = true, _featLeague = true;
     static bool _bootEq = true, _bootTwitch = true;   // what this process started with
 
     internal static bool TwitchFeatureOn { get { return _featTwitch; } }
+    internal static bool LeagueFeatureOn { get { return _featLeague; } }
     internal static bool EqFeatureOn { get { return _featEq; } }
 
     static bool FeatOn(string v) { return !(v == "0" || v == "off" || v == "false"); }
@@ -92,6 +93,7 @@ namespace NowPlaying {
       return "{\"overlay\":" + (_featOverlay ? "true" : "false")
            + ",\"eq\":" + (_featEq ? "true" : "false")
            + ",\"twitch\":" + (_featTwitch ? "true" : "false")
+           + ",\"league\":" + (_featLeague ? "true" : "false")
            + ",\"restartNeeded\":" + (restart ? "true" : "false") + "}";
     }
 
@@ -118,6 +120,7 @@ namespace NowPlaying {
           else if (k == "feat.overlay") _featOverlay = FeatOn(v);
           else if (k == "feat.eq") _featEq = FeatOn(v);
           else if (k == "feat.twitch") _featTwitch = FeatOn(v);
+          else if (k == "feat.league") _featLeague = FeatOn(v);
         }
         if (_mode != "auto" && _pinApp.Length == 0) _mode = "auto";
       } catch { }
@@ -130,7 +133,8 @@ namespace NowPlaying {
           + "bot=" + (TwitchChat.Enabled ? "1" : "0") + "\r\n"
           + "feat.overlay=" + (_featOverlay ? "1" : "0") + "\r\n"
           + "feat.eq=" + (_featEq ? "1" : "0") + "\r\n"
-          + "feat.twitch=" + (_featTwitch ? "1" : "0") + "\r\n");
+          + "feat.twitch=" + (_featTwitch ? "1" : "0") + "\r\n"
+          + "feat.league=" + (_featLeague ? "1" : "0") + "\r\n");
       } catch { }
     }
 
@@ -261,10 +265,6 @@ namespace NowPlaying {
           return k != null && k.GetValue(RunValueName) != null;
       } catch { return false; }
     }
-
-    // The installer offers "start when I sign in" at install time, before the
-    // tray exists to own that switch.
-    internal static bool SetStartupPublic(bool on) { return SetStartup(on); }
 
     static bool SetStartup(bool on) {
       try {
@@ -1350,6 +1350,7 @@ namespace NowPlaying {
             if (fw == "overlay") _featOverlay = fon;
             else if (fw == "eq") _featEq = fon;
             else if (fw == "twitch") _featTwitch = fon;
+            else if (fw == "league") _featLeague = fon;
             SaveSettings();
             AppLog.Write("features: " + fw + " -> " + (fon ? "on" : "off"));
             SendPrivate(ns, 200, "application/json; charset=utf-8",
@@ -1596,22 +1597,8 @@ namespace NowPlaying {
             if (!SameOriginRequest(req)) { SendForbidden(ns); return; }
             PresetDelete(QueryParam(path, "name") ?? "");
             SendPrivate(ns, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
-          } else if (route == "/app" || route == "/app/") {
-            SendResource(ns, "app.html");
           } else if (route == "/bot-page" || route == "/bot-page/") {
             SendResource(ns, "bot.html");
-          } else if (route == "/help" || route == "/help/") {
-            SendResource(ns, "help.html");
-          } else if (route == "/control" || route == "/control/") {
-            SendResource(ns, "control.html");
-          } else if (route == "/layouts" || route == "/layouts/") {
-            SendResource(ns, "layouts.html");
-          } else if (route == "/customize" || route == "/customize/") {
-            SendResource(ns, "customize.html");
-          } else if (route == "/alerts" || route == "/alerts/") {
-            SendResource(ns, "alerts.html");
-          } else if (route == "/stats" || route == "/stats/") {
-            SendResource(ns, "stats.html");
           } else if (route == "/league") {
             SendPrivate(ns, 200, "application/json; charset=utf-8",
                         Encoding.UTF8.GetBytes(LeagueStats.StatusJson()));
@@ -2616,23 +2603,7 @@ namespace NowPlaying {
 
     static void SendPrivate(NetworkStream ns, int code, string contentType, byte[] body,
                             string cacheControl) {
-      var sb = new StringBuilder();
-      sb.Append("HTTP/1.1 ").Append(code).Append(code == 200 ? " OK" : " Error").Append("\r\n");
-      sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
-      sb.Append("Content-Length: ").Append(body == null ? 0 : body.Length).Append("\r\n");
-      // Every type declared here is correct, and the media folder now takes
-      // uploads - so a file whose bytes disagree with its extension must not be
-      // re-read by the browser as something scriptable. Every route on this
-      // origin is unauthenticated by design; content sniffing is the one way an
-      // image could stop being an image.
-      sb.Append("X-Content-Type-Options: nosniff\r\n");
-      sb.Append("Cache-Control: ")
-        .Append(cacheControl ?? "no-cache, no-store, must-revalidate").Append("\r\n");
-      sb.Append("Connection: close\r\n\r\n");
-      var head = Encoding.ASCII.GetBytes(sb.ToString());
-      ns.Write(head, 0, head.Length);
-      if (body != null && body.Length > 0) ns.Write(body, 0, body.Length);
-      ns.Flush();
+      Send(ns, code, contentType, body, cacheControl);
     }
 
     static void Send(NetworkStream ns, int code, string contentType, byte[] body, string cacheControl) {
@@ -2675,25 +2646,6 @@ namespace NowPlaying {
       return sb.ToString();
     }
 
-    // Song titles legitimately contain quotes, backslashes and emoji, so escape
-    // properly rather than trusting the input.
-    static string Q(string s) {
-      if (s == null) return "\"\"";
-      var sb = new StringBuilder("\"");
-      foreach (char c in s) {
-        switch (c) {
-          case '"': sb.Append("\\\""); break;
-          case '\\': sb.Append("\\\\"); break;
-          case '\n': sb.Append("\\n"); break;
-          case '\r': sb.Append("\\r"); break;
-          case '\t': sb.Append("\\t"); break;
-          default:
-            if (c < ' ') sb.Append("\\u").Append(((int)c).ToString("x4"));
-            else sb.Append(c);
-            break;
-        }
-      }
-      return sb.Append('"').ToString();
-    }
+    static string Q(string s) { return TwitchChat.Qs(s); }
   }
 }

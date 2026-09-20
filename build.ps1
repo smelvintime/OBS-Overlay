@@ -13,7 +13,8 @@
 param(
   [string]$OutDir = "$PSScriptRoot\dist",
   # Product version stamped into the file's Windows metadata.
-  [string]$ProductVersion = '1.0.0'
+  [string]$ProductVersion = '1.0.0',
+  [switch]$Check
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +36,7 @@ $pageFiles  = @(Get-ChildItem "$PSScriptRoot\*.html"        | Sort-Object Name)
 $themeFiles = @(Get-ChildItem "$PSScriptRoot\themes\*.json" -ErrorAction SilentlyContinue | Sort-Object Name)
 $shared     = "$PSScriptRoot\shared.js"
 $outExe     = Join-Path $OutDir 'NowPlayingOverlay.exe'
+if ($Check) { $outExe = Join-Path $OutDir 'OverlayChecks.exe' }
 
 # Fail with a useful message rather than a compiler error further down.
 $missing = @()
@@ -133,7 +135,7 @@ $cscArgs = @(
   '/nologo'
   # winexe = no console window when double-clicked; it lives in the tray instead.
   # CLI use still prints, via AttachConsole to the parent terminal.
-  '/target:winexe'
+  $(if ($Check) { '/target:exe' } else { '/target:winexe' })
   '/platform:x64'
   '/optimize+'
   "/out:$outExe"
@@ -162,6 +164,9 @@ $cscArgs += "/resource:$shared,shared.js"
 foreach ($t in $themeFiles) { $cscArgs += "/resource:$($t.FullName),theme-$($t.Name)" }
 # System.Web.Extensions (JavaScriptSerializer, used to read Twitch JSON) is
 # already in csc.rsp, so referencing it here would be a duplicate-import error.
+if ($Check) {
+  $cscArgs += '/main:NowPlaying.Checks', "$PSScriptRoot\tests\Checks.cs"
+}
 foreach ($s in $srcFiles)   { $cscArgs += $s.FullName }
 $cscArgs += $srcStamp
 
@@ -183,6 +188,10 @@ if ($warnings) {
 }
 
 $size = [Math]::Round((Get-Item $outExe).Length / 1KB, 1)
+if ($Check) {
+  & $outExe
+  exit $LASTEXITCODE
+}
 Write-Host ""
 Write-Host "  Built: $outExe  (${size} KB)" -ForegroundColor Green
 
@@ -195,4 +204,3 @@ if ($wasRunning) {
   Write-Host "  Run it, then add http://127.0.0.1:8787/ as an OBS Browser Source."
 }
 Write-Host ""
-

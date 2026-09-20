@@ -98,6 +98,11 @@
           +'minute. Off: alerts and goal boxes stay blank, and the bot’s follow thank-you '
           +'has nothing to hear. Your Twitch sign-in is kept.',
       apply:'needs restart' },
+    { key:'league', name:'League integration',
+      desc:'Reads match history, ranks and the enemy roster. Off: all League requests stop after '
+          +'the current request finishes, including loaded tracker sources and Ghost watch. '
+          +'Existing results stay visible. Music and Twitch keep working.',
+      apply:'applies instantly' },
     { key:'bot', name:'Chat bot',
       desc:'Answers !song and your custom commands, and thanks new followers. The same switch '
           +'as the one on the Chat bot tab.',
@@ -117,7 +122,7 @@
       + '<div class="txt"><div class="name">' + esc(r.name) + '</div>'
       + '<div class="desc">' + r.desc + '</div></div>'
       + '<span class="apply">' + esc(r.apply) + '</span>'
-      + '<label class="toggle"><input type="checkbox" data-k="' + r.key + '" />'
+      + '<label class="toggle"><input type="checkbox" aria-label="' + esc(r.name) + '" data-k="' + r.key + '" />'
       + '<span class="track"></span></label>'
       + '</div>';
   }).join('');

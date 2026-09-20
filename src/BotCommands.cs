@@ -144,8 +144,6 @@ namespace NowPlaying {
       }
     }
 
-    public static void Save() { lock (_lock) SaveLocked(); }
-
     static void SaveLocked() {
       try {
         var list = new List<object>();

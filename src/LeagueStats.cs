@@ -33,7 +33,7 @@ namespace NowPlaying {
     static volatile string _detail = "";
     static volatile string _summoner = "";
 
-    static readonly object _resultLock = new object();
+    static readonly object _resultLock = new object(), _historyLock = new object();
     static string _record = "";                    // "W W L L W", newest first
     static string _lastLine = "";                  // "Victory (12/3/8)"
     static long _newestGameId;
@@ -102,6 +102,7 @@ namespace NowPlaying {
 
     internal static bool FindLockfile(out int port, out string password) {
       port = 0; password = "";
+      if (!Program.LeagueFeatureOn) return false;
       bool seen = false;
       string via = "";
 
@@ -284,15 +285,84 @@ namespace NowPlaying {
     // "starting up" and "the handshake failed" need different people to act.
     static volatile string _lastHttpError = "";
 
-    // String for JSON, bytes for anything else - one transport. LobbyRanks
-    // shares these; the LCU rules (per-connection trust, byte-domain
-    // de-chunking) are subtle enough that a second copy would drift.
-    internal static string LcuGet(int port, string password, string path) {
-      byte[] body = LcuGetRaw(port, password, path);
-      return body == null ? null : Encoding.UTF8.GetString(body);
+    static readonly object _requestLock = new object(), _trafficLock = new object();
+    static int _requestPort, _inFlight;
+    static string _requestPassword = "";
+    static long _phaseGeneration;
+    internal static long PhaseGeneration { get { return Interlocked.Read(ref _phaseGeneration); } }
+    static readonly Dictionary<string, RequestCount> _traffic = new Dictionary<string, RequestCount>();
+    class RequestCount {
+      public long count, totalMs, lastMs;
+      public int status;
+    }
+    static long _gameEndedTicks, _historyVisibleTicks;
+
+    internal static string TrafficJson() {
+      lock (_trafficLock) {
+        return new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new {
+          paused = !Program.LeagueFeatureOn, inFlight = _inFlight,
+          demand = new { bot = _enabled,
+            tracker = DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks),
+            ghosts = GhostWatch.Enabled, ranks = LobbyRanks.Wanted },
+          gameEndedUtc = UtcStamp(Interlocked.Read(ref _gameEndedTicks)),
+          historyVisibleUtc = UtcStamp(Interlocked.Read(ref _historyVisibleTicks)),
+          endpoints = _traffic
+        });
+      }
     }
 
-    internal static byte[] LcuGetRaw(int port, string password, string path) {
+    static string UtcStamp(long ticks) {
+      return ticks == 0 ? "" : new DateTime(ticks, DateTimeKind.Utc).ToString("o");
+    }
+
+    internal static string LcuGet(int port, string password, string path) {
+      // ponytail: one client, one in-flight request; use per-client locks only
+      // if this application ever supports multiple League clients.
+      lock (_requestLock) {
+        if (!Program.LeagueFeatureOn) return null;
+        if (port != _requestPort || password != _requestPassword) {
+          _requestPort = port; _requestPassword = password;
+          Interlocked.Exchange(ref _phaseAtTicks, 0);
+          Interlocked.Increment(ref _phaseGeneration);
+        }
+        bool phase = path == "/lol-gameflow/v1/gameflow-phase";
+        double age = (DateTime.UtcNow.Ticks - Interlocked.Read(ref _phaseAtTicks)) / 10000000.0;
+        if (phase && age < 3) return TwitchChat.Qs(_phaseNow);
+
+        string family = path.StartsWith("/lol-match-history/", StringComparison.Ordinal) ? "history"
+          : path.StartsWith("/lol-ranked/", StringComparison.Ordinal) ? "rank"
+          : path.StartsWith("/lol-summoner/", StringComparison.Ordinal) ? "summoner"
+          : phase ? "phase" : path == "/lol-gameflow/v1/session" ? "session"
+          : path.StartsWith("/lol-end-of-game/", StringComparison.Ordinal) ? "endOfGame" : "other";
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        int status = 0;
+        Interlocked.Increment(ref _inFlight);
+        string result;
+        try {
+          byte[] body = LcuGetRaw(port, password, path, out status);
+          result = body == null ? null : Encoding.UTF8.GetString(body);
+        } finally {
+          Interlocked.Decrement(ref _inFlight);
+          lock (_trafficLock) {
+            RequestCount count;
+            if (!_traffic.TryGetValue(family, out count)) _traffic[family] = count = new RequestCount();
+            count.count++; count.lastMs = clock.ElapsedMilliseconds;
+            count.totalMs += count.lastMs; count.status = status;
+          }
+        }
+        if (phase && result != null) {
+          string next = result.Trim().Trim('"');
+          if (age > 30 || (next != _phaseNow && (next == "ChampSelect" || next == "GameStart" || next == "InProgress")))
+            Interlocked.Increment(ref _phaseGeneration);
+          _phaseNow = next;
+          Interlocked.Exchange(ref _phaseAtTicks, DateTime.UtcNow.Ticks);
+        }
+        return result;
+      }
+    }
+
+    static byte[] LcuGetRaw(int port, string password, string path, out int status) {
+      status = 0;
       try {
         using (var tcp = new System.Net.Sockets.TcpClient("127.0.0.1", port)) {
           tcp.ReceiveTimeout = 5000;
@@ -301,6 +371,7 @@ namespace NowPlaying {
                    // Self-signed by design and reachable only over loopback;
                    // this trust never leaves this one connection.
                    delegate { return true; })) {
+            ssl.ReadTimeout = ssl.WriteTimeout = 5000;
             ssl.AuthenticateAsClient("127.0.0.1", null,
               System.Security.Authentication.SslProtocols.Tls12, false);
 
@@ -352,7 +423,9 @@ namespace NowPlaying {
             if (hdrEnd < 0) { _lastHttpError = "malformed response"; return null; }
             string head = Encoding.ASCII.GetString(all, 0, hdrEnd);
             string statusLine = head.Split('\r')[0];
-            if (statusLine.IndexOf(" 200", StringComparison.Ordinal) < 0) {
+            string[] statusParts = statusLine.Split(' ');
+            if (statusParts.Length > 1) int.TryParse(statusParts[1], out status);
+            if (status != 200) {
               _lastHttpError = statusLine;
               return null;
             }
@@ -364,6 +437,7 @@ namespace NowPlaying {
               body = new byte[all.Length - bodyStart];
               Array.Copy(all, bodyStart, body, 0, body.Length);
             }
+            _lastHttpError = "";
             return body;
           }
         }
@@ -529,17 +603,17 @@ namespace NowPlaying {
         ranked = q.StartsWith("RANKED_SOLO", StringComparison.Ordinal)
               || q.StartsWith("RANKED_FLEX", StringComparison.Ordinal);
 
-        object stats = Nav(root, "localPlayer", "stats");
+        object stats = TwitchEvents.Nav(root, "localPlayer", "stats");
         if (stats == null) return false;
-        if (Nav(stats, "WIN") != null) {
+        if (TwitchEvents.Nav(stats, "WIN") != null) {
           win = LNav(stats, "WIN") == 1;
         } else {
           // No WIN key: read it off the teams instead. Announcing a defeat as
           // a victory is the single most embarrassing thing this line can do,
           // and unlike the record it is never corrected afterwards - history
           // does not re-announce - so it is worth a second way to know.
-          long mine = LNav(Nav(root, "localPlayer"), "teamId");
-          var teams = Nav(root, "teams") as object[];
+          long mine = LNav(TwitchEvents.Nav(root, "localPlayer"), "teamId");
+          var teams = TwitchEvents.Nav(root, "teams") as object[];
           bool found = false;
           if (teams != null) {
             foreach (var t in teams) {
@@ -574,7 +648,7 @@ namespace NowPlaying {
       try {
         object root = TwitchEvents.NavPublic(json);
         foreach (var q in new[] { "RANKED_SOLO_5x5", "RANKED_FLEX_SR" }) {
-          object entry = Nav(root, "queueMap", q);
+          object entry = TwitchEvents.Nav(root, "queueMap", q);
           if (entry == null) continue;
           string t = TwitchEvents.SNavPublic(entry, "tier").Trim();
           if (t.Length == 0 || t == "NONE" || t == "UNRANKED") continue;
@@ -619,31 +693,35 @@ namespace NowPlaying {
     // Game stats announcer switched off - it costs one local call when a
     // viewer asks, which is the resource model the features page promises.
     static void FetchRank() {
-      int port; string pw;
-      if (!FindLockfile(out port, out pw)) return;
-      // Who before how much. This is reachable from !rank with the tracker
-      // switched off, and then the poll loop has never run and nobody has
-      // asked the client who is playing - which is the identity the day's LP
-      // baseline is filed under.
-      if (_puuid.Length == 0) RefreshIdentity(port, pw, false);
-      string body = LcuGet(port, pw, "/lol-ranked/v1/current-ranked-stats");
-      if (body == null) return;
-      string tier, div, queue; int lp, wins, losses;
-      if (!ParseRankedStats(body, out tier, out div, out lp, out wins, out losses, out queue)) return;
-      int abs = AbsoluteLp(tier, div, lp);
-      lock (_resultLock) {
-        _rankTier = tier; _rankDiv = div; _rankLp = lp;
-        _rankWins = wins; _rankLosses = losses; _rankQueue = queue;
-        _rankLine = ComposeRankLine(tier, div, lp, wins, losses, queue);
+      lock (_historyLock) {
+        int port; string pw;
+        if (!FindLockfile(out port, out pw)) return;
+        // Who before how much. This is reachable from !rank with the tracker
+        // switched off, and then the poll loop has never run and nobody has
+        // asked the client who is playing - which is the identity the day's LP
+        // baseline is filed under.
+        RefreshIdentity(port, pw, false);
+        _rankFetchedUtc = DateTime.UtcNow; // failures also respect the refresh interval
+        string body = LcuGet(port, pw, "/lol-ranked/v1/current-ranked-stats");
+        if (body == null) return;
+        string tier, div, queue; int lp, wins, losses;
+        if (!ParseRankedStats(body, out tier, out div, out lp, out wins, out losses, out queue)) return;
+        int abs = AbsoluteLp(tier, div, lp);
+        lock (_resultLock) {
+          _rankTier = tier; _rankDiv = div; _rankLp = lp;
+          _rankWins = wins; _rankLosses = losses; _rankQueue = queue;
+          _rankLine = ComposeRankLine(tier, div, lp, wins, losses, queue);
+        }
+        _rankFetchedUtc = DateTime.UtcNow;
+        RollDaySnapshot(abs);
       }
-      _rankFetchedUtc = DateTime.UtcNow;
-      RollDaySnapshot(abs);
     }
 
     // What !rank says. Answers from a recent read where possible; otherwise
     // asks the client directly, right now, so the reply is never a stale rank
     // - the entire reason this replaced a hand-typed text command.
     public static string RankCommandLine() {
+      if (!Program.LeagueFeatureOn) return "League integration is paused on the Features page.";
       if ((DateTime.UtcNow - _rankFetchedUtc).TotalSeconds > 120) FetchRank();
       string line;
       lock (_resultLock) { line = _rankLine; }
@@ -691,17 +769,38 @@ namespace NowPlaying {
     // Name and puuid together, from the one endpoint that has both, so the
     // puuid can never lag the name the day used to be keyed on.
     static void RefreshIdentity(int port, string pw, bool announce) {
-      string me = LcuGet(port, pw, "/lol-summoner/v1/current-summoner");
-      if (me == null) return;
-      object root = TwitchEvents.NavPublic(me);
-      string name = TwitchEvents.SNavPublic(root, "displayName");
-      if (name.Length == 0) name = TwitchEvents.SNavPublic(root, "gameName");
-      string id = TwitchEvents.SNavPublic(root, "puuid");
-      if (id.Length > 0) _puuid = id;
-      if (name.Length > 0 && name != _summoner) {
-        if (announce && _summoner.Length > 0)
-          AppLog.Write("league: account is now " + name + " (was " + _summoner + ")");
-        _summoner = name;
+      lock (_historyLock) {
+        string me = LcuGet(port, pw, "/lol-summoner/v1/current-summoner");
+        if (me == null) return;
+        object root = TwitchEvents.NavPublic(me);
+        string name = TwitchEvents.SNavPublic(root, "displayName");
+        if (name.Length == 0) name = TwitchEvents.SNavPublic(root, "gameName");
+        string id = TwitchEvents.SNavPublic(root, "puuid");
+        if (id.Length > 0 && id != _puuid) {
+          lock (_resultLock) {
+            EnsureDayLoaded();
+            if (_dayKey.Length > 0 && !DayKeyMatches(_dayKey, DayStamp(), id, name)) {
+              _pendingTodayId = 0;
+            }
+            _record = _lastLine = _newestAt = _rankLine = "";
+            _rankTier = _rankDiv = _rankQueue = "";
+            _rankLp = _rankWins = _rankLosses = 0;
+            _hasLpToday = false;
+            _newestGameId = _eogAnnouncedId = _historyNewestAny = _cachedNewestAny = _endedGameId = 0;
+            Interlocked.Exchange(ref _gameEndedTicks, 0);
+            Interlocked.Exchange(ref _historyVisibleTicks, 0);
+            Interlocked.Increment(ref _phaseGeneration);
+            _historyPages.Clear(); _historyDay = ""; _deepAt = DateTime.MinValue;
+            _rankFetchedUtc = DateTime.MinValue;
+            _todayJson = "[]"; _todayWinsB = new int[4]; _todayLossesB = new int[4];
+            _puuid = id;
+          }
+        }
+        if (name.Length > 0 && name != _summoner) {
+          if (announce && _summoner.Length > 0)
+            AppLog.Write("league: account is now " + name + " (was " + _summoner + ")");
+          _summoner = name;
+        }
       }
     }
 
@@ -1011,22 +1110,14 @@ namespace NowPlaying {
     // This endpoint's participants[] holds only the current player, so the
     // first entry's stats block is the streamer's own numbers.
     static object FirstParticipantStats(object game) {
-      var parts = Nav(game, "participants") as object[];
+      var parts = TwitchEvents.Nav(game, "participants") as object[];
       if (parts == null || parts.Length == 0) return null;
-      return Nav(parts[0], "stats");
+      return TwitchEvents.Nav(parts[0], "stats");
     }
 
-    static object Nav(object o, params string[] path) {
-      foreach (var key in path) {
-        var d = o as Dictionary<string, object>;
-        if (d == null) return null;
-        if (!d.TryGetValue(key, out o)) return null;
-      }
-      return o;
-    }
 
     static long LNav(object o, string key) {
-      var v = Nav(o, key);
+      var v = TwitchEvents.Nav(o, key);
       if (v == null) return 0;
       try { return Convert.ToInt64(v); } catch { return 0; }
     }
@@ -1052,73 +1143,61 @@ namespace NowPlaying {
     static string _pendingTodayDay = "";   // the local day it belongs to
 
     static bool TryEogAnnounce(int port, string pw) {
-      string eog = LcuGet(port, pw, "/lol-end-of-game/v1/eog-stats-block");
-      if (eog == null) return false;      // 404 between games: the normal answer
-      long gid; bool ranked, win; string last;
-      if (!ParseEog(eog, out gid, out ranked, out win, out last)) return false;
-      // A non-ranked game is not announced (the line is ranked-only) and must
-      // not touch _newestGameId either: that field tracks the newest RANKED
-      // game, because history never reports any other kind as newest. Aiming
-      // it at an ARAM would make the next history poll see an unfamiliar id
-      // and re-announce the ranked game before it.
-      if (!ranked) return false;
-      lock (_resultLock) {
-        // Before the hold is set, not after. WriteDayFile loads first so it can
-        // never blank a stored baseline, and a load AFTER assignment would read
-        // the old hold straight back over the new one.
-        EnsureDayLoaded();
-        // Equal means already announced; smaller means the screen is still
-        // showing the PREVIOUS game because this one's has not replaced it
-        // yet. Both are "say nothing and look again in two seconds", and
-        // both would otherwise put a game chat has already heard about - or
-        // one older than that - back on screen as news.
-        if (gid <= _newestGameId) return false;
-        _newestGameId = gid;
-        _eogAnnouncedId = gid;
-        _lastLine = last;
-        // Today's tally has the same news now, rather than whenever Riot gets
-        // round to publishing it. Ranked only, which is all this path handles
-        // and all that can move LP - the two numbers that were disagreeing.
-        _pendingTodayId = gid;
-        _pendingTodayWin = win;
-        _pendingTodayDay = DayStamp();
-        // To disk immediately. The hold used to live only in memory, so an
-        // update or a crash inside the publishing window - which is minutes
-        // long, and the update button restarts the app - dropped the game back
-        // out of today until Riot caught up. This is the write-on-every-game
-        // cost that was left on the table when the hold was added; it is one
-        // small file next to a match that took half an hour.
-        WriteDayFile();
-        // The record reads newest-first, so this result goes on the front of
-        // whatever the last history read established. History replaces the
-        // whole string within the minute - starting with the same letter
-        // this line just claimed, because both read the same game.
-        var letters = new List<string>();
-        letters.Add(win ? "W" : "L");
-        if (_record.Length > 0) letters.AddRange(_record.Split(' '));
-        while (letters.Count > 5) letters.RemoveAt(letters.Count - 1);
-        _record = string.Join(" ", letters.ToArray());
+      lock (_historyLock) {
+        string eog = LcuGet(port, pw, "/lol-end-of-game/v1/eog-stats-block");
+        if (eog == null) return false;      // 404 between games: the normal answer
+        long gid; bool ranked, win; string last;
+        if (!ParseEog(eog, out gid, out ranked, out win, out last)) return false;
+        // A non-ranked game is not announced (the line is ranked-only) and must
+        // not touch _newestGameId either: that field tracks the newest RANKED
+        // game, because history never reports any other kind as newest. Aiming
+        // it at an ARAM would make the next history poll see an unfamiliar id
+        // and re-announce the ranked game before it.
+        if (_endedGameId != 0 && gid != _endedGameId) return false;
+        _endedGameId = gid;
+        if (!ranked) return true;
+        lock (_resultLock) {
+          // Before the hold is set, not after. WriteDayFile loads first so it can
+          // never blank a stored baseline, and a load AFTER assignment would read
+          // the old hold straight back over the new one.
+          EnsureDayLoaded();
+          // Equal means already announced; smaller means the screen is still
+          // showing the PREVIOUS game because this one's has not replaced it
+          // yet. Both are "say nothing and look again in two seconds", and
+          // both would otherwise put a game chat has already heard about - or
+          // one older than that - back on screen as news.
+          if (gid <= _newestGameId) return false;
+          _newestGameId = gid;
+          _eogAnnouncedId = gid;
+          _lastLine = last;
+          // Today's tally has the same news now, rather than whenever Riot gets
+          // round to publishing it. Ranked only, which is all this path handles
+          // and all that can move LP - the two numbers that were disagreeing.
+          _pendingTodayId = gid;
+          _pendingTodayWin = win;
+          _pendingTodayDay = DayStamp();
+          // To disk immediately. The hold used to live only in memory, so an
+          // update or a crash inside the publishing window - which is minutes
+          // long, and the update button restarts the app - dropped the game back
+          // out of today until Riot caught up. This is the write-on-every-game
+          // cost that was left on the table when the hold was added; it is one
+          // small file next to a match that took half an hour.
+          WriteDayFile();
+          // The record reads newest-first, so this result goes on the front of
+          // whatever the last history read established. History replaces the
+          // whole string within the minute - starting with the same letter
+          // this line just claimed, because both read the same game.
+          var letters = new List<string>();
+          letters.Add(win ? "W" : "L");
+          if (_record.Length > 0) letters.AddRange(_record.Split(' '));
+          while (letters.Count > 5) letters.RemoveAt(letters.Count - 1);
+          _record = string.Join(" ", letters.ToArray());
+        }
+        Interlocked.Increment(ref _resultSeq);
+        AppLog.Write("league: announced from the end-of-game screen (game " + gid + ")");
+        TwitchChat.OnGameEnded(ChatLine());
+        return true;
       }
-      Interlocked.Increment(ref _resultSeq);
-      AppLog.Write("league: announced from the end-of-game screen (game " + gid + ")");
-      TwitchChat.OnGameEnded(ChatLine());
-      return true;
-    }
-
-    // -------------------------------------------------------------- resync
-    // A game ending is the one moment everything derived from the client is
-    // known to be stale, and the natural place to start clean. What drifts
-    // over a long session is not the numbers so much as the caches under
-    // them: who you are, and who you were just playing with. Both are read
-    // once and then trusted forever, which is fine for an evening and wrong
-    // by the end of a weekend.
-    static void ResyncAfterGame(int port, string pw) {
-      // Only ever replaced by a real answer, never blanked first: a failed
-      // re-read would leave the identity empty, and an empty identity is what
-      // used to hand the day's LP baseline to whatever the ladder said next.
-      RefreshIdentity(port, pw, true);
-      LobbyRanks.ForgetRanks();
-      _lastHttpError = "";        // last game's transport trouble is not this game's
     }
 
     // ------------------------------------------------------------------ loop
@@ -1128,265 +1207,189 @@ namespace NowPlaying {
       t.Start();
     }
 
-    static void Loop() {
-      string phase = "";
-      int freshPolls = 0;        // >0 = a game just ended; chase the updated history
-      int eogTries = 0;          // >0 = still hoping the end-of-game screen appears
-      DateTime lastHistory = DateTime.MinValue;
-      DateTime lastDeep = DateTime.MinValue;   // last walk past page one
+    internal static bool PostGame(string phase) {
+      return phase == "WaitingForStats" || phase == "PreEndOfGame" || phase == "EndOfGame";
+    }
 
+    // One bounded history schedule, independent of the fast end-screen read.
+    internal sealed class PollSchedule {
+      internal DateTime NextHistory = DateTime.MinValue, Ended = DateTime.MinValue;
+      internal string Phase = "";
+      internal int Attempt;
+      bool _playing;
+      static readonly int[] Offsets = { 5, 10, 20, 40, 80 };
+
+      internal bool Observe(string phase, DateTime now) {
+        if (phase == "InProgress") _playing = true;
+        bool ended = _playing && PostGame(phase);
+        if (ended) _playing = false;
+        if (phase == "None" || phase == "Lobby" || phase == "ChampSelect") _playing = false;
+        Phase = phase;
+        if (ended) { Ended = now; Attempt = 0; NextHistory = now.AddSeconds(Offsets[0]); }
+        return ended;
+      }
+      internal bool Due(DateTime now) { return now >= NextHistory; }
+      internal void Read(DateTime now) {
+        if (Ended != DateTime.MinValue && ++Attempt < Offsets.Length) {
+          NextHistory = Ended.AddSeconds(Offsets[Attempt]);
+          if (NextHistory < now.AddSeconds(5)) NextHistory = now.AddSeconds(5);
+        } else Finish(now);
+      }
+      internal void Finish(DateTime now) { Ended = DateTime.MinValue; NextHistory = now.AddMinutes(5); }
+    }
+
+    static List<string> _historyPages = new List<string>();
+    static long _historyNewestAny, _cachedNewestAny, _endedGameId;
+    static string _historyDay = "";
+    static DateTime _deepAt = DateTime.MinValue;
+
+    // The live loop and the offline check use exactly the same pagination and
+    // result publication. No client or clock is needed to exercise a long day.
+    internal static long RefreshHistory(Func<int, string> read, DateTime now) {
+      lock (_historyLock) {
+        string first = read(0);
+        if (first == null) return 0;
+        var firstGames = TwitchEvents.NavPublic(first, "games", "games") as object[];
+        if (firstGames == null) { _status = "error"; _detail = "Unexpected match history response"; return 0; }
+        long newestAny = 0;
+        foreach (var game in firstGames) newestAny = Math.Max(newestAny, LNav(game, "gameId"));
+        // An older backend snapshot must not undo already-published results.
+        if (newestAny < _historyNewestAny) return newestAny;
+        long since = LocalMidnightEpochMs();
+        string day = DayStamp();
+        var pages = new List<string>();
+        pages.Add(first);
+        bool complete = !MayHoldMoreOfToday(first, since);
+        bool exhausted = !PageIsFull(first);
+        bool reuse = newestAny == _cachedNewestAny && day == _historyDay
+                  && (now - _deepAt).TotalSeconds < 300;
+        if (reuse) {
+          for (int i = 1; i < _historyPages.Count; i++) pages.Add(_historyPages[i]);
+          string tail = pages[pages.Count - 1];
+          complete = !MayHoldMoreOfToday(tail, since);
+          exhausted = !PageIsFull(tail);
+        } else {
+          for (int p = 1; p < HistoryPagesMax && !exhausted
+               && (!complete || RankedIn(pages) < RecordLength); p++) {
+            string more = read(p);
+            if (more == null || TwitchEvents.NavPublic(more, "games", "games") as object[] == null) break;
+            pages.Add(more);
+            complete = complete || !MayHoldMoreOfToday(more, since);
+            exhausted = !PageIsFull(more);
+          }
+        }
+        // Failed deeper reads get another chance on the next scheduled pass.
+        // Reaching the deliberate page cap is cacheable too: repeating the same
+        // 200 games cannot make an incomplete answer more complete.
+        bool recordComplete = exhausted || RankedIn(pages) >= RecordLength;
+        if (complete && recordComplete || pages.Count == HistoryPagesMax) {
+          _historyPages = pages; _cachedNewestAny = newestAny; _historyDay = day; _deepAt = now;
+        }
+        string record, last, at; long rankedId;
+        bool hasRanked = ParseHistoryPages(pages, out record, out last, out rankedId, out at);
+        string today; int[] wins, losses;
+        if (!ParseTodayPages(pages, since, out today, out wins, out losses)) return 0;
+        bool announce;
+        lock (_resultLock) {
+          EnsureDayLoaded();
+          announce = hasRanked && _newestGameId != 0 && rankedId > _newestGameId;
+          if (hasRanked && rankedId >= _newestGameId && recordComplete) {
+            _record = record; _lastLine = last; _newestGameId = rankedId; _newestAt = at;
+          }
+          if (_pendingTodayId != 0) {
+            if (newestAny >= _pendingTodayId || _pendingTodayDay != day) {
+              _pendingTodayId = 0; WriteDayFile();
+            } else {
+              today = SpliceToday(today, _pendingTodayWin);
+              if (_pendingTodayWin) wins[0]++; else losses[0]++;
+            }
+          }
+          if (complete) {
+            _todayJson = today; _todayWinsB = wins; _todayLossesB = losses;
+            _todayPages = pages.Count;
+          }
+          _historyNewestAny = newestAny;
+        }
+        _status = "live";
+        _detail = complete && recordComplete ? "" : "History is incomplete; keeping the last complete totals";
+        if (announce && recordComplete) {
+          Interlocked.Increment(ref _resultSeq);
+          TwitchChat.OnGameEnded(ChatLine());
+        }
+        return newestAny;
+      }
+    }
+
+    static void Loop() {
+      var schedule = new PollSchedule();
+      int eogTries = 0;
+      long playingId = 0, beforeGame = 0;
+      string account = "";
       while (true) {
         try {
-          // Two consumers can want this loop: the bot's Game stats switch,
-          // and a session-tracker overlay that has polled /league-state in
-          // the last half minute. Either keeps it alive; with neither, the
-          // League client is left entirely alone - the features-page promise.
-          bool active = _enabled
-                     || DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks);
+          bool active = Program.LeagueFeatureOn && (_enabled
+            || DateTime.UtcNow.Ticks < Interlocked.Read(ref _wantedUntilTicks));
           if (!active) {
-            // Re-asserted every pass, not just in SetEnabled: a poll that was
-            // mid-flight when the switch flipped can land afterwards and
-            // stamp "live" over the off state - this wins the race by being
-            // repeated.
-            _status = "off"; _detail = "";
-            Thread.Sleep(2000);
-            continue;
+            _status = Program.LeagueFeatureOn ? "off" : "paused"; _detail = "";
+            schedule = new PollSchedule(); eogTries = 0; playingId = 0;
+            Thread.Sleep(2000); continue;
           }
-
           int port; string pw;
           if (!FindLockfile(out port, out pw)) {
             _status = "no-client";
-            // Two different people act on these: one starts League, the
-            // other types the install folder into the Chat bot tab.
-            _detail = _clientSeen
-              ? "League looks like it is running, but the app cannot find its "
-                + "files - point it at the League folder on the Chat bot tab"
-              : "the League client is not running on this PC";
-            phase = ""; freshPolls = 0; eogTries = 0;
-            Thread.Sleep(10000);
-            continue;
+            _detail = _clientSeen ? "Point the Chat bot tab at the League install folder"
+                                  : "the League client is not running on this PC";
+            schedule = new PollSchedule(); eogTries = 0; playingId = 0;
+            Thread.Sleep(10000); continue;
           }
-          // Phase first: it is the cheap call, and the InProgress -> ended
-          // transition is the moment the announcement exists for.
           string ph = LcuGet(port, pw, "/lol-gameflow/v1/gameflow-phase");
           if (ph == null) {
-            // Client up but API not answering (still booting, or the port
-            // just changed). The transport error rides along so a machine
-            // that never connects can be diagnosed from the dashboard.
-            _status = "no-client";
-            _detail = "the League client is starting up"
-                    + (_lastHttpError.Length > 0 ? " (" + _lastHttpError + ")" : "");
-            Thread.Sleep(10000);
-            continue;
+            _status = "no-client"; _detail = _lastHttpError;
+            Thread.Sleep(10000); continue;
           }
           ph = ph.Trim().Trim('"');
-          _phaseNow = ph;
-          Interlocked.Exchange(ref _phaseAtTicks, DateTime.UtcNow.Ticks);
-          bool gameJustEnded = phase == "InProgress" && ph != "InProgress";
-          phase = ph;
-          if (gameJustEnded) {
+          // Re-read identity periodically too: a client can switch accounts
+          // without this process or its TCP listener restarting.
+          if (_puuid.Length == 0 || schedule.Due(DateTime.UtcNow)) RefreshIdentity(port, pw, false);
+          if (account != _puuid) {
+            account = _puuid; schedule = new PollSchedule(); eogTries = 0; playingId = 0;
+          }
+          if (ph == "InProgress" && schedule.Phase != "InProgress" && schedule.Phase != "Reconnect") {
+            string session = LcuGet(port, pw, "/lol-gameflow/v1/session");
+            playingId = session == null ? 0 : LNav(TwitchEvents.NavPublic(session, "gameData"), "gameId");
+            beforeGame = _historyNewestAny;
+          }
+          bool ended = schedule.Observe(ph, DateTime.UtcNow);
+          if (ended) {
+            Interlocked.Exchange(ref _gameEndedTicks, DateTime.UtcNow.Ticks);
+            Interlocked.Exchange(ref _historyVisibleTicks, 0);
+            _endedGameId = playingId; eogTries = 15;
             AppLog.Write("league: game ended (phase -> " + ph + ")");
-            ResyncAfterGame(port, pw);
-            // History lags the end screen by anywhere up to a minute, and the
-            // announcement is only as fast as the poll that finds it. 45
-            // attempts at the 2s chase cadence below is the same ~90s of
-            // patience as before, checked five times as often, so the line
-            // lands within a couple of seconds of the result existing
-            // instead of within ten.
-            freshPolls = 45;
-            // ...but the client knows the result NOW, so try that first. The
-            // block does not appear at the exact instant the phase turns
-            // (it arrives with the post-game screen a moment later), hence a
-            // window of tries rather than one shot: ~30s at the chase
-            // cadence, after which the screen was plainly skipped and
-            // history is the only road left.
-            eogTries = 15;
           }
           if (eogTries > 0) {
             eogTries--;
-            // The chase is deliberately NOT shortened on success. The line is
-            // out, but the day's tallies and the true five-game record still
-            // only exist in history - and "caughtUp" below ends the chase the
-            // moment they land, which is sooner than any timer I could pick.
             if (TryEogAnnounce(port, pw)) eogTries = 0;
           }
-
-          if (_summoner.Length == 0 || _puuid.Length == 0)
-            RefreshIdentity(port, pw, false);
-
-          bool wantHistory = freshPolls > 0
-                          || (DateTime.UtcNow - lastHistory).TotalSeconds > 300
-                          || _newestGameId == 0;
-          if (wantHistory) {
-            if (freshPolls > 0) freshPolls--;
-            string hist = HistoryPage(port, pw, 0);
-            if (hist != null) {
-              lastHistory = DateTime.UtcNow;
-              string record, lastLine, at; long newest;
-              if (ParseHistory(hist, out record, out lastLine, out newest, out at)) {
-                bool isNew;
-                long since = LocalMidnightEpochMs();
-
-                // One page used to be the whole story, and for most days it
-                // still is. It is not the story on a long one: twenty games
-                // covers a normal evening and nothing like a full session, and
-                // every game past the twentieth - ARAMs and practice games
-                // included, because they take a slot without being counted -
-                // pushed one of today's real games out of the window. The
-                // tally did not report a problem. It just quietly went short,
-                // which is exactly what "after a lot of games it stops working
-                // properly" looks like from the outside.
-                //
-                // So walk back until a page reaches past local midnight. That
-                // is the only definition of "all of today" that does not rest
-                // on a number somebody guessed, and it costs nothing on a day
-                // that fits in one page: the walk stops before asking twice.
-                var pages = new List<string>();
-                pages.Add(hist);
-                bool complete = !MayHoldMoreOfToday(hist, since);
-                // The record has its own reason to keep asking. "Past 5 ranked"
-                // read one page too, so an evening of ARAMs pushed the ranked
-                // games off the end and the line came back with three results
-                // and no sign that it had been cut short. Unlike the day this
-                // is not bounded by midnight - it walks until five ranked games
-                // exist or the account runs out of history.
-                bool recordShort = RankedIn(pages) < RecordLength && PageIsFull(hist);
-                if (!complete || recordShort) {
-                  long known;
-                  lock (_resultLock) known = _newestGameId;
-                  // Deep walks are rationed. Today's tally cannot move until a
-                  // game lands, so re-reading forty games every two seconds
-                  // through a chase would be a great deal of asking for an
-                  // answer that is already known. A new game, a cold start or
-                  // a minute passing each earn one.
-                  if (newest > known || known == 0
-                      || (DateTime.UtcNow - lastDeep).TotalSeconds > 60) {
-                    lastDeep = DateTime.UtcNow;
-                    bool lostClient = false;
-                    for (int p = 1; p < HistoryPagesMax; p++) {
-                      string more = HistoryPage(port, pw, p);
-                      if (more == null) { lostClient = true; break; }
-                      pages.Add(more);
-                      if (!MayHoldMoreOfToday(more, since)) complete = true;
-                      // Nothing older to ask for, so both questions are as
-                      // answered as they are going to get.
-                      if (!PageIsFull(more)) { complete = true; break; }
-                      if (complete && RankedIn(pages) >= RecordLength) break;
-                    }
-                    // Running out of pages is not a failure - two hundred games
-                    // is not one day, and a tally that stops updating would be
-                    // a worse bug than a deep one that is bounded. Losing the
-                    // client mid-walk is a failure, and leaves it incomplete.
-                    if (!lostClient) complete = true;
-                  }
-                }
-
-                // Re-read the record off everything the walk gathered. On a day
-                // that fitted in one page this is the same payload and the same
-                // answer; on a long one it is the difference between five
-                // ranked games and however few page one happened to hold.
-                if (pages.Count > 1) {
-                  string r2, l2, a2; long n2;
-                  if (ParseHistoryPages(pages, out r2, out l2, out n2, out a2)) {
-                    record = r2; lastLine = l2; at = a2;
-                    if (n2 != 0) newest = n2;
-                  }
-                }
-
-                string todayJson; int[] tw, tl;
-                if (!ParseTodayPages(pages, since, out todayJson, out tw, out tl)) {
-                  todayJson = "[]"; tw = new int[4]; tl = new int[4];
-                  complete = false;
-                }
-                bool caughtUp, behind;
-                lock (_resultLock) {
-                  // A hold written before a restart has to be in hand before
-                  // the release check below decides whether to let it go.
-                  EnsureDayLoaded();
-                  // Is this history payload OLDER than what is already known?
-                  // It can be, now that the end-of-game screen gets there
-                  // first: for up to a minute afterwards every history read
-                  // still describes the game before last. Game ids climb, so
-                  // "smaller than what we hold" is exactly "out of date".
-                  //
-                  // This is not hypothetical - it shipped broken for one
-                  // evening. The stale payload was written straight over the
-                  // fresh result AND passed the old "different id" test for
-                  // new-ness, so two seconds after the correct announcement a
-                  // second one went out naming the game before it, and the
-                  // newest-game pointer walked backwards.
-                  behind = newest != 0 && newest < _newestGameId;
-                  // Strictly newer, not merely different: "different" reads a
-                  // backwards step as news.
-                  isNew = !behind && _newestGameId != 0 && newest > _newestGameId;
-                  // The game the end-of-game screen announced has now landed
-                  // in history: the tallies and the true record are in hand,
-                  // so there is nothing left to chase.
-                  caughtUp = newest != 0 && newest == _eogAnnouncedId;
-                  // Nothing from a stale payload is taken - not the record,
-                  // not the last line, not the tallies. They are one snapshot
-                  // of one moment, and that moment has passed.
-                  if (!behind) {
-                    // Today is re-derived from history on every read, so a game
-                    // history has not published yet would vanish from the tally
-                    // it was already counted in. Hold the end-of-game screen's
-                    // game here until history catches up - ids climb, so
-                    // "newest is at least ours" means it has landed and the
-                    // hold can go, leaving it counted exactly once.
-                    if (_pendingTodayId != 0) {
-                      bool released = false;
-                      if (newest >= _pendingTodayId) {
-                        _pendingTodayId = 0; released = true;
-                      } else if (_pendingTodayDay == DayStamp()) {
-                        todayJson = SpliceToday(todayJson, _pendingTodayWin);
-                        if (_pendingTodayWin) tw[0]++; else tl[0]++;
-                      } else {
-                        _pendingTodayId = 0; released = true;   // last night's game
-                      }
-                      // Let go on disk as well, or the next start would splice
-                      // in a game history has been carrying for hours.
-                      if (released) WriteDayFile();
-                    }
-                    _record = record; _lastLine = lastLine;
-                    if (newest != 0) _newestGameId = newest;
-                    _newestAt = at;
-                    // A tally known to be short is worse than one a minute old:
-                    // the old one was right when it was written. Only a read
-                    // that actually reached the start of the day replaces it.
-                    if (complete) {
-                      _todayJson = todayJson;
-                      _todayWinsB = tw; _todayLossesB = tl;
-                      _todayPages = pages.Count;
-                    }
-                  }
-                }
-                _status = "live"; _detail = "";
-                if (caughtUp) freshPolls = 0;
-                if (isNew) {
-                  Interlocked.Increment(ref _resultSeq);
-                  freshPolls = 0;              // found the new game; stop chasing
-                  TwitchChat.OnGameEnded(ChatLine());
-                }
-              } else if (_status != "live") {
-                _status = "error";
-                _detail = "the League client answered, but the match history had an unexpected shape";
-              }
+          if (schedule.Due(DateTime.UtcNow)) {
+            // Stamp attempts, including failures and empty/non-ranked history.
+            // None of those may turn the idle loop into a request chase.
+            schedule.Read(DateTime.UtcNow);
+            long newest = RefreshHistory(delegate(int page) { return HistoryPage(port, pw, page); }, DateTime.UtcNow);
+            if (Interlocked.Read(ref _gameEndedTicks) != 0 && Interlocked.Read(ref _historyVisibleTicks) == 0
+                && ((_endedGameId != 0 && newest >= _endedGameId)
+                    || (_endedGameId == 0 && beforeGame != 0 && newest > beforeGame))) {
+              Interlocked.Exchange(ref _historyVisibleTicks, DateTime.UtcNow.Ticks);
+              AppLog.Write("league: finished match is visible in history");
+              schedule.Finish(DateTime.UtcNow);
+              FetchRank();
             }
           }
-          // Rank rides the same pass: refreshed after a game lands (that is
-          // when it moves) and every few minutes otherwise, so !rank and the
-          // tracker answer from a warm cache.
-          if ((DateTime.UtcNow - _rankFetchedUtc).TotalSeconds > 300 || gameJustEnded)
-            FetchRank();
-          if (_status == "no-client") { _status = "live"; _detail = ""; }
-        } catch (Exception ex) {
-          _status = "error"; _detail = ex.Message;
-        }
-        // Three speeds, because the cost of a poll and the value of a poll
-        // are not constant. Chasing a just-finished result is worth 2s;
-        // watching a game that is going to end soon is worth 4s so the
-        // transition is not sat on; idling between games is worth 10s.
-        Thread.Sleep(freshPolls > 0 ? 2000 : (phase == "InProgress" ? 4000 : 10000));
+          if ((DateTime.UtcNow - _rankFetchedUtc).TotalSeconds > 300 || ended) FetchRank();
+        } catch (Exception ex) { _status = "error"; _detail = ex.Message; }
+        int sleep = eogTries > 0 ? 2000 : schedule.Phase == "InProgress" ? 4000 : 10000;
+        double untilHistory = (schedule.NextHistory - DateTime.UtcNow).TotalMilliseconds;
+        if (untilHistory > 0) sleep = Math.Min(sleep, Math.Max(1000, (int)Math.Min(untilHistory, 10000)));
+        Thread.Sleep(sleep);
       }
     }
 
@@ -1404,6 +1407,7 @@ namespace NowPlaying {
 
     // What !record answers when there is nothing to say yet.
     public static string CommandLine() {
+      if (!Program.LeagueFeatureOn) return "League integration is paused on the Features page.";
       string line = ChatLine();
       if (line.Length > 0) return line;
       if (!_enabled) return "Game stats are switched off.";
@@ -1452,6 +1456,7 @@ namespace NowPlaying {
       sb.Append("\"heldGame\":").Append(TwitchChat.Qs(held)).Append(',');
       sb.Append("\"seen\":").Append(_clientSeen ? "true" : "false").Append(',');
       sb.Append("\"via\":").Append(TwitchChat.Qs(_foundVia)).Append(',');
+      sb.Append("\"traffic\":").Append(TrafficJson()).Append(',');
       sb.Append("\"pathSet\":").Append(TwitchChat.Qs((Program.GetPref("leaguePath") ?? "").Trim()));
       sb.Append('}');
       return sb.ToString();
