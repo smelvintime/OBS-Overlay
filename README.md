@@ -58,6 +58,8 @@ the music side at all.
 > Settings, Twitch connection and OBS sources all carry over; the restart
 > takes two or three seconds, the overlays blink once — on air included —
 > and come back on their own.
+> Automatic installation waits when a recent League status read reports an active
+> match, champ select, or post-game screen. Manual installation remains available.
 >
 > A gold **Update ready — install now** button still appears if you catch
 > one before the automatic pass does, and a quiet **Check for updates** link
@@ -121,6 +123,12 @@ icon → **Open dashboard…**):
 | **How to use** | The same guidance, inside the app |
 
 ## Digging deeper
+
+**League client feels slow?** Turn off **Features → League integration** to stop
+all League requests, including loaded tracker sources and Ghost watch. Existing
+results stay visible; music and Twitch continue. The Chat bot page's **League
+request diagnostics** shows request counts, timings, and what is requesting data.
+See [League troubleshooting](docs/reference.md#league-traffic-and-troubleshooting).
 
 | Guide | Covers |
 |---|---|
