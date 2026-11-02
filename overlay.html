@@ -1083,12 +1083,25 @@ if(window.NPO) NPO.themeBoot('source');
     NPO.stream('/spectrum', function(d){
       if(!d.bands){ return; }
       // If audio capture is unavailable, fall back to the canned animation
-      // rather than showing a row of dead bars.
-      if(!d.active){ if(++quietFrames>90) setLive(false); return; }
+      // rather than showing a row of dead bars. Until then keep drawing what
+      // the server sends: while capture reconnects (a device change, a new
+      // player) it sends bands easing down to silence, and holding the last
+      // live frame instead looked exactly like the equaliser had frozen.
+      if(!d.active){
+        if(++quietFrames>90) setLive(false);
+        else if(liveOn) applyBands(d.bands);
+        return;
+      }
       quietFrames=0;
       setLive(true);
       applyBands(d.bands);
-    }, { retryMs: 2000, onDown: function(){ setLive(false); } });
+    }, {
+      retryMs: 2000,
+      // The server streams ~30 frames a second no matter what is playing, so
+      // three seconds of nothing is a dead connection that never said so.
+      stallMs: 3000,
+      onDown: function(){ setLive(false); }
+    });
   }
 
   function tick(){

@@ -34,6 +34,9 @@ namespace NowPlaying {
     interface IMMDevice {
       [PreserveSig] int Activate(ref Guid iid, int ctx, IntPtr p,
                                  [MarshalAs(UnmanagedType.IUnknown)] out object o);
+      [PreserveSig] int OpenPropertyStore_Stub();
+      // The endpoint's ID string, CoTaskMem-allocated; the LPWStr marshaller frees it.
+      [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
     }
 
     [ComImport, Guid("1CB9AD4C-DBFA-4c32-B178-C2F568A703B2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -161,7 +164,58 @@ namespace NowPlaying {
     static volatile string _status = "not started";
     static volatile int _silentFor;                    // consecutive silent reads
     static long _lastAudioTicks;                       // when real samples last arrived
+    static long _lastAudibleTicks;                     // when samples above the floor last arrived
     static bool _gated;                                // input is below the silence floor
+    static byte[] _pkt = new byte[0];                  // capture-thread scratch for one packet
+
+    // ------------------------------------------------------------ uptime guards
+    // Everything below exists because "the bars went static" had several
+    // independent causes, none of which the old loop could recover from on its
+    // own - each one parked the meter until the app was restarted:
+    //
+    //  * Switching the default output device (speakers -> headphones) does NOT
+    //    invalidate a loopback client on the old device. It is still a valid
+    //    device, merely a silent one, so capture carried on forever listening
+    //    to nothing. Whole-device capture now re-checks the default endpoint.
+    //  * A per-process capture aimed at a process that is not the one making
+    //    the sound reports success and then delivers silence while the music
+    //    plays. If the player says "playing" and its own capture stays silent,
+    //    the analyser falls back to whole-device capture for that process.
+    //  * A WASAPI call that never returns (audiodg hiccup, driver reset) froze
+    //    the capture thread with the last audible frame still in the ring. A
+    //    watchdog notices the missing heartbeat and starts a fresh thread.
+    //  * One NaN sample - or a 32-bit integer mix format read as float, where
+    //    every small negative sample IS a NaN bit pattern - poisoned the gain
+    //    state for good, and every bar sat at the floor from then on. Samples
+    //    are decoded by their real format, sanitised, and the analyser resets
+    //    any state that is no longer a finite number.
+    static int _started;
+    static int _captureGen;                            // bumps when the watchdog replaces the thread
+    static long _beatTicks;                            // capture thread's last sign of life
+    static volatile bool _inSession;                   // inside CaptureOnce (where a hang can happen)
+    static volatile bool _playing;                     // what the overlay's player reports
+    static long _playingSinceTicks;
+    static volatile int _deafPid;                      // per-process capture heard nothing from this pid
+
+    const long StallTicks = 8 * TimeSpan.TicksPerSecond;   // > the 3s activation wait plus setup
+    const long DeafTicks = 6 * TimeSpan.TicksPerSecond;    // longer than a gap between tracks
+    const long DeviceCheckTicks = 2 * TimeSpan.TicksPerSecond;
+
+    static void Beat() { Interlocked.Exchange(ref _beatTicks, DateTime.UtcNow.Ticks); }
+    static bool Finite(double d) { return !double.IsNaN(d) && !double.IsInfinity(d); }
+
+    /// <summary>True once Start() has run.</summary>
+    public static bool Started { get { return _started != 0; } }
+
+    /// <summary>
+    /// Whether the player the overlay is showing says it is playing. Only used
+    /// to tell "the music is quiet" apart from "this capture cannot hear the
+    /// music" - a paused player never triggers a capture fallback.
+    /// </summary>
+    public static void SetPlaying(bool on) {
+      if (on && !_playing) Interlocked.Exchange(ref _playingSinceTicks, DateTime.UtcNow.Ticks);
+      _playing = on;
+    }
 
     static readonly double[] _smoothed = new double[Bands];
     static double _agc = 0.02;                         // adapts to overall volume
@@ -182,17 +236,31 @@ namespace NowPlaying {
     // device", which is the fallback when the player cannot be identified.
     static volatile int _targetPid;
     static volatile string _targetName = "";
-    public static string Target { get { return _targetPid == 0 ? "(all system audio)" : _targetName; } }
+    public static string Target {
+      get {
+        int pid = _targetPid;
+        if (pid == 0) return "(all system audio)";
+        if (pid == _deafPid) return "(all system audio - " + _targetName + " gave no sound on its own)";
+        return _targetName;
+      }
+    }
 
     /// <summary>
     /// Point the analyser at the app the overlay is currently showing, so other
     /// audio (voice chat, a video in a browser tab) cannot move the bars.
     /// </summary>
     public static void SetTargetApp(string appId) {
+      appId = appId ?? "";
+      // Sticky. This runs every second, and re-resolving each time let the
+      // chosen pid flip between processes of the same app (window shown vs
+      // hidden to tray, enumeration order) - and every flip tore capture down
+      // and rebuilt it, a gap in the bars each time. Same app, same process
+      // still alive: nothing to do.
+      if (appId == _targetName && _targetPid != 0 && StillRunning(_targetPid, appId)) return;
       int pid = ResolvePid(appId);
+      _targetName = appId;
       if (pid != _targetPid) {
         _targetPid = pid;
-        _targetName = appId ?? "";
         _restart = true;          // capture loop tears down and re-activates
       }
     }
@@ -200,13 +268,26 @@ namespace NowPlaying {
     static volatile bool _restart;
 
     // "Spotify.exe" -> Spotify, "AppleInc.iTunes_xyz!iTunes" -> iTunes.
-    static int ResolvePid(string appId) {
-      if (string.IsNullOrEmpty(appId)) return 0;
-      string hint = appId;
+    static string ProcessHint(string appId) {
+      string hint = appId ?? "";
       int bang = hint.LastIndexOf('!');
       if (bang >= 0 && bang < hint.Length - 1) hint = hint.Substring(bang + 1);
       if (hint.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         hint = hint.Substring(0, hint.Length - 4);
+      return hint;
+    }
+
+    // Name check as well as liveness, so a recycled pid is not mistaken for the player.
+    static bool StillRunning(int pid, string appId) {
+      try {
+        using (var p = System.Diagnostics.Process.GetProcessById(pid))
+          return p.ProcessName.Equals(ProcessHint(appId), StringComparison.OrdinalIgnoreCase);
+      } catch { return false; }     // GetProcessById throws once the process is gone
+    }
+
+    static int ResolvePid(string appId) {
+      if (string.IsNullOrEmpty(appId)) return 0;
+      string hint = ProcessHint(appId);
       System.Diagnostics.Process[] procs = null;
       try {
         procs = System.Diagnostics.Process.GetProcessesByName(hint);
@@ -235,49 +316,101 @@ namespace NowPlaying {
     // frames and the bars would speed up as clients joined.
     static volatile int[] _bandsOut = new int[Bands];
 
+    // Safe to call more than once: the Features page can switch the engine on
+    // while the app is running, and a second capture thread would fight the
+    // first over the ring.
     public static void Start() {
-      var cap = new Thread(CaptureLoop);
-      cap.IsBackground = true;
-      cap.Priority = ThreadPriority.AboveNormal;   // audio capture must keep up
-      cap.Start();
+      if (Interlocked.Exchange(ref _started, 1) != 0) return;
+      SpawnCapture();
 
       var an = new Thread(AnalyzeLoop);
       an.IsBackground = true;
       an.Start();
     }
 
+    static void SpawnCapture() {
+      int gen = Interlocked.Increment(ref _captureGen);
+      Beat();
+      var cap = new Thread(() => CaptureLoop(gen));
+      cap.IsBackground = true;
+      cap.Priority = ThreadPriority.AboveNormal;   // audio capture must keep up
+      cap.Start();
+    }
+
     static void AnalyzeLoop() {
       while (true) {
+        try { Watchdog(); } catch { }
         try { _bandsOut = Compute(); } catch { }
         Thread.Sleep(33);      // ~30fps, matching the SSE frame rate
       }
     }
 
+    // A capture thread stuck inside a WASAPI call cannot be interrupted, and
+    // aborting a thread mid-COM-call is worse than leaving it. So it is
+    // abandoned instead: the generation moves on, a fresh thread takes over,
+    // and if the old one ever does return it sees it is stale and exits.
+    static void Watchdog() {
+      if (!_inSession) return;
+      if (DateTime.UtcNow.Ticks - Interlocked.Read(ref _beatTicks) < StallTicks) return;
+      _inSession = false;
+      _running = false;
+      FeedSilence(0);          // never let the analyser chew on the frozen last frame
+      _status = "audio capture stalled - restarting it";
+      try { AppLog.Write("equaliser: capture thread stalled in WASAPI; starting a fresh one"); } catch { }
+      SpawnCapture();
+    }
+
     /// <summary>Latest band levels, 0-100, low frequency first.</summary>
     public static int[] Read() { return _bandsOut; }
 
-    // Reconnects on its own: switching output device, or unplugging headphones,
-    // invalidates the client, and the overlay should recover without a restart.
-    static void CaptureLoop() {
+    // Reconnects on its own after anything that ends a session: an unplugged
+    // device, a changed default device, a switch of player, a deaf per-process
+    // capture. The overlay should recover without a restart, every time.
+    static void CaptureLoop(int gen) {
       // Once per thread, not once per attempt - repeated init calls only
       // stack up apartment ref counts that nothing ever undoes.
       CoInitializeEx(IntPtr.Zero, 0 /*COINIT_MULTITHREADED*/);
       int failSecs = 2;
-      while (true) {
-        try { CaptureOnce(); }
-        catch (Exception ex) { _status = "error: " + ex.Message; }
+      while (gen == _captureGen) {
+        Beat();
+        try { CaptureOnce(gen); }
+        catch (Exception ex) { if (gen == _captureGen) _status = "error: " + ex.Message; }
+        if (gen != _captureGen) return;      // the watchdog replaced this thread
         bool wasCapturing = _running;
+        bool requested = _restart;
         _running = false;
-        // A session that actually captured, or a deliberate target switch,
-        // deserves a quick retry. A session that never got going will almost
-        // certainly fail the same way next time, and re-activating WASAPI
-        // every two seconds forever churns the audio engine (and its driver)
-        // for nothing - back off instead, and snap back the moment a session
-        // works again so recovery after a device change stays fast.
-        if (wasCapturing || _restart) failSecs = 2;
+        // Whatever was in the ring belongs to the session that just ended.
+        FeedSilence(0);
+        // A deliberate restart (new player, new default device, deaf capture)
+        // knows exactly what it wants next, so it goes straight back in. The
+        // old 2s pause here was a 2s gap in the bars on every track that
+        // changed player.
+        if (requested) { failSecs = 2; Thread.Sleep(150); continue; }
+        // A session that actually captured deserves a quick retry. A session
+        // that never got going will almost certainly fail the same way next
+        // time, and re-activating WASAPI every two seconds forever churns the
+        // audio engine (and its driver) for nothing - back off instead, and
+        // snap back the moment a session works again so recovery after a
+        // device change stays fast. Sliced, so a restart request mid-backoff
+        // is acted on at once instead of up to thirty seconds later.
+        if (wasCapturing) failSecs = 2;
         else failSecs = Math.Min(failSecs * 2, 30);
-        Thread.Sleep(failSecs * 1000);
+        for (int ms = 0; ms < failSecs * 1000 && !_restart && gen == _captureGen; ms += 250) {
+          Beat();
+          Thread.Sleep(250);
+        }
       }
+    }
+
+    // Current default render endpoint's ID, or null if there is none.
+    static string DefaultDeviceId(IMMDeviceEnumerator en) {
+      IMMDevice d = null;
+      try {
+        if (en.GetDefaultAudioEndpoint(0 /*eRender*/, 0 /*eConsole*/, out d) != 0 || d == null) return null;
+        string id;
+        return d.GetId(out id) == 0 ? id : null;
+      } catch { return null; }
+      finally { if (d != null) { try { Marshal.ReleaseComObject(d); } catch { } } }
     }
 
     // Activates a client that hears only the given process tree. Returns null if
@@ -314,9 +447,64 @@ namespace NowPlaying {
       }
     }
 
-    static void CaptureOnce() {
+    // Sample encodings the mix format can come in. Shared-mode mix formats are
+    // nearly always 32-bit float, but "nearly" is not uptime: pro and USB
+    // interfaces hand out 24-bit and 32-bit integer mixes, and reading a 32-bit
+    // integer as a float turns every small negative sample into a NaN.
+    const int KindNone = 0, KindF32 = 1, KindF64 = 2, KindI16 = 3, KindI24 = 4, KindI32 = 5, KindU8 = 6;
+    const ushort WAVE_FORMAT_PCM = 1, WAVE_FORMAT_IEEE_FLOAT = 3, WAVE_FORMAT_EXTENSIBLE = 0xFFFE;
+
+    static int SampleKind(IntPtr pFmt, WAVEFORMATEX fmt) {
+      bool isFloat;
+      if (fmt.wFormatTag == WAVE_FORMAT_IEEE_FLOAT) isFloat = true;
+      else if (fmt.wFormatTag == WAVE_FORMAT_PCM) isFloat = false;
+      else if (fmt.wFormatTag == WAVE_FORMAT_EXTENSIBLE && fmt.cbSize >= 22) {
+        // SubFormat GUID sits at byte 24 (18 bytes of WAVEFORMATEX, then
+        // wValidBitsPerSample and dwChannelMask). Its first field is the
+        // plain format tag; the rest is the fixed KSDATAFORMAT base GUID.
+        int sub = Marshal.ReadInt32(pFmt, 24);
+        if (sub == WAVE_FORMAT_IEEE_FLOAT) isFloat = true;
+        else if (sub == WAVE_FORMAT_PCM) isFloat = false;
+        else return KindNone;
+      } else return KindNone;
+      switch (fmt.wBitsPerSample) {
+        case 8:  return isFloat ? KindNone : KindU8;
+        case 16: return isFloat ? KindNone : KindI16;
+        case 24: return isFloat ? KindNone : KindI24;
+        // 24-in-32 integer is MSB-aligned, so reading it as a full 32-bit
+        // value is already right.
+        case 32: return isFloat ? KindF32 : KindI32;
+        case 64: return isFloat ? KindF64 : KindNone;
+      }
+      return KindNone;
+    }
+
+    static float Sample(byte[] b, int o, int kind) {
+      float v;
+      switch (kind) {
+        case KindF32: v = BitConverter.ToSingle(b, o); break;
+        case KindF64: v = (float)BitConverter.ToDouble(b, o); break;
+        case KindI16: v = (short)(b[o] | (b[o + 1] << 8)) / 32768f; break;
+        case KindI24: v = ((b[o] << 8) | (b[o + 1] << 16) | (b[o + 2] << 24)) / 2147483648f; break;
+        case KindI32: v = BitConverter.ToInt32(b, o) / 2147483648f; break;
+        case KindU8:  v = (b[o] - 128) / 128f; break;
+        default: return 0f;
+      }
+      // NaN fails both comparisons and lands on 0. One bad sample from a
+      // glitching driver must never reach the FFT: it would make the gain
+      // state NaN, and NaN never compares its way back out again.
+      if (v >= -1f && v <= 1f) return v;
+      return v > 1f ? 1f : (v < -1f ? -1f : 0f);
+    }
+
+    const float AudibleSample = 3.0e-4f;   // same -70 dBFS line as SilenceRms below
+
+    static void CaptureOnce(int gen) {
       _restart = false;
       int pid = _targetPid;
+      if (gen != _captureGen) return;
+      _inSession = true;
+      Beat();
 
       IAudioClient client = null;
       // Every COM object taken here is released in the one finally below.
@@ -325,6 +513,8 @@ namespace NowPlaying {
       // GC eventually finalises them lets dead clients accumulate across
       // reconnects on a process that can run for days.
       object enObj = null, devObj = null, capObj = null, failedProcClient = null;
+      IMMDeviceEnumerator en = null;
+      string devId = null;
       WAVEFORMATEX fmt;
       IntPtr pFmt = IntPtr.Zero;
       bool pFmtIsHGlobal = false;   // GetMixFormat allocates CoTaskMem instead
@@ -332,7 +522,10 @@ namespace NowPlaying {
       bool perProcess = false;
 
       try {
-        if (pid != 0) client = ActivateProcessLoopback(pid);
+        // A pid whose own capture already proved deaf stays on whole-device
+        // capture until the player changes or restarts (a new pid).
+        if (pid != 0 && pid != _deafPid) client = ActivateProcessLoopback(pid);
+        Beat();
 
         if (client != null) {
           perProcess = true;
@@ -358,13 +551,16 @@ namespace NowPlaying {
         }
 
         if (client == null) {
-          var en = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
+          en = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
           enObj = en;
           IMMDevice dev;
           if (en.GetDefaultAudioEndpoint(0 /*eRender*/, 0 /*eConsole*/, out dev) != 0 || dev == null) {
             _status = "no output device"; return;
           }
           devObj = dev;
+          // Remembered so the loop below can tell when Windows' default output
+          // moves elsewhere - which leaves THIS client valid but silent.
+          try { if (dev.GetId(out devId) != 0) devId = null; } catch { devId = null; }
           Guid iidClient = typeof(IAudioClient).GUID;
           object o;
           if (dev.Activate(ref iidClient, 1 /*CLSCTX_INPROC_SERVER*/, IntPtr.Zero, out o) != 0) {
@@ -378,6 +574,14 @@ namespace NowPlaying {
         } else {
           fmt = (WAVEFORMATEX)Marshal.PtrToStructure(pFmt, typeof(WAVEFORMATEX));
         }
+        Beat();
+
+        int kind = SampleKind(pFmt, fmt);
+        if (kind == KindNone) {
+          _status = "unsupported audio format (tag 0x" + fmt.wFormatTag.ToString("x4")
+                    + ", " + fmt.wBitsPerSample + "-bit)";
+          return;
+        }
 
         Guid iidCap = typeof(IAudioCaptureClient).GUID;
         object oc;
@@ -387,17 +591,57 @@ namespace NowPlaying {
 
         lock (_lock) { _rate = fmt.nSamplesPerSec; }
         client.Start();
+        if (gen != _captureGen) return;   // replaced while starting; let the new thread own state
         _running = true;
-        _status = (perProcess ? "capturing " + _targetName + " only" : "capturing all system audio")
-                  + " (" + fmt.nChannels + "ch " + fmt.nSamplesPerSec + "Hz)";
+        string capturing = perProcess ? "capturing " + _targetName + " only"
+                         : (pid != 0 && pid == _deafPid
+                              ? "capturing all system audio (" + _targetName + " gave no sound on its own)"
+                              : "capturing all system audio");
+        _status = capturing + " (" + fmt.nChannels + "ch " + fmt.nSamplesPerSec + "Hz)";
 
         int channels = Math.Max(1, (int)fmt.nChannels);
         int bytesPerSample = fmt.wBitsPerSample / 8;
-        int stride = channels * bytesPerSample;
+        int stride = Math.Max((int)fmt.nBlockAlign, channels * bytesPerSample);
+        long startTicks = DateTime.UtcNow.Ticks;
+        long lastDevCheck = startTicks;
 
         while (true) {
-          if (_restart) break;          // the overlay switched to another player
+          Beat();
+          if (_restart || gen != _captureGen) break;   // switched player, or replaced
           if (perProcess) WaitForSingleObject(hEvent, 200);
+          long now = DateTime.UtcNow.Ticks;
+
+          // Deaf per-process capture: the player has said "playing" for a
+          // while, this capture has heard nothing above the floor for just as
+          // long. Whatever the reason (audio from a process outside the tree,
+          // an OS build where process loopback activates but stays silent),
+          // whole-device capture can hear it - switch to that.
+          if (perProcess && _playing) {
+            long since = Math.Max(startTicks,
+                         Math.Max(Interlocked.Read(ref _playingSinceTicks), Interlocked.Read(ref _lastAudibleTicks)));
+            if (now - since > DeafTicks) {
+              _deafPid = pid;
+              _status = _targetName + " gave no sound on its own - switching to all system audio";
+              try { AppLog.Write("equaliser: per-process capture of " + _targetName
+                                 + " stayed silent while playing; using whole-device capture"); } catch { }
+              _restart = true;
+              break;
+            }
+          }
+
+          // Default output moved (speakers -> headphones, a new USB device):
+          // the client on the old device stays valid and goes silent rather
+          // than erroring, so it has to be noticed rather than waited for.
+          if (!perProcess && en != null && devId != null && now - lastDevCheck > DeviceCheckTicks) {
+            lastDevCheck = now;
+            string cur = DefaultDeviceId(en);
+            if (cur != null && !string.Equals(cur, devId, StringComparison.OrdinalIgnoreCase)) {
+              _status = "default output device changed - reconnecting";
+              try { AppLog.Write("equaliser: default output device changed; reconnecting capture"); } catch { }
+              _restart = true;
+              break;
+            }
+          }
 
           uint next;
           if (cap.GetNextPacketSize(out next) != 0) break;
@@ -407,7 +651,7 @@ namespace NowPlaying {
             // Nothing has been delivered for a quarter second, so the ring
             // still holds the last music that played - and Compute() would
             // go on analysing that same frozen frame forever. See FeedSilence.
-            if (DateTime.UtcNow.Ticks - _lastAudioTicks > 2500000) FeedSilence(0);
+            if (now - Interlocked.Read(ref _lastAudioTicks) > 2500000) FeedSilence(0);
             continue;
           }
 
@@ -424,26 +668,31 @@ namespace NowPlaying {
           }
           else {
             _silentFor = 0;
-            _lastAudioTicks = DateTime.UtcNow.Ticks;
+            Interlocked.Exchange(ref _lastAudioTicks, now);
+            // One bulk copy instead of a marshalled read (and, for floats, a
+            // byte[] allocation) per sample: at 48kHz that was ~100k small
+            // allocations a second for the GC to chase.
+            int bytes = (int)frames * stride;
+            if (_pkt.Length < bytes) _pkt = new byte[bytes];
+            Marshal.Copy(data, _pkt, 0, bytes);
+            float loudest = 0f;
             lock (_lock) {
               for (int i = 0; i < frames; i++) {
-                float v;
                 int off = i * stride;
-                if (fmt.wBitsPerSample == 32) {
-                  v = ReadFloat(data, off);
-                  if (channels > 1) v = (v + ReadFloat(data, off + bytesPerSample)) * 0.5f;
-                } else if (fmt.wBitsPerSample == 16) {
-                  v = Marshal.ReadInt16(data, off) / 32768f;
-                  if (channels > 1) v = (v + Marshal.ReadInt16(data, off + 2) / 32768f) * 0.5f;
-                } else continue;
+                float v = Sample(_pkt, off, kind);
+                if (channels > 1) v = (v + Sample(_pkt, off + bytesPerSample, kind)) * 0.5f;
+                float a = v < 0 ? -v : v;
+                if (a > loudest) loudest = a;
                 _ring[_ringPos] = v;
                 _ringPos = (_ringPos + 1) % FftSize;
               }
             }
+            if (loudest > AudibleSample) Interlocked.Exchange(ref _lastAudibleTicks, now);
           }
           cap.ReleaseBuffer(frames);
         }
       } finally {
+        if (gen == _captureGen) _inSession = false;
         if (client != null) { try { client.Stop(); } catch { } }
         if (hEvent != IntPtr.Zero) { try { CloseHandle(hEvent); } catch { } }
         if (pFmt != IntPtr.Zero) {
@@ -458,10 +707,6 @@ namespace NowPlaying {
         if (devObj != null) { try { Marshal.ReleaseComObject(devObj); } catch { } }
         if (enObj != null) { try { Marshal.ReleaseComObject(enObj); } catch { } }
       }
-    }
-
-    static float ReadFloat(IntPtr p, int off) {
-      return BitConverter.ToSingle(BitConverter.GetBytes(Marshal.ReadInt32(p, off)), 0);
     }
 
     /// <summary>
@@ -536,6 +781,15 @@ namespace NowPlaying {
         }
         rms = Math.Sqrt(sumsq / FftSize);
       }
+      if (!Finite(rms)) rms = 0;
+
+      // Self-heal. Samples are sanitised on the way in, so this should never
+      // fire - but the cost of state that is NaN is a meter that is dead until
+      // the app restarts, and the cost of this check is nothing.
+      if (!Finite(_agc)) {
+        _agc = 0.02;
+        for (int b = 0; b < Bands; b++) { _ref[b] = 0; _smoothed[b] = 0; }
+      }
 
       Transform(_re, _im);
 
@@ -572,6 +826,7 @@ namespace NowPlaying {
         }
         // Music has far less energy up high; tilt so treble bars stay visible.
         peak *= 1.0 + 2.5 * ((double)b / Bands);
+        if (!Finite(peak)) peak = 0;
         raw[b] = peak;
         if (peak > frameMax) frameMax = peak;
       }
@@ -620,6 +875,8 @@ namespace NowPlaying {
       // dividing noise by noise is 1.0, which would light the whole meter up.
       const double PerBand = 0.75;      // 0 = old global behaviour, 1 = fully per-band
       for (int b = 0; b < Bands; b++) {
+        if (!Finite(_ref[b])) _ref[b] = 0;
+        if (!Finite(_smoothed[b])) _smoothed[b] = 0;
         if (raw[b] > _ref[b]) _ref[b] = raw[b];             // snap up on a transient
         else _ref[b] += (raw[b] - _ref[b]) * 0.015;         // then let go slowly
 
