@@ -822,6 +822,7 @@ namespace NowPlaying {
             lock (_mediaLock) { DropITunes(); }
             _current = new Snapshot();
             AudioSpectrum.SetTargetApp("");
+            AudioSpectrum.SetPlaying(false);
             Thread.Sleep(1000);
             continue;
           }
@@ -848,6 +849,9 @@ namespace NowPlaying {
           // Keep the equaliser listening to whatever the overlay is showing, so
           // voice chat or a video in another tab cannot drive the bars.
           AudioSpectrum.SetTargetApp(snap.App);
+          // Lets the analyser tell a quiet song from a capture that cannot
+          // hear the song at all, and fall back when it is the latter.
+          AudioSpectrum.SetPlaying(snap.Playing);
         } catch {
           // never let a transient media-API failure kill the poller
         }
@@ -1344,7 +1348,13 @@ namespace NowPlaying {
             string fw = QueryParam(path, "what") ?? "";
             bool fon = (QueryParam(path, "value") ?? "") == "1";
             if (fw == "overlay") _featOverlay = fon;
-            else if (fw == "eq") _featEq = fon;
+            else if (fw == "eq") {
+              _featEq = fon;
+              // Switching it ON no longer waits for a restart: Start() is
+              // idempotent, so an engine that was off at boot simply starts
+              // now and the bars go live within a second or two.
+              if (fon && !AudioSpectrum.Started) { AudioSpectrum.Start(); _bootEq = true; }
+            }
             else if (fw == "twitch") _featTwitch = fon;
             SaveSettings();
             AppLog.Write("features: " + fw + " -> " + (fon ? "on" : "off"));

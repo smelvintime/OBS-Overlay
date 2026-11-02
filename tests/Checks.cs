@@ -34,7 +34,7 @@ namespace NowPlaying {
     static int Main() {
       try {
         Set(typeof(LeagueStats), "_dayLoaded", true); // fixtures never touch the user's day file
-        ParserChecks(); ScheduleChecks(); HistoryChecks(); TransportAndRosterChecks(); HeaderChecks();
+        ParserChecks(); ScheduleChecks(); HistoryChecks(); TransportAndRosterChecks(); HeaderChecks(); EqualiserChecks();
         Console.WriteLine(_checks + " checks passed (offline; no app startup or user settings writes).");
         return 0;
       } catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -255,6 +255,41 @@ namespace NowPlaying {
         Equal(LeagueStats.BusyWithGame(), false, "stale phase cannot defer updates forever");
         Equal(client.Errors.Count, 0, "mock transport errors");
       }
+    }
+
+    // The live equaliser's two ways of dying silently: a sample that is not a
+    // finite number reaching the analyser, and analyser state that already is
+    // not one. Either used to park every bar at the floor until a restart.
+    static void EqualiserChecks() {
+      Type a = typeof(AudioSpectrum);
+      int f32 = (int)Get(a, "KindF32"), i32 = (int)Get(a, "KindI32"), i24 = (int)Get(a, "KindI24"), i16 = (int)Get(a, "KindI16");
+      Equal(Call(a, "Sample", BitConverter.GetBytes(float.NaN), 0, f32), 0f, "NaN sample is silence");
+      Equal(Call(a, "Sample", BitConverter.GetBytes(float.PositiveInfinity), 0, f32), 1f, "infinite sample is clamped");
+      Equal(Call(a, "Sample", BitConverter.GetBytes(0.5f), 0, f32), 0.5f, "float sample");
+      // -1 as a 32-bit integer is 0xFFFFFFFF: a NaN if misread as float.
+      Equal(Math.Abs((float)Call(a, "Sample", BitConverter.GetBytes(-1), 0, i32)) < 1e-6f, true, "int32 sample is not misread as float");
+      Equal(Call(a, "Sample", BitConverter.GetBytes(int.MinValue), 0, i32), -1f, "int32 full scale");
+      Equal(Call(a, "Sample", new byte[] { 0, 0, 0x40 }, 0, i24), 0.5f, "24-bit sample");
+      Equal(Call(a, "Sample", BitConverter.GetBytes((short)-16384), 0, i16), -0.5f, "16-bit sample");
+
+      // Poisoned state heals on the next frame instead of sticking forever.
+      Set(a, "_agc", double.NaN);
+      ((double[])Get(a, "_smoothed"))[3] = double.NaN;
+      ((double[])Get(a, "_ref"))[5] = double.PositiveInfinity;
+      Call(a, "Compute");
+      Equal(double.IsNaN((double)Get(a, "_agc")), false, "gain recovers from NaN");
+      Equal(double.IsNaN(((double[])Get(a, "_smoothed"))[3]), false, "band smoothing recovers from NaN");
+      Equal(double.IsInfinity(((double[])Get(a, "_ref"))[5]), false, "band reference recovers from infinity");
+
+      // And it still moves afterwards: a loud tone lights its band up.
+      var ring = (float[])Get(a, "_ring");
+      for (int i = 0; i < ring.Length; i++) ring[i] = (float)(0.5 * Math.Sin(2 * Math.PI * 1000 * i / 48000.0));
+      int[] bands = null;
+      for (int k = 0; k < 10; k++) bands = (int[])Call(a, "Compute");
+      int top = 0;
+      foreach (int v in bands) if (v > top) top = v;
+      Equal(top > 50, true, "a tone after recovery moves the bars");
+      Array.Clear(ring, 0, ring.Length);
     }
 
     static void HeaderChecks() {

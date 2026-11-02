@@ -223,11 +223,23 @@
      just alternate quietly at the usual retry pace until it returns, which
      is no worse than retrying one transport forever and ends the same way. */
 
+  /* opts.stallMs: the stream is meant to be continuous, so going quiet for
+     this long means it is dead even though nothing said so. A half-open
+     socket (a machine waking from sleep, an AV proxy that holds the response
+     open and forwards nothing, a server thread wedged mid-write) never fires
+     close or error - and the equaliser used to sit frozen on its last frame
+     for as long as that lasted, which could be the rest of the stream. With a
+     stall timeout the attempt is torn down and reconnected like any other
+     drop. Only for streams that really are continuous: /spectrum sends ~30
+     frames a second whatever is playing, whereas /twitch/events is quiet for
+     minutes at a time by design and must not pass this. */
   NPO.stream = function (path, onJson, opts) {
     opts = opts || {};
     var retry = opts.retryMs || 3000;
+    var stallMs = opts.stallMs || 0;
     var delivered;                  // did the CURRENT attempt produce a message?
     var wsWorked = false;           // has ANY WebSocket attempt delivered, ever?
+    var stallTimer = null;
     function handle(ev) {
       var d;
       try { d = JSON.parse(ev.data); } catch (e) { return; }
@@ -236,21 +248,27 @@
       onJson(d);
     }
     function down() { if (opts.onDown) opts.onDown(); }
+    function arm(kill) {
+      if (!stallMs) return;
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(kill, stallMs);
+    }
 
     var hasWs = !!window.WebSocket, hasSse = !!window.EventSource;
     if (!hasWs && !hasSse) return;
 
     function connectWs() {
       delivered = false;
-      var ws;
-      // The constructor itself can throw (a mangled host, a lying webview);
-      // uncaught it would end reconnection for good, which breaks the
-      // "silent and endless" promise every caller relies on.
-      try { ws = new WebSocket('ws://' + location.host + path); }
-      catch (e) { down(); setTimeout(hasSse ? connectSse : connectWs, retry); return; }
-      ws.onmessage = function (ev) { wsWorked = true; handle(ev); };
-      // Unlike EventSource, a WebSocket does not retry on its own.
-      ws.onclose = function () {
+      var ws, done = false;
+      // Exactly one way out per attempt, whether the socket closed or the
+      // stall timer gave up on it. Handlers are detached before close()
+      // because a close on a wedged socket waits for a closing handshake
+      // that is never coming - the next attempt must not wait with it.
+      function finish() {
+        if (done) return;
+        done = true;
+        clearTimeout(stallTimer);
+        try { ws.onmessage = ws.onclose = ws.onerror = null; ws.close(); } catch (e) {}
         down();
         // No frame ever arrived: a refused or stripped handshake looks
         // exactly like a server that is restarting, and the close code
@@ -261,26 +279,43 @@
         // broken, and falling back then would leak OBS sources into the
         // six-connection pool after every self-update restart.
         setTimeout(!delivered && !wsWorked && hasSse ? connectSse : connectWs, retry);
-      };
+      }
+      // The constructor itself can throw (a mangled host, a lying webview);
+      // uncaught it would end reconnection for good, which breaks the
+      // "silent and endless" promise every caller relies on.
+      try { ws = new WebSocket('ws://' + location.host + path); }
+      catch (e) { down(); setTimeout(hasSse ? connectSse : connectWs, retry); return; }
+      arm(finish);
+      ws.onmessage = function (ev) { wsWorked = true; arm(finish); handle(ev); };
+      // Unlike EventSource, a WebSocket does not retry on its own.
+      ws.onclose = finish;
     }
 
     function connectSse() {
       delivered = false;
-      var es;
+      var es, done = false;
+      function finish() {
+        if (done) return;
+        done = true;
+        clearTimeout(stallTimer);
+        try { es.onmessage = es.onerror = null; es.close(); } catch (e) {}
+        down();
+        // SSE that delivered is the transport that provably works here, so
+        // it gets the retry; one that never did hands WebSocket its turn back.
+        setTimeout(delivered ? connectSse : (hasWs ? connectWs : connectSse), retry);
+      }
       try { es = new EventSource(path); }
       catch (e) { down(); setTimeout(hasWs ? connectWs : connectSse, retry); return; }
-      es.onmessage = handle;
+      arm(finish);
+      es.onmessage = function (ev) { arm(finish); handle(ev); };
       es.onerror = function () {
-        down();
-        // Once SSE has delivered, its own reconnection is left alone - it
-        // is the transport that provably works here. Failing before the
-        // first message may equally be the transport's fault (a proxy that
-        // buffers the response into never arriving), so close it and give
-        // WebSocket its turn back.
-        if (!delivered) {
-          es.close();
-          setTimeout(hasWs ? connectWs : connectSse, retry);
-        }
+        // Once SSE has delivered, its own reconnection is left alone (the
+        // stall timer still backs it up if that reconnection never lands).
+        // Failing before the first message may equally be the transport's
+        // fault (a proxy that buffers the response into never arriving), so
+        // close it and give WebSocket its turn back.
+        if (!delivered) finish();
+        else down();
       };
     }
 
