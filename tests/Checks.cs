@@ -57,12 +57,9 @@ namespace NowPlaying {
       Equal(((object[])Field(ghosts, "hits")).Length, 4, "ghost matches");
       Equal(Field(ghosts, "norm"), Field(ghosts, "normExpected"), "ghost normalization");
       Equal(Field(ghosts, "variants"), Field(ghosts, "variantsExpected"), "ghost variants");
-      Equal(BotCommands.WinrateText(true, 3, 1, true, 210, 198),
-            "Today: 3W 1L (75% WR) in 4 ranked | Season: 210W 198L (51% WR) over 408 games", "!wr line");
-      Equal(BotCommands.WinrateText(true, 0, 0, true, 0, 0),
-            "Today: no ranked games yet | Season: no ranked games yet", "!wr with nothing played");
-      Equal(BotCommands.WinrateText(false, 5, 5, true, 1, 1), "Season: 1W 1L (50% WR) over 2 games", "!wr with Game stats off");
-      Equal(BotCommands.WinrateText(false, 0, 0, false, 0, 0), "", "!wr with no client falls back");
+      Equal(BotCommands.WinrateText(210, 198), "51% WR, 408 games", "!wr line");
+      Equal(BotCommands.WinrateText(1, 1), "50% WR, 2 games", "!wr rounding");
+      Equal(BotCommands.WinrateText(0, 0), "No ranked games yet this season.", "!wr with nothing played");
       Equal(BotCommands.BackPhrase("smelvintime", "how back are we?"), true, "restart phrase");
       Equal(BotCommands.BackPhrase("smelvintime", "How back are we?"), true, "restart phrase, capital H");
       Equal(BotCommands.BackPhrase("smelvintime", "How Back are we?"), false, "restart phrase is exact past the H");

@@ -388,10 +388,9 @@ In chat:
   the recent **ranked** record: *"Last game: Victory (12/3/8) - past 5 ranked:
   W W L W L"*. ARAMs, normals and the practice tool never muddy it — the
   record is the grind, and only the grind.
-- **`!wr`** (also `!winrate`) answers with the win rate and games played,
-  today and for the season: *"Today: 3W 1L (75% WR) in 4 ranked | Season:
-  210W 198L (51% WR) over 408 games"*. Ranked only, like `!record`. The
-  today half needs the Game stats switch on; the season half works without it.
+- **`!wr`** (also `!winrate`) answers with the season's ranked win rate and
+  games played: *"51% WR, 408 games"*. Read straight from the client like
+  `!rank`, so it works with the Game stats switch off.
 - **"how back are we?"** restarts the app from chat — for looking after an
   install from another PC. It answers **one Twitch account only** (set in
   `src/BotCommands.cs`); from anyone else, mods and the broadcaster included,
