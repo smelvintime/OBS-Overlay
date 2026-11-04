@@ -57,6 +57,12 @@ namespace NowPlaying {
       Equal(((object[])Field(ghosts, "hits")).Length, 4, "ghost matches");
       Equal(Field(ghosts, "norm"), Field(ghosts, "normExpected"), "ghost normalization");
       Equal(Field(ghosts, "variants"), Field(ghosts, "variantsExpected"), "ghost variants");
+      Equal(BotCommands.WinrateText(true, 3, 1, true, 210, 198),
+            "Today: 3W 1L (75% WR) in 4 ranked | Season: 210W 198L (51% WR) over 408 games", "!wr line");
+      Equal(BotCommands.WinrateText(true, 0, 0, true, 0, 0),
+            "Today: no ranked games yet | Season: no ranked games yet", "!wr with nothing played");
+      Equal(BotCommands.WinrateText(false, 5, 5, true, 1, 1), "Season: 1W 1L (50% WR) over 2 games", "!wr with Game stats off");
+      Equal(BotCommands.WinrateText(false, 0, 0, false, 0, 0), "", "!wr with no client falls back");
       string text = "quote\" slash\\ newline\n\r\t\u0001 \ud83c\udfb5";
       Equal(Json((string)Call(typeof(Program), "Q", text)), text, "JSON escaping");
       Equal(Call(typeof(Program), "Q", new object[] { null }), "\"\"", "null JSON convention");

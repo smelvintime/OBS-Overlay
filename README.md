@@ -35,8 +35,8 @@ the music side at all.
   missing a sniper beats accusing the wrong viewer
 - 🎥 **A webcam frame** — a themed border that sits over the camera so the
   whole scene speaks one language
-- 💬 **A chat bot** — `!song` for the current track, `!record` and `!rank`
-  answered live from the League client, follow thank-yous, your own text
+- 💬 **A chat bot** — `!song` for the current track, `!record`, `!rank` and
+  `!wr` answered live from the League client, follow thank-yous, your own text
   commands, and every live reply re-wordable in your own voice
 - 📦 **One ~500 KB exe.** Local only (`127.0.0.1`), nothing sent anywhere.
 
