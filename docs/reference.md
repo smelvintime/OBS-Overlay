@@ -134,7 +134,7 @@ the header and the log. The old exe is kept beside the new one as
 `NowPlayingOverlay.exe.old` until the next successful start, as a just-in-case
 copy.
 
-Automatic updates ask GitHub every four minutes — a fresh question each time,
+Automatic updates ask GitHub every two minutes — a fresh question each time,
 not a cached answer — and install when something new is found, on air or
 not, unless a recent League phase read reports champ select, a match, or the
 post-game screen. This defers automatic installation until a later check; it
@@ -143,7 +143,7 @@ The restart takes two or three seconds and every OBS source reconnects by
 itself; if the freshly built exe can't be spawned right away (an antivirus
 scanning a seconds-old unsigned file will briefly hold it), the handover is
 retried several times before the app ever asks you to restart it by hand.
-A failed build backs off for an hour rather than retrying every four minutes.
+A failed build backs off for an hour rather than retrying every two minutes.
 If a two-second blink mid-stream is ever not worth it, the **Auto** tickbox on
 the dashboard is the off switch.
 

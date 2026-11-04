@@ -76,8 +76,8 @@ namespace NowPlaying {
         // (Older installs get it from EnsureGhostsCommand the moment the
         // Ghost watch switch goes on.)
         new Cmd { Name = "ghosts",    Builtin = "ghosts",    Aliases = "ghosters,snipers", Cooldown = 30 },
-        // Win rate: today's ranked games and the whole season, with games
-        // played. Separate from !record/!wl, which is the recent streak.
+        // Win rate: the season's ranked win rate and games played. Separate
+        // from !record/!wl, which is the recent streak.
         new Cmd { Name = "wr",        Builtin = "winrate",   Aliases = "winrate", Cooldown = 15 },
         // Restarts this app from chat, so the person who looks after the
         // install can bring a stuck overlay back from another PC. Triggered
@@ -403,33 +403,19 @@ namespace NowPlaying {
 
     static string WL(int w, int l) { return w + "W " + l + "L"; }
 
-    // Today's ranked games next to the whole season. Today comes from the
-    // game tracker, so it only shows while Game stats is on; the season is
-    // the same on-demand client read !rank makes, so it works either way.
+    // The season's ranked win rate and games played, short. The same
+    // on-demand client read !rank makes, so it needs no Game stats switch.
     static string WinrateLine() {
       string stock = LeagueStats.RankCommandLine();   // refreshes the parts when stale
       string line, tier, div; int lp, sw, sl;
       LeagueStats.RankParts(out line, out tier, out div, out lp, out sw, out sl);
-      int[] w, l;
-      LeagueStats.TodayParts(out w, out l);
-      string s = WinrateText(LeagueStats.Status != "off", w[0], l[0], line.Length > 0, sw, sl);
-      return s.Length > 0 ? s : stock;
+      return line.Length > 0 ? WinrateText(sw, sl) : stock;
     }
 
-    // Pure, for the offline checks. Empty means nothing to say.
-    internal static string WinrateText(bool tracking, int tw, int tl, bool haveSeason, int sw, int sl) {
-      var parts = new List<string>();
-      if (tracking)
-        parts.Add(tw + tl == 0 ? "Today: no ranked games yet"
-                               : "Today: " + Rate(tw, tl) + " in " + (tw + tl) + " ranked");
-      if (haveSeason)
-        parts.Add(sw + sl == 0 ? "Season: no ranked games yet"
-                               : "Season: " + Rate(sw, sl) + " over " + (sw + sl) + " games");
-      return string.Join(" | ", parts.ToArray());
-    }
-
-    static string Rate(int w, int l) {
-      return WL(w, l) + " (" + (int)Math.Round(100.0 * w / (w + l), MidpointRounding.AwayFromZero) + "% WR)";
+    // Pure, for the offline checks.
+    internal static string WinrateText(int w, int l) {
+      if (w + l == 0) return "No ranked games yet this season.";
+      return (int)Math.Round(100.0 * w / (w + l), MidpointRounding.AwayFromZero) + "% WR, " + (w + l) + " games";
     }
 
     // Every rank in the current game. The stock line already says whose team

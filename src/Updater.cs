@@ -179,7 +179,7 @@ namespace NowPlaying {
       Thread.Sleep(40000);
       while (true) {
         try { AutoPass(); } catch { /* never let this thread be why the app dies */ }
-        Thread.Sleep(4 * 60 * 1000);
+        Thread.Sleep(2 * 60 * 1000);
       }
     }
 
@@ -190,9 +190,9 @@ namespace NowPlaying {
 
       // Forced, not cached: "as soon as possible" is the whole contract now,
       // and the 30-minute cache would turn a push into a half-hour wait. This
-      // pass runs every four minutes, so forcing it costs GitHub fifteen
+      // pass runs every two minutes, so forcing it costs GitHub thirty
       // anonymous requests an hour against a per-network limit of sixty -
-      // room to spare for the dashboard's own checks. A rate-limited or
+      // half left for the dashboard's own checks. A rate-limited or
       // failed check simply reads as "no update" until the next pass.
       CheckJson(true);
       bool avail; string note;
@@ -202,7 +202,7 @@ namespace NowPlaying {
 
       // An hour before another attempt. A build that fails - a compiler that
       // is not there, a half-pushed commit - would otherwise be retried every
-      // four minutes for as long as the machine is on.
+      // two minutes for as long as the machine is on.
       _autoNextUtc = DateTime.UtcNow.AddHours(1);
       _autoWhy = "installing";
       AppLog.Write("update: installing automatically - " + note);
