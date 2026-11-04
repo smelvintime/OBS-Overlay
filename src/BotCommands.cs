@@ -403,7 +403,7 @@ namespace NowPlaying {
 
     static string WL(int w, int l) { return w + "W " + l + "L"; }
 
-    // The season's ranked win rate and games played, short. The same
+    // The season's ranked win rate, wins and losses: "50% | 51-51". The same
     // on-demand client read !rank makes, so it needs no Game stats switch.
     static string WinrateLine() {
       string stock = LeagueStats.RankCommandLine();   // refreshes the parts when stale
@@ -415,7 +415,7 @@ namespace NowPlaying {
     // Pure, for the offline checks.
     internal static string WinrateText(int w, int l) {
       if (w + l == 0) return "No ranked games yet this season.";
-      return (int)Math.Round(100.0 * w / (w + l), MidpointRounding.AwayFromZero) + "% WR, " + (w + l) + " games";
+      return (int)Math.Round(100.0 * w / (w + l), MidpointRounding.AwayFromZero) + "% | " + w + "-" + l;
     }
 
     // Every rank in the current game. The stock line already says whose team
