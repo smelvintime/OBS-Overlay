@@ -57,8 +57,8 @@ namespace NowPlaying {
       Equal(((object[])Field(ghosts, "hits")).Length, 4, "ghost matches");
       Equal(Field(ghosts, "norm"), Field(ghosts, "normExpected"), "ghost normalization");
       Equal(Field(ghosts, "variants"), Field(ghosts, "variantsExpected"), "ghost variants");
-      Equal(BotCommands.WinrateText(210, 198), "51% WR, 408 games", "!wr line");
-      Equal(BotCommands.WinrateText(1, 1), "50% WR, 2 games", "!wr rounding");
+      Equal(BotCommands.WinrateText(210, 198), "51% | 210-198", "!wr line");
+      Equal(BotCommands.WinrateText(51, 51), "50% | 51-51", "!wr even");
       Equal(BotCommands.WinrateText(0, 0), "No ranked games yet this season.", "!wr with nothing played");
       Equal(BotCommands.BackPhrase("smelvintime", "how back are we?"), true, "restart phrase");
       Equal(BotCommands.BackPhrase("smelvintime", "How back are we?"), true, "restart phrase, capital H");
