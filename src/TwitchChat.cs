@@ -597,6 +597,11 @@ namespace NowPlaying {
                 _authFails = 0;
                 _wr = wr;      // from here the thanks flusher may speak too
                 AppLog.Write("chat: logged in as " + _botUser);
+                // Left by !restartoverlay just before the restart; said once.
+                if (Program.GetPref("chatBackMsg") == "1") {
+                  Program.SetPref("chatBackMsg", "");
+                  SendSide("We are so back", "(restart)", "restartoverlay");
+                }
                 break;
 
               case "AUTHFAIL":

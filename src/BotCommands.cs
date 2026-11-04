@@ -76,6 +76,14 @@ namespace NowPlaying {
         // (Older installs get it from EnsureGhostsCommand the moment the
         // Ghost watch switch goes on.)
         new Cmd { Name = "ghosts",    Builtin = "ghosts",    Aliases = "ghosters,snipers", Cooldown = 30 },
+        // Win rate: today's ranked games and the whole season, with games
+        // played. Separate from !record/!wl, which is the recent streak.
+        new Cmd { Name = "wr",        Builtin = "winrate",   Aliases = "winrate", Cooldown = 15 },
+        // Restarts this app from chat, so the person who looks after the
+        // install can bring a stuck overlay back from another PC. Answers
+        // RestartUser and nobody else (see TryRespond); a minute's cooldown so
+        // it cannot be looped.
+        new Cmd { Name = "restartoverlay", Builtin = "restart", Cooldown = 60 },
 
         // League. Links and text beat a Riot API key that expires every 24 hours
         // and takes an approved application to make permanent.
@@ -139,10 +147,31 @@ namespace NowPlaying {
           c.Enabled = true;
           upgraded = true;
         }
+        if (_cmds.Count == 0) { _cmds.AddRange(Defaults()); upgraded = true; }
+        // Defaults only seed an empty list, so a command added after an
+        // install was set up never reaches it on its own - an auto-update
+        // would bring the code but not the command. Each one listed here is
+        // put in exactly once and remembered in prefs, so deleting it later
+        // sticks, the same promise EnsureGhostsCommand makes.
+        string offered = "," + (Program.GetPref("botCmdsOffered") ?? "") + ",", now = offered;
+        foreach (var d in Defaults()) {
+          if (Array.IndexOf(LaterDefaults, d.Name) < 0 || offered.Contains("," + d.Name + ",")) continue;
+          if (Find(d.Name) == null) {
+            _cmds.Add(d); upgraded = true;
+            AppLog.Write("chat: added the new !" + d.Name + " command");
+          }
+          now += d.Name + ",";
+        }
+        if (now != offered) Program.SetPref("botCmdsOffered", now.Trim(','));
         if (upgraded) SaveLocked();
-        if (_cmds.Count == 0) { _cmds.AddRange(Defaults()); SaveLocked(); }
       }
     }
+
+    // Defaults that arrived after the first release - see Load.
+    static readonly string[] LaterDefaults = { "wr", "restartoverlay" };
+
+    // The one Twitch login !restartoverlay answers to (lowercase).
+    const string RestartUser = "smelvintime";
 
     static void SaveLocked() {
       try {
@@ -281,6 +310,8 @@ namespace NowPlaying {
         }
         if (cmd == null) return false;
         if (cmd.ModOnly && !ev.IsMod) return false;
+        // Before the cooldown, so anyone else trying it can't burn it.
+        if (cmd.Builtin == "restart" && ev.Nick != RestartUser) return false;
 
         double since = (DateTime.Now - cmd.LastUsed).TotalSeconds;
         if (since < cmd.Cooldown) return false;
@@ -303,6 +334,13 @@ namespace NowPlaying {
         case "rank":      text = RankLine(cmd.Response); break;
         case "ranks":     text = RanksLine(cmd.Response); break;
         case "ghosts":    text = GhostWatch.CommandLine(); break;
+        case "winrate":   text = WinrateLine(); break;
+        case "restart":
+          // No reply on the way down; the new copy says it once it is back in
+          // chat (TwitchChat, on login).
+          Program.SetPref("chatBackMsg", "1");
+          Program.Restart(500, "chat (" + ev.Nick + ")");
+          return null;
         case "commands":  text = CommandsLine(); break;
         default:
           text = cmd.Response.Replace("{channel}", "");
@@ -357,6 +395,35 @@ namespace NowPlaying {
     }
 
     static string WL(int w, int l) { return w + "W " + l + "L"; }
+
+    // Today's ranked games next to the whole season. Today comes from the
+    // game tracker, so it only shows while Game stats is on; the season is
+    // the same on-demand client read !rank makes, so it works either way.
+    static string WinrateLine() {
+      string stock = LeagueStats.RankCommandLine();   // refreshes the parts when stale
+      string line, tier, div; int lp, sw, sl;
+      LeagueStats.RankParts(out line, out tier, out div, out lp, out sw, out sl);
+      int[] w, l;
+      LeagueStats.TodayParts(out w, out l);
+      string s = WinrateText(LeagueStats.Status != "off", w[0], l[0], line.Length > 0, sw, sl);
+      return s.Length > 0 ? s : stock;
+    }
+
+    // Pure, for the offline checks. Empty means nothing to say.
+    internal static string WinrateText(bool tracking, int tw, int tl, bool haveSeason, int sw, int sl) {
+      var parts = new List<string>();
+      if (tracking)
+        parts.Add(tw + tl == 0 ? "Today: no ranked games yet"
+                               : "Today: " + Rate(tw, tl) + " in " + (tw + tl) + " ranked");
+      if (haveSeason)
+        parts.Add(sw + sl == 0 ? "Season: no ranked games yet"
+                               : "Season: " + Rate(sw, sl) + " over " + (sw + sl) + " games");
+      return string.Join(" | ", parts.ToArray());
+    }
+
+    static string Rate(int w, int l) {
+      return WL(w, l) + " (" + (int)Math.Round(100.0 * w / (w + l), MidpointRounding.AwayFromZero) + "% WR)";
+    }
 
     // Every rank in the current game. The stock line already says whose team
     // it is; a template gets the bare list as {ranks} so it can say it
@@ -457,7 +524,8 @@ namespace NowPlaying {
     static string CommandsLine() {
       var names = new List<string>();
       lock (_lock) {
-        foreach (var c in _cmds) if (c.Enabled && !c.ModOnly) names.Add("!" + c.Name);
+        foreach (var c in _cmds)
+          if (c.Enabled && !c.ModOnly && c.Builtin != "restart") names.Add("!" + c.Name);
       }
       if (names.Count == 0) return "No commands are switched on.";
       return "Commands: " + string.Join(" ", names.ToArray());

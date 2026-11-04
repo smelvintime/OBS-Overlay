@@ -388,6 +388,17 @@ In chat:
   the recent **ranked** record: *"Last game: Victory (12/3/8) - past 5 ranked:
   W W L W L"*. ARAMs, normals and the practice tool never muddy it — the
   record is the grind, and only the grind.
+- **`!wr`** (also `!winrate`) answers with the win rate and games played,
+  today and for the season: *"Today: 3W 1L (75% WR) in 4 ranked | Season:
+  210W 198L (51% WR) over 408 games"*. Ranked only, like `!record`. The
+  today half needs the Game stats switch on; the season half works without it.
+- **`!restartoverlay`** restarts the app from chat — for looking after an
+  install from another PC. It answers **one Twitch account only** (set in
+  `src/BotCommands.cs`); from anyone else, mods and the broadcaster included,
+  it is ignored. Nothing is said on the way down. The app comes back within a
+  few seconds, every OBS source reconnects by itself, and the bot posts
+  *"We are so back"* once it is in chat again. It cannot bring back an app
+  that has fully closed; it needs the bot running and connected.
 - **`!ranks`** (also `!lobby`, `!team`) answers with everyone's rank, stripped
   to the ranks themselves: *"Us: E3 E4 G3 E2 E3 | Them: E4 P2 E3 P1 E1"*.
   They are always in lane order — **top, jungle, mid, ADC, support** — so the
