@@ -397,10 +397,18 @@ In chat:
   it is ignored. The phrase must be exact apart from the first letter, which
   can be `h` or `H`. It shows on the Chat bot tab as `!restartoverlay`, which
   is only its name there — typing that does nothing; the switch beside it
-  turns the phrase off. Nothing is said on the way down. The app comes back within a
-  few seconds, every OBS source reconnects by itself, and the bot posts
-  *"We are so back"* once it is in chat again. It cannot bring back an app
-  that has fully closed; it needs the bot running and connected.
+  turns the phrase off. Nothing is said on the way down. If GitHub has a newer
+  version it is downloaded and built first, the same as an automatic update,
+  ignoring the Auto tickbox and any League game in progress. That takes about
+  a minute, with the overlay still up. Otherwise the restart is immediate. A
+  failed update still restarts. The app comes back within a few seconds,
+  every OBS source reconnects by itself, and the bot posts *"We are so back"*
+  once it is in chat again. It cannot bring back an app that has fully
+  closed; it needs the bot running and connected.
+- **"Type 1 if …"** from that same one account gets the bot answering *"1"*:
+  whatever single word sits between "type" and "if" comes back, so "Type W
+  if" gets *"W"*. It has to start the message; case doesn't matter. Nobody
+  else can set it off, and it has no dashboard row.
 - **`!ranks`** (also `!lobby`, `!team`) answers with everyone's rank, stripped
   to the ranks themselves: *"Us: E3 E4 G3 E2 E3 | Them: E4 P2 E3 P1 E1"*.
   They are always in lane order — **top, jungle, mid, ADC, support** — so the

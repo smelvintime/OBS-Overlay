@@ -65,6 +65,10 @@ namespace NowPlaying {
       Equal(BotCommands.BackPhrase("smelvintime", "How Back are we?"), false, "restart phrase is exact past the H");
       Equal(BotCommands.BackPhrase("smelvintime", "!restartoverlay"), false, "old restart command retired");
       Equal(BotCommands.BackPhrase("someoneelse", "how back are we?"), false, "restart phrase from anyone else");
+      Equal(BotCommands.OwnerBit("smelvintime", "Type 1 if you think we win"), "1", "type 1 if");
+      Equal(BotCommands.OwnerBit("smelvintime", "type W if"), "W", "type W if, lowercase, nothing after");
+      Equal(BotCommands.OwnerBit("smelvintime", "type 1 in chat"), null, "no if, no reply");
+      Equal(BotCommands.OwnerBit("someoneelse", "Type 1 if you agree"), null, "type 1 if from anyone else");
       string text = "quote\" slash\\ newline\n\r\t\u0001 \ud83c\udfb5";
       Equal(Json((string)Call(typeof(Program), "Q", text)), text, "JSON escaping");
       Equal(Call(typeof(Program), "Q", new object[] { null }), "\"\"", "null JSON convention");

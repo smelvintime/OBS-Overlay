@@ -170,13 +170,23 @@ namespace NowPlaying {
     // Defaults that arrived after the first release - see Load.
     static readonly string[] LaterDefaults = { "wr", "restartoverlay" };
 
-    // The one Twitch login the restart answers to (lowercase).
-    const string RestartUser = "smelvintime";
+    // The one Twitch login the owner-only bits below answer to (lowercase).
+    const string OwnerUser = "smelvintime";
 
-    // The restart's trigger: "how back are we?" from RestartUser, first
+    // The restart's trigger: "how back are we?" from OwnerUser, first
     // letter either case, everything else exact.
     internal static bool BackPhrase(string nick, string msg) {
-      return nick == RestartUser && (msg == "how back are we?" || msg == "How back are we?");
+      return nick == OwnerUser && (msg == "how back are we?" || msg == "How back are we?");
+    }
+
+    // Owner-only chat bits: plain replies, no ! and no dashboard row.
+    // "Type 1 if ..." gets "1" back - whatever single word sits between
+    // "type" and "if". Null means not one of these.
+    internal static string OwnerBit(string nick, string msg) {
+      if (nick != OwnerUser) return null;
+      var m = System.Text.RegularExpressions.Regex.Match(msg, @"^type\s+(\S+)\s+if\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+      return m.Success ? m.Groups[1].Value : null;
     }
 
     static void SaveLocked() {
@@ -298,6 +308,8 @@ namespace NowPlaying {
       // Users paste zero-width and replacement characters constantly; a trailing
       // one should not stop "!song" being recognised as "!song".
       msg = msg.TrimEnd(' ', '\r', '\n', '�', '​', '᠎');
+      reply = OwnerBit(ev.Nick, msg);
+      if (reply != null) { matched = "owner"; return true; }
       bool backPhrase = BackPhrase(ev.Nick, msg);
       if (!backPhrase && (msg.Length < 2 || msg[0] != '!')) return false;
 
@@ -346,7 +358,8 @@ namespace NowPlaying {
           // No reply on the way down; the new copy says it once it is back in
           // chat (TwitchChat, on login).
           Program.SetPref("chatBackMsg", "1");
-          Program.Restart(500, "chat (" + ev.Nick + ")");
+          AppLog.Write("chat: " + ev.Nick + " asked for an update and restart");
+          Updater.RestartFromChat();
           return null;
         case "commands":  text = CommandsLine(); break;
         default:

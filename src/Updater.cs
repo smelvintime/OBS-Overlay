@@ -210,6 +210,31 @@ namespace NowPlaying {
       if (!Begin(out err)) _autoWhy = "could not start: " + err;
     }
 
+    // "how back are we?" from chat: install the latest version on the way if
+    // there is one, then restart. It ignores the Auto tickbox and League,
+    // because a person asked for it right now. A failed update still ends in
+    // a restart, since a restart is what was asked for.
+    static volatile bool _restartOnFail;
+
+    public static void RestartFromChat() {
+      var t = new Thread(delegate() {
+        try {
+          CheckJson(true);
+          bool avail, busy;
+          lock (_lock) { avail = _available; busy = _busy; }
+          if (avail || busy) {
+            _restartOnFail = true;
+            string err;
+            Begin(out err);   // false only when one is already running - it restarts too
+            return;
+          }
+        } catch { }
+        Program.Restart(0, "chat");
+      });
+      t.IsBackground = true;
+      t.Start();
+    }
+
     // -------------------------------------------------------------------- run
     public static bool Begin(out string err) {
       err = "";
@@ -288,6 +313,7 @@ namespace NowPlaying {
       } catch (Exception ex) {
         Set("error", Friendly(ex));
         lock (_lock) _busy = false;
+        if (_restartOnFail) { _restartOnFail = false; Program.Restart(0, "chat, after a failed update"); }
       }
     }
 
