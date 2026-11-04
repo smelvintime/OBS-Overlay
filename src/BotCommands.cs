@@ -80,9 +80,9 @@ namespace NowPlaying {
         // played. Separate from !record/!wl, which is the recent streak.
         new Cmd { Name = "wr",        Builtin = "winrate",   Aliases = "winrate", Cooldown = 15 },
         // Restarts this app from chat, so the person who looks after the
-        // install can bring a stuck overlay back from another PC. Answers
-        // RestartUser and nobody else (see TryRespond); a minute's cooldown so
-        // it cannot be looped.
+        // install can bring a stuck overlay back from another PC. Triggered
+        // by BackPhrase, not by typing its name; a minute's cooldown so it
+        // cannot be looped. The name is only its row on the dashboard.
         new Cmd { Name = "restartoverlay", Builtin = "restart", Cooldown = 60 },
 
         // League. Links and text beat a Riot API key that expires every 24 hours
@@ -170,8 +170,14 @@ namespace NowPlaying {
     // Defaults that arrived after the first release - see Load.
     static readonly string[] LaterDefaults = { "wr", "restartoverlay" };
 
-    // The one Twitch login !restartoverlay answers to (lowercase).
+    // The one Twitch login the restart answers to (lowercase).
     const string RestartUser = "smelvintime";
+
+    // The restart's trigger: "how back are we?" from RestartUser, first
+    // letter either case, everything else exact.
+    internal static bool BackPhrase(string nick, string msg) {
+      return nick == RestartUser && (msg == "how back are we?" || msg == "How back are we?");
+    }
 
     static void SaveLocked() {
       try {
@@ -292,7 +298,8 @@ namespace NowPlaying {
       // Users paste zero-width and replacement characters constantly; a trailing
       // one should not stop "!song" being recognised as "!song".
       msg = msg.TrimEnd(' ', '\r', '\n', '�', '​', '᠎');
-      if (msg.Length < 2 || msg[0] != '!') return false;
+      bool backPhrase = BackPhrase(ev.Nick, msg);
+      if (!backPhrase && (msg.Length < 2 || msg[0] != '!')) return false;
 
       int sp = msg.IndexOf(' ');
       string word = (sp > 0 ? msg.Substring(1, sp - 1) : msg.Substring(1)).ToLowerInvariant();
@@ -302,7 +309,9 @@ namespace NowPlaying {
       lock (_lock) {
         foreach (var c in _cmds) {
           if (!c.Enabled) continue;
-          if (c.Name == word) { cmd = c; break; }
+          // The restart answers its phrase and nothing else - never a !word.
+          if ((c.Builtin == "restart") != backPhrase) continue;
+          if (backPhrase || c.Name == word) { cmd = c; break; }
           foreach (var a in c.Aliases.Split(',')) {
             if (a.Trim().TrimStart('!').ToLowerInvariant() == word && word.Length > 0) { cmd = c; break; }
           }
@@ -310,8 +319,6 @@ namespace NowPlaying {
         }
         if (cmd == null) return false;
         if (cmd.ModOnly && !ev.IsMod) return false;
-        // Before the cooldown, so anyone else trying it can't burn it.
-        if (cmd.Builtin == "restart" && ev.Nick != RestartUser) return false;
 
         double since = (DateTime.Now - cmd.LastUsed).TotalSeconds;
         if (since < cmd.Cooldown) return false;

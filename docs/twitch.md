@@ -392,10 +392,13 @@ In chat:
   today and for the season: *"Today: 3W 1L (75% WR) in 4 ranked | Season:
   210W 198L (51% WR) over 408 games"*. Ranked only, like `!record`. The
   today half needs the Game stats switch on; the season half works without it.
-- **`!restartoverlay`** restarts the app from chat — for looking after an
+- **"how back are we?"** restarts the app from chat — for looking after an
   install from another PC. It answers **one Twitch account only** (set in
   `src/BotCommands.cs`); from anyone else, mods and the broadcaster included,
-  it is ignored. Nothing is said on the way down. The app comes back within a
+  it is ignored. The phrase must be exact apart from the first letter, which
+  can be `h` or `H`. It shows on the Chat bot tab as `!restartoverlay`, which
+  is only its name there — typing that does nothing; the switch beside it
+  turns the phrase off. Nothing is said on the way down. The app comes back within a
   few seconds, every OBS source reconnects by itself, and the bot posts
   *"We are so back"* once it is in chat again. It cannot bring back an app
   that has fully closed; it needs the bot running and connected.

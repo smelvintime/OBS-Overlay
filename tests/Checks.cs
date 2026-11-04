@@ -63,6 +63,11 @@ namespace NowPlaying {
             "Today: no ranked games yet | Season: no ranked games yet", "!wr with nothing played");
       Equal(BotCommands.WinrateText(false, 5, 5, true, 1, 1), "Season: 1W 1L (50% WR) over 2 games", "!wr with Game stats off");
       Equal(BotCommands.WinrateText(false, 0, 0, false, 0, 0), "", "!wr with no client falls back");
+      Equal(BotCommands.BackPhrase("smelvintime", "how back are we?"), true, "restart phrase");
+      Equal(BotCommands.BackPhrase("smelvintime", "How back are we?"), true, "restart phrase, capital H");
+      Equal(BotCommands.BackPhrase("smelvintime", "How Back are we?"), false, "restart phrase is exact past the H");
+      Equal(BotCommands.BackPhrase("smelvintime", "!restartoverlay"), false, "old restart command retired");
+      Equal(BotCommands.BackPhrase("someoneelse", "how back are we?"), false, "restart phrase from anyone else");
       string text = "quote\" slash\\ newline\n\r\t\u0001 \ud83c\udfb5";
       Equal(Json((string)Call(typeof(Program), "Q", text)), text, "JSON escaping");
       Equal(Call(typeof(Program), "Q", new object[] { null }), "\"\"", "null JSON convention");
