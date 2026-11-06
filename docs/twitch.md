@@ -391,6 +391,11 @@ In chat:
 - **`!wr`** (also `!winrate`) answers with the season's ranked win rate,
   wins and losses: *"51% | 210-198"*. Read straight from the client like
   `!rank`, so it works with the Game stats switch off.
+- **`!livegame`** (also `!ingame`) answers with op.gg's live-game page for
+  whoever is signed into the client, e.g.
+  *https://op.gg/lol/summoners/na/twtvAlexsZed-Zed/ingame*. The Riot ID comes
+  from the client, so a name change or a different account is picked up by
+  itself. Out of a game, op.gg's page says so. NA only for now.
 - **"how back are we?"** restarts the app from chat — for looking after an
   install from another PC. It answers **one Twitch account only** (set in
   `src/BotCommands.cs`); from anyone else, mods and the broadcaster included,

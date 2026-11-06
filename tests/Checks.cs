@@ -65,6 +65,10 @@ namespace NowPlaying {
       Equal(BotCommands.BackPhrase("smelvintime", "How Back are we?"), false, "restart phrase is exact past the H");
       Equal(BotCommands.BackPhrase("smelvintime", "!restartoverlay"), false, "old restart command retired");
       Equal(BotCommands.BackPhrase("someoneelse", "how back are we?"), false, "restart phrase from anyone else");
+      Equal(LeagueStats.OpggLiveUrl("twtvAlexsZed#Zed"),
+            "https://op.gg/lol/summoners/na/twtvAlexsZed-Zed/ingame", "!livegame link");
+      Equal(LeagueStats.OpggLiveUrl("Hide on bush#KR1"),
+            "https://op.gg/lol/summoners/na/Hide%20on%20bush-KR1/ingame", "!livegame link with spaces");
       Equal(BotCommands.OwnerBit("smelvintime", "Type 1 if you think we win"), "1", "type 1 if");
       Equal(BotCommands.OwnerBit("smelvintime", "type W if"), "W", "type W if, lowercase, nothing after");
       Equal(BotCommands.OwnerBit("smelvintime", "type 1 in chat"), null, "no if, no reply");

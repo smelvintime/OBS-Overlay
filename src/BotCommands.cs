@@ -79,6 +79,8 @@ namespace NowPlaying {
         // Win rate: the season's ranked win rate and games played. Separate
         // from !record/!wl, which is the recent streak.
         new Cmd { Name = "wr",        Builtin = "winrate",   Aliases = "winrate", Cooldown = 15 },
+        // op.gg's live-game page for whoever is signed into the client.
+        new Cmd { Name = "livegame",  Builtin = "livegame",  Aliases = "ingame", Cooldown = 15 },
         // Restarts this app from chat, so the person who looks after the
         // install can bring a stuck overlay back from another PC. Triggered
         // by BackPhrase, not by typing its name; a minute's cooldown so it
@@ -168,7 +170,7 @@ namespace NowPlaying {
     }
 
     // Defaults that arrived after the first release - see Load.
-    static readonly string[] LaterDefaults = { "wr", "restartoverlay" };
+    static readonly string[] LaterDefaults = { "wr", "restartoverlay", "livegame" };
 
     // The one Twitch login the owner-only bits below answer to (lowercase).
     const string OwnerUser = "smelvintime";
@@ -354,6 +356,7 @@ namespace NowPlaying {
         case "ranks":     text = RanksLine(cmd.Response); break;
         case "ghosts":    text = GhostWatch.CommandLine(); break;
         case "winrate":   text = WinrateLine(); break;
+        case "livegame":  text = LeagueStats.LiveGameLine(); break;
         case "restart":
           // No reply on the way down; the new copy says it once it is back in
           // chat (TwitchChat, on login).
