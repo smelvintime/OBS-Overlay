@@ -719,6 +719,30 @@ namespace NowPlaying {
     // after every game instead of once at startup.
     static volatile string _puuid = "";
 
+    // "gameName#tagLine", one string so a reader never pairs a new name
+    // with an old tag.
+    static volatile string _riotId = "";
+
+    // What !livegame answers: op.gg's live-game page for whoever is signed
+    // into the client. Asks the client itself the first time, so it works
+    // with Game stats off.
+    public static string LiveGameLine() {
+      if (_riotId.Length == 0) {
+        int port; string pw;
+        if (FindLockfile(out port, out pw)) RefreshIdentity(port, pw, false);
+      }
+      string id = _riotId;
+      if (id.Length == 0) return "Can't find the League account right now - the client isn't running on this PC.";
+      return OpggLiveUrl(id);
+    }
+
+    // ponytail: region fixed to NA; map the client's region if a non-NA install shows up.
+    internal static string OpggLiveUrl(string riotId) {
+      int h = riotId.LastIndexOf('#');
+      return "https://op.gg/lol/summoners/na/" + Uri.EscapeDataString(riotId.Substring(0, h))
+           + "-" + Uri.EscapeDataString(riotId.Substring(h + 1)) + "/ingame";
+    }
+
     // Name and puuid together, from the one endpoint that has both, so the
     // puuid can never lag the name the day used to be keyed on.
     static void RefreshIdentity(int port, string pw, bool announce) {
@@ -729,6 +753,8 @@ namespace NowPlaying {
         string name = TwitchEvents.SNavPublic(root, "displayName");
         if (name.Length == 0) name = TwitchEvents.SNavPublic(root, "gameName");
         string id = TwitchEvents.SNavPublic(root, "puuid");
+        string gn = TwitchEvents.SNavPublic(root, "gameName"), tag = TwitchEvents.SNavPublic(root, "tagLine");
+        if (gn.Length > 0 && tag.Length > 0) _riotId = gn + "#" + tag;
         if (id.Length > 0 && id != _puuid) {
           lock (_resultLock) {
             EnsureDayLoaded();
