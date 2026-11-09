@@ -727,6 +727,7 @@ namespace NowPlaying {
       LeagueStats.Start();     // idle unless the Game stats switch is on or /session is open
       LobbyRanks.Start();      // idle unless !ranks asks for it
       GhostWatch.Start();      // idle unless the Ghost watch switch is on
+      ProWatch.Start();        // idle unless the bot is on and !pros is switched on
       Updater.CleanupAfterSwap();   // sweep the previous build's ".old" leftover, if any
       Updater.StartAuto();          // keeps itself current; installs as soon as an update is found
 

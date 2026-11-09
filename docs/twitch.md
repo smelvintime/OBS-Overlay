@@ -397,10 +397,11 @@ In chat:
   from the client, so a name change or a different account is picked up by
   itself. Out of a game, op.gg's page says so. NA only for now.
 - **`!pros`** (also `!pro`, `!streamer`, `!streamers`) names the pros and
-  streamers in the current game: *"Pros/streamers in this game: Us - Zven
-  (Cloud9 ADC) | Them - Canyon (Gen.G Jungle), SomeStreamer (live on
-  Twitch)"*. How it knows, and what it will not guess at, is in
-  [Pros in your game](#pros-in-your-game-pros) below.
+  streamers in the current game: *"Pros/streamers: Us - Zven (Cloud9 ADC) |
+  Them - Canyon (Gen.G Jungle), SomeStreamer (live)"*. The bot also says it
+  by itself once when a game loads with any in it. How it knows, and what
+  it will not guess at, is in [Pros in your game](#pros-in-your-game-pros)
+  below.
 - **"how back are we?"** restarts the app from chat — for looking after an
   install from another PC. It answers **one Twitch account only** (set in
   `src/BotCommands.cs`); from anyone else, mods and the broadcaster included,
@@ -520,7 +521,20 @@ connection), and a match gets called out:
 ### Pros in your game: `!pros`
 
 `!pros` checks the nine other players in your game and names the ones it
-knows. It knows people three ways, tried in this order:
+knows:
+
+> *Pros/streamers: Us - Zven (Cloud9 ADC) | Them - Canyon (Gen.G Jungle), SomeStreamer (live) | 1 hidden*
+
+- **Said by itself at the loading screen.** When a game loads with a pro
+  or a streamer in it, the bot posts that line once, unasked. A game with
+  nobody known gets no message at all. Once per game, even across an app
+  restart; it needs the bot on, and switching `!pros` off on the Chat bot
+  tab silences it too.
+- **On demand** with `!pros`, which also answers *"No pros/streamers (9
+  checked)."* when there are none, and between games repeats the last
+  match as *"Last game: ..."*.
+
+It knows people three ways, tried in this order:
 
 1. **The pro list**, `data/pros.json` in this repo, built into the app. Each
    pro with the Riot IDs (name **and** #tag) they are known to play on,
@@ -539,8 +553,7 @@ knows. It knows people three ways, tried in this order:
    `some_streamer`), and Twitch is asked once which of those are **live in
    League right now**. A channel with exactly that name, live in League at
    the same minute that player is in a League game, is that player. Listed
-   pros with a known channel are checked the same way and marked *live on
-   Twitch*.
+   pros with a known channel are checked the same way and marked *live*.
 
 The rules lean the same way ghost watch's do, because this names real
 people in a public chat:
@@ -560,7 +573,7 @@ people in a public chat:
   champ select `!pros` says it will answer once the game loads. Between
   games it answers for the last match, labelled as past.
 - **Hidden players stay hidden.** Anyone using Riot's anonymity option shows
-  up as a count (*"1 player hidden"*), never a guess.
+  up as a count (*"1 hidden"*), never a guess.
 - **Twitch is optional.** Without the main Twitch connection the list and
   the memory still work; only the live check is skipped. It needs no extra
   Twitch permission.

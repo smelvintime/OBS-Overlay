@@ -369,13 +369,17 @@ namespace NowPlaying {
       var learned = new Dictionary<string, ProWatch.Pro>();
       var finds = ProWatch.Resolve(players, list, seen, live, learned);
       Equal(ProWatch.Line(finds, 8, 1, false, false),
-            "Pros/streamers in this game: Us - Canyon (Gen.G Jungle), Zven (Cloud9 ADC)"
-            + " | Them - SomeStreamer (live on Twitch), V1per (Top, live on Twitch) (1 player hidden)",
+            "Pros/streamers: Us - Canyon (Gen.G Jungle), Zven (Cloud9 ADC)"
+            + " | Them - SomeStreamer (live), V1per (Top, live) | 1 hidden",
             "!pros mid-game: enemy streams named, not linked");
       Equal(ProWatch.Line(finds, 8, 1, true, false),
-            "Pros/streamers in this game: Us - Canyon (Gen.G Jungle), Zven (Cloud9 ADC)"
-            + " | Them - SomeStreamer (live on Twitch) twitch.tv/somestreamer, V1per (Top, live on Twitch) twitch.tv/viper"
-            + " (1 player hidden)", "!pros after the game: links");
+            "Pros/streamers: Us - Canyon (Gen.G Jungle), Zven (Cloud9 ADC)"
+            + " | Them - SomeStreamer (live) twitch.tv/somestreamer, V1per (Top, live) twitch.tv/viper | 1 hidden",
+            "!pros after the game: links");
+      Equal(ProWatch.Line(finds, 8, 1, false, true),
+            "Last game: Us - Canyon (Gen.G Jungle), Zven (Cloud9 ADC)"
+            + " | Them - SomeStreamer (live) twitch.tv/somestreamer, V1per (Top, live) twitch.tv/viper | 1 hidden",
+            "!pros between games");
       var keys = new List<string>(learned.Keys); keys.Sort(StringComparer.Ordinal);
       Equal(string.Join(",", keys.ToArray()), "a1,a3,e2,e4", "memory learns list matches, Twitch finds, renames");
       Equal(learned["e2"].From + " " + learned["e2"].Twitch, "twitch somestreamer", "Twitch find remembered");
@@ -385,12 +389,26 @@ namespace NowPlaying {
       var offline = ProWatch.Resolve(new List<LobbyRanks.Player> { Seat(true, "e2", "Brand New Name#NA1") },
                                      new Dictionary<string, ProWatch.Pro>(), seen,
                                      new Dictionary<string, string>(), new Dictionary<string, ProWatch.Pro>());
-      Equal(ProWatch.Line(offline, 1, 0, false, false), "Pros/streamers in this game: Us - SomeStreamer (streamer)",
+      Equal(ProWatch.Line(offline, 1, 0, false, false), "Pros/streamers: Us - SomeStreamer (streamer)",
             "a remembered streamer, renamed and offline");
-      Equal(ProWatch.Line(new List<ProWatch.Find>(), 9, 0, false, false),
-            "No pros or streamers spotted - 9 players checked.", "!pros with nobody found");
-      Equal(ProWatch.Line(new List<ProWatch.Find>(), 8, 1, true, true),
-            "Last game - no pros or streamers spotted - 8 players checked, 1 player hidden.", "!pros between games");
+      var allyLive = ProWatch.Resolve(new List<LobbyRanks.Player> { Seat(true, "x1", "TTV Some Streamer#NA1") },
+                                      new Dictionary<string, ProWatch.Pro>(), new Dictionary<string, ProWatch.Pro>(),
+                                      live, new Dictionary<string, ProWatch.Pro>());
+      Equal(ProWatch.Line(allyLive, 9, 0, false, false), "Pros/streamers: Us - SomeStreamer (live) twitch.tv/somestreamer",
+            "own team's stream linked mid-game");
+      Equal(ProWatch.Line(new List<ProWatch.Find>(), 9, 0, false, false), "No pros/streamers (9 checked).",
+            "!pros with nobody found");
+      Equal(ProWatch.Line(new List<ProWatch.Find>(), 8, 1, false, false), "No pros/streamers (8 checked, 1 hidden).",
+            "!pros with nobody found, one hidden");
+      Equal(ProWatch.Line(new List<ProWatch.Find>(), 8, 1, true, true), "Last game: no pros/streamers.",
+            "!pros between games, nobody found");
+      // Nine long labels still go out as one chat message, cut between names.
+      var crowd = new List<ProWatch.Find>();
+      for (int i = 0; i < 9; i++)
+        crowd.Add(new ProWatch.Find { Ally = i < 4, Live = true, Pro = new ProWatch.Pro {
+          Name = "VeryLongProName" + i, Team = "Hanwha Life Esports", Role = "Support", Twitch = "verylongchannelname" + i } });
+      string crowded = ProWatch.Line(crowd, 9, 0, true, false);
+      Equal(crowded.Length <= 490 && crowded.EndsWith(" ..."), true, "a full lobby fits one message (" + crowded.Length + ")");
 
       // The list the build embeds parses, every account carries its tag, and
       // no account is claimed by two people.

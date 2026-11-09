@@ -143,6 +143,7 @@ namespace NowPlaying {
           FlushThanks();
           FlushGameLine();
           FlushGhostLine();
+          FlushProLine();
         } catch {
           // a socket dying mid-write is the reconnect loop's problem, not ours
         }
@@ -275,6 +276,31 @@ namespace NowPlaying {
       // is long over.
       if ((DateTime.UtcNow - _pendingGhostAt).TotalMinutes > 3) return;
       SendSide(line, "(ghost watch)", "ghosts");
+    }
+
+    // ------------------------------------------------------- pros at start
+    // The game-start line from ProWatch, queued and spoken by the side-channel
+    // loop exactly like the ghost call-out. BotLive lets ProWatch's loop
+    // leave the League client alone while there is nobody to speak.
+    static volatile string _pendingProLine;
+    static DateTime _pendingProAt;
+
+    internal static bool BotLive { get { return _enabled && _status == "live" && _wr != null; } }
+
+    public static void OnProsFound(string line) {
+      if (!_enabled || string.IsNullOrEmpty(line)) return;
+      _pendingProAt = DateTime.UtcNow;
+      _pendingProLine = line;
+    }
+
+    static void FlushProLine() {
+      string line = _pendingProLine;
+      if (line == null) return;
+      _pendingProLine = null;
+      // Said at the loading screen or not at all: three minutes late it is
+      // news about a game already well under way.
+      if ((DateTime.UtcNow - _pendingProAt).TotalMinutes > 3) return;
+      SendSide(line, "(pros)", "pros");
     }
 
     public static void SetGhostWatch(bool on) {

@@ -299,6 +299,13 @@ namespace NowPlaying {
       }
     }
 
+    // Is this command present and switched on? For features that speak
+    // unprompted under a command's name (the !pros game-start line), so the
+    // command's own switch on the Chat bot tab silences them too.
+    internal static bool IsEnabled(string name) {
+      lock (_lock) { var c = Find(name); return c != null && c.Enabled; }
+    }
+
     static Cmd Find(string name) {
       name = (name ?? "").Trim().TrimStart('!').ToLowerInvariant();
       foreach (var c in _cmds) if (c.Name == name) return c;

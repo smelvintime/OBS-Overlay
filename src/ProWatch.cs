@@ -1,4 +1,5 @@
-// !pros: which pros and streamers are in the current game.
+// !pros: which pros and streamers are in the current game - on demand, and
+// once by itself when a game loads with any in it (see "game start" below).
 //
 // Three ways of knowing, tried in this order for each of the nine other
 // players, and every one of them an exact match:
@@ -346,14 +347,15 @@ namespace NowPlaying {
     }
 
     // ------------------------------------------------------------------ chat
-    // "Canyon (Gen.G Jungle)", "SomeStreamer (live on Twitch)",
-    // "SomeStreamer (streamer)" for one met on Twitch before and not live now.
+    // Short on purpose - chat reads these mid-fight. "Canyon (Gen.G Jungle)",
+    // "SomeStreamer (live)", "V1per (Top, live)", and "SomeStreamer
+    // (streamer)" for one met on Twitch before and not live now.
     internal static string Label(Pro p, bool live, bool link) {
       var bits = new List<string>();
       string role = p.Role.Equals("None", StringComparison.OrdinalIgnoreCase) ? "" : p.Role;
       string tr = (p.Team + " " + role).Trim();
       if (tr.Length > 0) bits.Add(tr);
-      if (live) bits.Add("live on Twitch");
+      if (live) bits.Add("live");
       else if (p.From == "twitch") bits.Add("streamer");
       string s = p.Name + (bits.Count > 0 ? " (" + string.Join(", ", bits.ToArray()) + ")" : "");
       if (live && link && p.Twitch.Length > 0) s += " twitch.tv/" + p.Twitch;
@@ -363,12 +365,12 @@ namespace NowPlaying {
     // Us first, the way !ranks reads. An enemy's stream is named but not
     // linked until the game is over: a link mid-game is an invitation to
     // watch the other side's screen.
+    //   Pros/streamers: Us - Zven (Cloud9 ADC) | Them - SomeStreamer (live) | 1 hidden
+    //   No pros/streamers (8 checked, 1 hidden).
     internal static string Line(List<Find> finds, int checkedCount, int hidden, bool over, bool past) {
-      string hid = hidden == 1 ? "1 player hidden" : hidden + " players hidden";
       if (finds.Count == 0) {
-        string none = "no pros or streamers spotted - " + checkedCount + " player" + (checkedCount == 1 ? "" : "s")
-                    + " checked" + (hidden > 0 ? ", " + hid : "") + ".";
-        return past ? "Last game - " + none : char.ToUpperInvariant(none[0]) + none.Substring(1);
+        if (past) return "Last game: no pros/streamers.";
+        return "No pros/streamers (" + checkedCount + " checked" + (hidden > 0 ? ", " + hidden + " hidden" : "") + ").";
       }
       var us = new List<string>(); var them = new List<string>();
       foreach (var f in finds)
@@ -376,8 +378,8 @@ namespace NowPlaying {
       var parts = new List<string>();
       if (us.Count > 0) parts.Add("Us - " + string.Join(", ", us.ToArray()));
       if (them.Count > 0) parts.Add("Them - " + string.Join(", ", them.ToArray()));
-      string line = (past ? "Last game - " : "Pros/streamers in this game: ")
-                  + string.Join(" | ", parts.ToArray()) + (hidden > 0 ? " (" + hid + ")" : "");
+      if (hidden > 0) parts.Add(hidden + " hidden");
+      string line = (past ? "Last game: " : "Pros/streamers: ") + string.Join(" | ", parts.ToArray());
       // One chat message. Ten long labels cannot all fit; the cut lands
       // between two names rather than through one.
       if (line.Length > 490) {
@@ -387,47 +389,130 @@ namespace NowPlaying {
       return line;
     }
 
-    // ---------------------------------------------------------------- !pros
+    // ---------------------------------------------------------------- check
+    // The one check behind both the command and the announcement: the three
+    // sources over this lobby, memory updated, the answer kept for "Last
+    // game". Callers hold _askLock.
     static List<Find> _lastFinds;
     static int _lastChecked, _lastHidden;
 
+    static List<Find> Evaluate(long gid, List<LobbyRanks.Player> players) {
+      var list = List();
+      var seen = Seen();
+      var live = LiveNow(gid, Candidates(players, list, seen));
+      var learned = new Dictionary<string, Pro>();
+      var finds = Resolve(players, list, seen, live, learned);
+      if (learned.Count > 0) {
+        foreach (var kv in learned) {
+          seen[kv.Key] = kv.Value;
+          AppLog.Write("pros: remembered " + kv.Value.Name + " as " + kv.Value.RiotId + " (" + kv.Value.From + ")");
+        }
+        SaveSeen(seen);
+      }
+      int hidden = 0;
+      foreach (var p in players) if (p.Hidden) hidden++;
+      _lastFinds = finds; _lastChecked = players.Count - hidden; _lastHidden = hidden;
+      return finds;
+    }
+
+    // ---------------------------------------------------------------- !pros
     public static string CommandLine() {
       lock (_askLock) {
         try {
           long gid; List<LobbyRanks.Player> players; bool over; string why;
           if (!LobbyRanks.PlayersNow(out gid, out players, out over, out why)) {
-            if (why == "no-client") return "The League client isn't running on the stream PC.";
-            if (why == "no-phase") return "Can't reach the League client right now.";
-            if (why == "not-ready") return "Reading the lobby - ask again in a moment.";
-            if (why == "champ-select") return "Pros show up once the game loads.";
+            if (why == "no-client") return "League isn't running.";
+            if (why == "no-phase") return "Can't reach League right now.";
+            if (why == "not-ready") return "Lobby still loading - try again soon.";
+            if (why == "champ-select") return "Pros show once the game loads.";
             // Between games the last match still answers, honestly labelled
             // as past - the same rule !ranks and !ghosts follow.
             if (_lastFinds != null) return Line(_lastFinds, _lastChecked, _lastHidden, true, true);
-            return "Not in a game right now - pros show up once a game loads.";
+            return "Not in a game.";
           }
-
-          var list = List();
-          var seen = Seen();
-          var live = LiveNow(gid, Candidates(players, list, seen));
-          var learned = new Dictionary<string, Pro>();
-          var finds = Resolve(players, list, seen, live, learned);
-
-          if (learned.Count > 0) {
-            foreach (var kv in learned) {
-              seen[kv.Key] = kv.Value;
-              AppLog.Write("pros: remembered " + kv.Value.Name + " as " + kv.Value.RiotId + " (" + kv.Value.From + ")");
-            }
-            SaveSeen(seen);
-          }
-
-          int hidden = 0;
-          foreach (var p in players) if (p.Hidden) hidden++;
-          _lastFinds = finds; _lastChecked = players.Count - hidden; _lastHidden = hidden;
-          return Line(finds, _lastChecked, hidden, over, false);
+          var finds = Evaluate(gid, players);
+          return Line(finds, _lastChecked, _lastHidden, over, false);
         } catch (Exception ex) {
           AppLog.Write("pros: " + ex.Message);
           return "Can't read the lobby right now.";
         }
+      }
+    }
+
+    // ----------------------------------------------------------- game start
+    // One line, unprompted, when a game loads with a pro or a streamer in it
+    // - and nothing at all when it does not. It follows the !pros switch on
+    // the Chat bot tab, so turning the command off silences this too, and it
+    // only runs while the bot is on: with nobody to say it, the League
+    // client is left alone.
+    //
+    // Once per game, ever. The game it was decided for is kept in prefs, so
+    // an app restart mid-match does not say it twice.
+    public static void Start() {
+      var t = new System.Threading.Thread(Loop);
+      t.IsBackground = true;
+      t.Start();
+    }
+
+    // How long a loading lobby gets to fill in before the line goes out with
+    // what it has. The roster arrives over the first seconds of the loading
+    // screen; a minute is long past that, and still well before laning.
+    const int RosterWaitSec = 60;
+
+    static void Loop() {
+      bool armed = true;                       // a new game may start
+      DateTime since = DateTime.MinValue;      // when this game was first seen
+      while (true) {
+        int sleepMs = 5000;
+        try {
+          if (TwitchChat.BotLive && BotCommands.IsEnabled("pros")) {
+            int port; string pw;
+            if (!LeagueStats.FindLockfile(out port, out pw)) {
+              armed = true;
+            } else {
+              string ph = LeagueStats.LcuGet(port, pw, "/lol-gameflow/v1/gameflow-phase");
+              ph = ph == null ? "" : ph.Trim().Trim('"');
+              if (ph == "InProgress") {
+                if (armed) {
+                  if (since == DateTime.MinValue) since = DateTime.UtcNow;
+                  bool lastCall = (DateTime.UtcNow - since).TotalSeconds >= RosterWaitSec;
+                  if (AnnounceIfDue(lastCall)) { armed = false; since = DateTime.MinValue; }
+                  else sleepMs = 3000;
+                }
+              } else if (ph.Length > 0 && ph != "Reconnect" && !LeagueStats.PostGame(ph)) {
+                // Out of the game for real (lobby, queue, champ select): the
+                // next InProgress is a new game. A reconnect or the end
+                // screen is still this one.
+                armed = true; since = DateTime.MinValue;
+              }
+            }
+          }
+        } catch (Exception ex) {
+          AppLog.Write("pros: announce: " + ex.Message);
+          sleepMs = 10000;
+        }
+        System.Threading.Thread.Sleep(sleepMs);
+      }
+    }
+
+    // True once this game is decided (announced, nothing to say, or not
+    // worth waiting on any longer); false to look again shortly.
+    static bool AnnounceIfDue(bool lastCall) {
+      lock (_askLock) {
+        long gid; List<LobbyRanks.Player> players; bool over; string why;
+        if (!LobbyRanks.PlayersNow(out gid, out players, out over, out why))
+          return lastCall || (why != "not-ready" && why != "no-phase");
+        if (gid.ToString() == (Program.GetPref("prosAnnounced") ?? "")) return true;
+        // Wait for all nine seats (hidden ones count) unless time is up.
+        if (players.Count < 9 && !lastCall) return false;
+        Program.SetPref("prosAnnounced", gid.ToString());
+        var finds = Evaluate(gid, players);
+        if (finds.Count > 0) {
+          string line = Line(finds, _lastChecked, _lastHidden, false, false);
+          AppLog.Write("pros: " + line + " (game " + gid + ")");
+          TwitchChat.OnProsFound(line);
+        }
+        return true;
       }
     }
   }
