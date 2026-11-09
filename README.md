@@ -33,10 +33,11 @@ the music side at all.
   against your viewer list mid-game, called out in chat as *"Ghosters here:
   ..."* once per player, with `!ghosts` on demand. Exact matches only —
   missing a sniper beats accusing the wrong viewer
-- 🏆 **Pros in your game**: `!pros` names the pros and streamers in the
-  current match, from a pro account list built into the app (seeded from
-  Tracking The Pros), players it has recognised before, and a check for
-  which of them are live in League on Twitch right now. Exact matches only
+- 🏆 **Pros in your game**: when a game loads with pros or streamers in it,
+  the bot says who, once; `!pros` asks on demand. Known from a pro account
+  list built into the app (seeded from Tracking The Pros), players it has
+  recognised before, and who is live in League on Twitch right now. Exact
+  matches only
 - 🎥 **A webcam frame** — a themed border that sits over the camera so the
   whole scene speaks one language
 - 💬 **A chat bot** — `!song` for the current track, `!record`, `!rank` and
