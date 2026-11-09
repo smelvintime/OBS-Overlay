@@ -162,6 +162,11 @@ $cscArgs += "/resource:$shared,shared.js"
 # Built-in themes ride along as data (theme-<file> prefix marks them as such);
 # user themes live in %APPDATA%.
 foreach ($t in $themeFiles) { $cscArgs += "/resource:$($t.FullName),theme-$($t.Name)" }
+# The !pros list rides along the same way, so an edit to data\pros.json
+# reaches every install with the next self-update. ProWatch reads it as
+# "pros.json"; a build without the file just knows no pros by name.
+$prosFile = "$PSScriptRoot\data\pros.json"
+if (Test-Path $prosFile) { $cscArgs += "/resource:$prosFile,pros.json" }
 # System.Web.Extensions (JavaScriptSerializer, used to read Twitch JSON) is
 # already in csc.rsp, so referencing it here would be a duplicate-import error.
 if ($Check) {

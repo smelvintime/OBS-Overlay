@@ -35,6 +35,7 @@ namespace NowPlaying {
       try {
         Set(typeof(LeagueStats), "_dayLoaded", true); // fixtures never touch the user's day file
         ParserChecks(); ScheduleChecks(); HistoryChecks(); TransportAndRosterChecks(); HeaderChecks(); EqualiserChecks();
+        ProChecks();
         Console.WriteLine(_checks + " checks passed (offline; no app startup or user settings writes).");
         return 0;
       } catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -212,7 +213,7 @@ namespace NowPlaying {
           var players = new List<string>();
           for (int i = 0; i < 5; i++) {
             string id = side == 0 && i == 0 ? Identity : "player" + side + i;
-            players.Add("{\"puuid\":\"" + id + "\",\"gameName\":\"name" + side + i + "\"}");
+            players.Add("{\"puuid\":\"" + id + "\",\"gameName\":\"name" + side + i + "\",\"tagLine\":\"T" + side + i + "\"}");
           }
           sides[side] = "[" + string.Join(",", players.ToArray()) + "]";
         }
@@ -258,6 +259,15 @@ namespace NowPlaying {
         LeagueStats.LcuGet(client.Port, "test", "/lol-gameflow/v1/gameflow-phase");
         Call(typeof(LobbyRanks), "EnsureGameRoster", client.Port, "test", false);
         Equal(Get(typeof(LobbyRanks), "_gameId"), 11L, "next game invalidates roster");
+        // !pros sees the nine other players, sides known, Riot IDs whole.
+        var playersFrom = typeof(LobbyRanks).GetMethod("PlayersFrom", Flags);
+        var outs = new object[] { client.Port, "test", 0L, null, false, null };
+        Equal(playersFrom.Invoke(null, outs), true, "pro roster read: " + outs[5]);
+        var seated = (List<LobbyRanks.Player>)outs[3];
+        Equal(seated.Count, 9, "pro roster leaves the streamer out");
+        Equal(seated.FindAll(p => p.Ally).Count, 4, "pro roster allies");
+        Equal(seated[0].RiotId, "name01#T01", "pro roster Riot ID with tag");
+        Equal(outs[2], 11L, "pro roster game");
         Call(typeof(LeagueStats), "RefreshIdentity", client.Port, "test", false);
         Set(typeof(LeagueStats), "_newestGameId", 999L);
         client.Identity = "other";
@@ -306,6 +316,95 @@ namespace NowPlaying {
       foreach (int v in bands) if (v > top) top = v;
       Equal(top > 50, true, "a tone after recovery moves the bars");
       Array.Clear(ring, 0, ring.Length);
+    }
+
+    // !pros names a real person in front of the whole chat, so every rule
+    // that keeps a stranger from being called a pro has a fixture here:
+    // the tag is part of the account, a TTV tag only strips at a word
+    // boundary, only League streams count, a live channel two players could
+    // both be is nobody's, and an enemy's stream is not linked mid-game.
+    static LobbyRanks.Player Seat(bool ally, string puuid, string riotId) {
+      return new LobbyRanks.Player { Ally = ally, Puuid = puuid, RiotId = riotId };
+    }
+    static string Logins(string riotId) { return string.Join(",", ProWatch.TwitchLogins(riotId).ToArray()); }
+
+    static void ProChecks() {
+      Equal(ProWatch.Key("  Concrete Jungle # USA "), "concrete jungle#usa", "pro list key");
+      Equal(Logins("TTV Some Streamer#NA1"), "ttvsomestreamer,ttv_some_streamer,somestreamer,some_streamer", "TTV tag as a word");
+      Equal(Logins("SomeStreamerTTV#NA1"), "somestreamerttv,somestreamer", "trailing TTV tag");
+      Equal(Logins("ttvSome#NA1"), "ttvsome,some", "TTV tag at a case boundary");
+      Equal(Logins("ttvalentine#NA1"), "ttvalentine", "ttv inside a word is not a tag");
+      Equal(Logins("Dark  Slayer#NA1"), "darkslayer,dark_slayer", "double space");
+      Equal(Logins("Bob#NA1"), "", "too short for a Twitch login");
+      Equal(Logins("하이용#1015"), "", "no Twitch spelling for Hangul");
+
+      var live = ProWatch.LiveInLeague("{\"data\":["
+        + "{\"user_login\":\"somestreamer\",\"user_name\":\"SomeStreamer\",\"game_id\":\"21779\",\"type\":\"live\"},"
+        + "{\"user_login\":\"viper\",\"user_name\":\"Viper\",\"game_id\":\"21779\",\"type\":\"live\"},"
+        + "{\"user_login\":\"darkslayer\",\"user_name\":\"DarkSlayer\",\"game_id\":\"21779\",\"type\":\"live\"},"
+        + "{\"user_login\":\"jazzhands\",\"user_name\":\"JazzHands\",\"game_id\":\"509658\",\"type\":\"live\"}]}");
+      Equal(live.Count, 3, "only League streams count");
+
+      var list = ProWatch.ParseList("{\"pros\":["
+        + "{\"name\":\"Canyon\",\"team\":\"Gen.G\",\"role\":\"Jungle\",\"accounts\":[\"Concrete jungle#USA\",\"NoTag\"]},"
+        + "{\"name\":\"V1per\",\"team\":\"\",\"role\":\"Top\",\"twitch\":\"Viper\",\"accounts\":[\"never type#1998\"]}]}");
+      Equal(list.Count, 2, "an account without a tag is skipped");
+
+      var seen = new Dictionary<string, ProWatch.Pro>();
+      seen["a3"] = new ProWatch.Pro { Name = "Zven", Team = "Cloud9", Role = "ADC" };
+      var players = new List<LobbyRanks.Player> {
+        Seat(true,  "a1", "CONCRETE JUNGLE#usa"),       // the list, whatever the case
+        Seat(false, "e1", "Concrete jungle#NA1"),       // same name, other tag: a stranger
+        Seat(false, "e2", "TTV Some Streamer#NA1"),     // live in League under that name
+        Seat(false, "e4", "never type#1998"),           // listed, and their own channel is live
+        Seat(true,  "a3", "renamed#NEW"),               // met before under another name
+        Seat(false, "e5", "Dark Slayer#NA1"),           // two players who could both be
+        Seat(false, "e6", "DarkSlayer#EUW"),            //   darkslayer: neither is
+        Seat(false, "e7", "viper#NA1"),                 // spells a known pro's channel: not theirs
+        new LobbyRanks.Player { Ally = true, Puuid = "00000000-0000-0000-0000-000000000000", Hidden = true }
+      };
+      Equal(string.Join(",", ProWatch.Candidates(players, list, seen).ToArray()),
+            "concretejungle,concrete_jungle,ttvsomestreamer,ttv_some_streamer,somestreamer,some_streamer,viper,darkslayer,dark_slayer",
+            "Twitch logins asked about");
+      var learned = new Dictionary<string, ProWatch.Pro>();
+      var finds = ProWatch.Resolve(players, list, seen, live, learned);
+      Equal(ProWatch.Line(finds, 8, 1, false, false),
+            "Pros/streamers in this game: Us - Canyon (Gen.G Jungle), Zven (Cloud9 ADC)"
+            + " | Them - SomeStreamer (live on Twitch), V1per (Top, live on Twitch) (1 player hidden)",
+            "!pros mid-game: enemy streams named, not linked");
+      Equal(ProWatch.Line(finds, 8, 1, true, false),
+            "Pros/streamers in this game: Us - Canyon (Gen.G Jungle), Zven (Cloud9 ADC)"
+            + " | Them - SomeStreamer (live on Twitch) twitch.tv/somestreamer, V1per (Top, live on Twitch) twitch.tv/viper"
+            + " (1 player hidden)", "!pros after the game: links");
+      var keys = new List<string>(learned.Keys); keys.Sort(StringComparer.Ordinal);
+      Equal(string.Join(",", keys.ToArray()), "a1,a3,e2,e4", "memory learns list matches, Twitch finds, renames");
+      Equal(learned["e2"].From + " " + learned["e2"].Twitch, "twitch somestreamer", "Twitch find remembered");
+      Equal(learned["a3"].RiotId, "renamed#NEW", "rename refreshes the name on file");
+
+      seen = new Dictionary<string, ProWatch.Pro>(learned);
+      var offline = ProWatch.Resolve(new List<LobbyRanks.Player> { Seat(true, "e2", "Brand New Name#NA1") },
+                                     new Dictionary<string, ProWatch.Pro>(), seen,
+                                     new Dictionary<string, string>(), new Dictionary<string, ProWatch.Pro>());
+      Equal(ProWatch.Line(offline, 1, 0, false, false), "Pros/streamers in this game: Us - SomeStreamer (streamer)",
+            "a remembered streamer, renamed and offline");
+      Equal(ProWatch.Line(new List<ProWatch.Find>(), 9, 0, false, false),
+            "No pros or streamers spotted - 9 players checked.", "!pros with nobody found");
+      Equal(ProWatch.Line(new List<ProWatch.Find>(), 8, 1, true, true),
+            "Last game - no pros or streamers spotted - 8 players checked, 1 player hidden.", "!pros between games");
+
+      // The list the build embeds parses, every account carries its tag, and
+      // no account is claimed by two people.
+      using (var s = typeof(ProWatch).Assembly.GetManifestResourceStream("pros.json")) {
+        if (s == null) throw new Exception("pros.json is not embedded in the build");
+        string json = new System.IO.StreamReader(s, Encoding.UTF8).ReadToEnd();
+        var embedded = ProWatch.ParseList(json);
+        Equal(embedded.Count > 100, true, "embedded pro list has accounts (" + embedded.Count + ")");
+        var root = (Dictionary<string, object>)Json(json);
+        int accounts = 0;
+        foreach (Dictionary<string, object> row in (object[])root["pros"])
+          accounts += ((object[])row["accounts"]).Length;
+        Equal(embedded.Count, accounts, "every listed account is tagged and listed once");
+      }
     }
 
     static void HeaderChecks() {

@@ -30,7 +30,7 @@ namespace NowPlaying {
       public string Name = "";          // without the "!"
       public string Aliases = "";       // comma separated, without "!"
       public string Response = "";      // text commands only
-      public string Builtin = "";       // song|uptime|followage|shoutout|commands|record|rank|ranks, else text
+      public string Builtin = "";       // song|uptime|followage|shoutout|commands|record|rank|ranks|pros|..., else text
       public bool Enabled = true;
       public int Cooldown = 10;         // seconds, per command
       public bool ModOnly;
@@ -81,6 +81,9 @@ namespace NowPlaying {
         new Cmd { Name = "wr",        Builtin = "winrate",   Aliases = "winrate", Cooldown = 15 },
         // op.gg's live-game page for whoever is signed into the client.
         new Cmd { Name = "livegame",  Builtin = "livegame",  Aliases = "ingame", Cooldown = 15 },
+        // Which pros and streamers are in the current game (see ProWatch).
+        // Same cooldown as !ranks: one long line that moves once a game.
+        new Cmd { Name = "pros",      Builtin = "pros",      Aliases = "pro,streamer,streamers", Cooldown = 30 },
         // Restarts this app from chat, so the person who looks after the
         // install can bring a stuck overlay back from another PC. Triggered
         // by BackPhrase, not by typing its name; a minute's cooldown so it
@@ -170,7 +173,7 @@ namespace NowPlaying {
     }
 
     // Defaults that arrived after the first release - see Load.
-    static readonly string[] LaterDefaults = { "wr", "restartoverlay", "livegame" };
+    static readonly string[] LaterDefaults = { "wr", "restartoverlay", "livegame", "pros" };
 
     // The one Twitch login the owner-only bits below answer to (lowercase).
     const string OwnerUser = "smelvintime";
@@ -357,6 +360,7 @@ namespace NowPlaying {
         case "ghosts":    text = GhostWatch.CommandLine(); break;
         case "winrate":   text = WinrateLine(); break;
         case "livegame":  text = LeagueStats.LiveGameLine(); break;
+        case "pros":      text = ProWatch.CommandLine(); break;
         case "restart":
           // No reply on the way down; the new copy says it once it is back in
           // chat (TwitchChat, on login).
