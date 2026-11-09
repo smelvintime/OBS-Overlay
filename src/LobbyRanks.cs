@@ -98,6 +98,8 @@ namespace NowPlaying {
       lock (_lock) {
         _rankTag.Clear();
         _nameOf.Clear();
+        _riotIdOf.Clear();
+        _sideSure = false;
         _draftLine = ""; _gameLine = ""; _gameId = 0; _myPuuid = "";
         _gameFull = false; _gameTries = 0; _rankAttempted = _namesFull = false;
         _enemyNames = null;
@@ -134,6 +136,34 @@ namespace NowPlaying {
       if (n.Length == 0) n = TwitchEvents.SNavPublic(root, "displayName").Trim();
       if (n.Length > 0) lock (_lock) _nameOf[puuid] = n;
       return n;
+    }
+
+    // The full Riot ID, "gameName#tagLine", for ProWatch. The tag matters
+    // there the way it does not for GhostWatch: a pro list is a list of
+    // accounts, and "Faker" without a tag is anyone who typed Faker. Read
+    // from the seat when it carries both halves, else asked of the client
+    // once per player per game. With no tag to be had, the bare name comes
+    // back - not enough for the list, still enough for the Twitch check.
+    static readonly Dictionary<string, string> _riotIdOf = new Dictionary<string, string>();
+
+    static string RiotIdFor(int port, string pw, object p) {
+      string gn = TwitchEvents.SNavPublic(p, "gameName").Trim();
+      string tag = TwitchEvents.SNavPublic(p, "tagLine").Trim();
+      if (gn.Length > 0 && tag.Length > 0) return gn + "#" + tag;
+      string puuid = TwitchEvents.SNavPublic(p, "puuid");
+      lock (_lock) { string have; if (_riotIdOf.TryGetValue(puuid, out have)) return have; }
+      string sj = LeagueStats.LcuGet(port, pw, "/lol-summoner/v2/summoners/puuid/" + puuid);
+      if (sj != null) {
+        object root = TwitchEvents.NavPublic(sj);
+        string g = TwitchEvents.SNavPublic(root, "gameName").Trim();
+        string t = TwitchEvents.SNavPublic(root, "tagLine").Trim();
+        if (g.Length > 0 && t.Length > 0) {
+          lock (_lock) _riotIdOf[puuid] = g + "#" + t;
+          return g + "#" + t;
+        }
+        if (gn.Length == 0) gn = g;
+      }
+      return gn.Length > 0 ? gn : TwitchEvents.SNavPublic(p, "summonerName").Trim();
     }
 
     // Returns "" only when the client could not be asked at all; an account
@@ -345,6 +375,9 @@ namespace NowPlaying {
     // was captured from a payload that also said which side the streamer is
     // on - see the sideSure note below.
     static string[] _enemyNames;
+    // The streamer's puuid was found on one of the two teams, so Us and Them
+    // are facts rather than the teamOne default. ProWatch only answers then.
+    static bool _sideSure;
     static long _rosterGeneration = -1;
     static DateTime _rosterAt = DateTime.MinValue;
     static bool _rankAttempted, _namesFull;
@@ -403,9 +436,9 @@ namespace NowPlaying {
         // next one.
         _rosterAt = DateTime.UtcNow;
         if (gid != _gameId) {
-          _gameTries = 0; _gameFull = false; _enemyNames = null;
+          _gameTries = 0; _gameFull = false; _enemyNames = null; _sideSure = false;
           _gameLine = ""; _rankAttempted = _namesFull = false;
-          _rankTag.Clear(); _nameOf.Clear(); _myPuuid = "";
+          _rankTag.Clear(); _nameOf.Clear(); _riotIdOf.Clear(); _myPuuid = "";
         }
         if (gid == _gameId && (_gameFull && _namesFull || _gameTries >= RosterTries)) {
           if (ranks && !_rankAttempted) BuildRankLines(port, pw);
@@ -500,6 +533,7 @@ namespace NowPlaying {
         _rankAttempted = false;
         _namesFull = ghostNames != null && ghostNames.Length == enemies.Count && enemies.Count > 0;
         if (ghostNames != null) _enemyNames = ghostNames;
+        _sideSure = ghostNames != null;
         // The draft that fed this game is consumed by it: the in-game line
         // supersedes it, and left alive it could surface later as if it
         // described a champ select that is long over.
@@ -593,6 +627,58 @@ namespace NowPlaying {
         }
         return true;
       } catch { why = "no-client"; return false; }
+    }
+
+    // ------------------------------------------------------------ pro roster
+    // Everyone in the game but the streamer, for ProWatch: which side they
+    // are on, their full Riot ID, and whether the client hid who they are.
+    // Same fresh-phase discipline as the two readers above, and the same
+    // rule as GhostWatch about sides - nothing until the streamer's own
+    // puuid has been found on a team, because "Them" said about the
+    // streamer's own team is a confidently wrong answer.
+    //
+    // why: no-client, no-phase, champ-select, not-in-game or not-ready.
+    // over is the post-game tail, where enemy stream links are fair game.
+    internal class Player { public string Puuid = "", RiotId = ""; public bool Ally, Hidden; }
+
+    internal static bool PlayersNow(out long gameId, out List<Player> players, out bool over, out string why) {
+      gameId = 0; players = null; over = false; why = "";
+      try {
+        int port; string pw;
+        if (!LeagueStats.FindLockfile(out port, out pw)) { why = "no-client"; return false; }
+        return PlayersFrom(port, pw, out gameId, out players, out over, out why);
+      } catch { why = "no-client"; return false; }
+    }
+
+    // Everything after the lockfile, so the offline checks can run it against
+    // their stand-in client.
+    static bool PlayersFrom(int port, string pw, out long gameId, out List<Player> players,
+                            out bool over, out string why) {
+      gameId = 0; players = null; over = false; why = "";
+      string ph = LeagueStats.LcuGet(port, pw, "/lol-gameflow/v1/gameflow-phase");
+      if (ph == null) { why = "no-phase"; return false; }
+      _phase = ph.Trim().Trim('"');
+      if (_phase == "ChampSelect") { why = "champ-select"; return false; }
+      if (!InGame()) { why = "not-in-game"; return false; }
+      over = LeagueStats.PostGame(_phase);
+      EnsureGameRoster(port, pw, false);
+      List<object> allies, enemies; string me; bool sure;
+      lock (_lock) {
+        allies = _allies; enemies = _enemies; me = _myPuuid; sure = _sideSure; gameId = _gameId;
+      }
+      if (!sure || allies == null || enemies == null) { why = "not-ready"; return false; }
+      players = new List<Player>();
+      foreach (var side in new[] { allies, enemies }) {
+        foreach (var p in side) {
+          string puuid = TwitchEvents.SNavPublic(p, "puuid");
+          if (puuid == me) continue;
+          var pl = new Player { Puuid = puuid, Ally = side == allies, Hidden = IsAnonymous(puuid) };
+          if (!pl.Hidden) pl.RiotId = RiotIdFor(port, pw, p);
+          players.Add(pl);
+        }
+      }
+      if (players.Count == 0) { why = "not-ready"; return false; }
+      return true;
     }
 
     // ------------------------------------------------------------------ test

@@ -396,6 +396,11 @@ In chat:
   *https://op.gg/lol/summoners/na/twtvAlexsZed-Zed/ingame*. The Riot ID comes
   from the client, so a name change or a different account is picked up by
   itself. Out of a game, op.gg's page says so. NA only for now.
+- **`!pros`** (also `!pro`, `!streamer`, `!streamers`) names the pros and
+  streamers in the current game: *"Pros/streamers in this game: Us - Zven
+  (Cloud9 ADC) | Them - Canyon (Gen.G Jungle), SomeStreamer (live on
+  Twitch)"*. How it knows, and what it will not guess at, is in
+  [Pros in your game](#pros-in-your-game-pros) below.
 - **"how back are we?"** restarts the app from chat — for looking after an
   install from another PC. It answers **one Twitch account only** (set in
   `src/BotCommands.cs`); from anyone else, mods and the broadcaster included,
@@ -511,6 +516,62 @@ connection), and a match gets called out:
   therefore to this — no tool sees a lurker on an incognito tab.
 - The **bot speaks the call-out**, so the bot has to be on; with the bot off,
   ghost watch still looks and the findings show on the bot tab only.
+
+### Pros in your game: `!pros`
+
+`!pros` checks the nine other players in your game and names the ones it
+knows. It knows people three ways, tried in this order:
+
+1. **The pro list**, `data/pros.json` in this repo, built into the app. Each
+   pro with the Riot IDs (name **and** #tag) they are known to play on,
+   seeded from [Tracking The Pros](https://www.trackingthepros.com/): every
+   NA player's active NA accounts, plus the accounts Riot gave the teams at
+   the Worlds 2026 bootcamp. Edit it like any other file in the repo - add
+   an account to someone's list, or a new person - and installs pick it up
+   with their next automatic update.
+2. **Players met before.** Whenever someone is recognised, their account's
+   permanent ID is remembered in `%APPDATA%\NowPlayingOverlay\pros-seen.json`.
+   Riot IDs change; that ID never does, so a pro found once is still found
+   after a rename, and a streamer found once is still known on a day they
+   are not live (*"SomeStreamer (streamer)"*).
+3. **Twitch.** For everyone still unknown, the player's name is turned into
+   the Twitch channels it could be (`TTV Some Streamer` → `somestreamer`,
+   `some_streamer`), and Twitch is asked once which of those are **live in
+   League right now**. A channel with exactly that name, live in League at
+   the same minute that player is in a League game, is that player. Listed
+   pros with a known channel are checked the same way and marked *live on
+   Twitch*.
+
+The rules lean the same way ghost watch's do, because this names real
+people in a public chat:
+
+- **Exact matches only.** A list account needs its #tag: `Concrete
+  jungle#USA` is a pro, `Concrete jungle#NA1` is a stranger. A Twitch
+  channel has to be the player's name exactly, short names never count, and
+  a `TTV`/`twitch` tag is only dropped when it is its own word (`TTV Name`,
+  `NameTTV`), so `ttvalentine` is not a tag on `alentine`.
+- **No guessing between two people.** If two players' names could both be
+  the same live channel, neither is named. A channel that already belongs
+  to a listed pro in the game is never handed to someone else.
+- **Enemy streams are named, not linked, until the game ends.** A link
+  mid-game is an invitation to watch the other team's screen. Your own
+  team's live streams are linked, and after the game everyone's are.
+- **In-game only.** Ranked hides the enemy team for the whole draft, so in
+  champ select `!pros` says it will answer once the game loads. Between
+  games it answers for the last match, labelled as past.
+- **Hidden players stay hidden.** Anyone using Riot's anonymity option shows
+  up as a count (*"1 player hidden"*), never a guess.
+- **Twitch is optional.** Without the main Twitch connection the list and
+  the memory still work; only the live check is skipped. It needs no extra
+  Twitch permission.
+- NA only for now, like `!livegame`.
+
+What it can't know: a pro on an account nobody has listed who isn't
+streaming, or a streamer whose Riot name looks nothing like their channel.
+Add them to the list once and the memory keeps them from then on. And a
+player who copies a famous streamer's name exactly, in a game while that
+streamer is live in League, would be taken for them; that is the one
+mistake the Twitch check can make.
 
 On screen — the **session tracker** (`/session`), its own OBS Browser Source,
 dressed from the **League tracker** tab in the customizer:
